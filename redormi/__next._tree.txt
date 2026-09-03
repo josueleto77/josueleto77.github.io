@@ -1,0 +1,4 @@
+:HL["/redormi/_next/static/chunks/0gb3zq1rmssva.css","style"]
+:HL["/redormi/_next/static/media/a343f882a40d2cc9-s.p.1sj6eobyi31rd.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
+:HL["https://picsum.photos/seed/redormi-hero/1800/900","image"]
+0:{"tree":{"name":"","param":null,"prefetchHints":4180,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":4256,"slots":null}}},"staleTime":300,"buildId":"fVuuDu-Rc2z9V-oHgIJxd"}
