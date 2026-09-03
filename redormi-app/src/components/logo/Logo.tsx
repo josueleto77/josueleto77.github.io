@@ -30,21 +30,21 @@ export default function Logo({ className = "", variant = "dark", withTagline = f
         >
           redormi
         </text>
-        {/* smile arc riding inside the "o" (approx. position after "red") */}
+        {/* smile arc nested inside the "o" bowl (measured against the rendered glyph) */}
         <path
-          d="M50 20a6 6 0 0 0 8.6 1.8"
+          d="M44.5 19.5 Q50.25 24.5 56 19.5"
           stroke="#E97858"
-          strokeWidth="2.4"
+          strokeWidth="2.8"
           strokeLinecap="round"
           fill="none"
         />
-        {/* coral period */}
-        <circle cx="131" cy="27" r="3.4" fill="#E97858" />
+        {/* coral period, raised to sit level with the smile */}
+        <circle cx="131" cy="14" r="4.3" fill="#E97858" />
       </svg>
       {withTagline && (
         <span
           className="mt-0.5 text-[11px] font-semibold tracking-wide"
-          style={{ color: variant === "dark" ? "#7f9078" : "#A8B5A2" }}
+          style={{ color: variant === "dark" ? "#c24b2e" : "#e97858" }}
         >
           Stay. Rest. Redormi.
         </span>
