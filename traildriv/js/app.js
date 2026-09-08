@@ -14,6 +14,10 @@ const OVERPASS_ENDPOINTS = [
 const NOMINATIM_ENDPOINT = 'https://nominatim.openstreetmap.org/search';
 const NEARBY_FACT_RADIUS = 400; // meters, used for restrooms/picnic/sports lookups around a place
 
+const GOOGLE_API_KEY = (window.TRAILDRIV_CONFIG && window.TRAILDRIV_CONFIG.googleMapsApiKey) || '';
+const WIKIMEDIA_COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
+const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
+
 const CATEGORIES = {
   playground: {
     label: 'Playgrounds', icon: '🛝', color: '#f39c12',
@@ -428,14 +432,21 @@ async function openDetail(place) {
   el.detailDrawer.hidden = false;
   el.detailDrawer.setAttribute('aria-hidden', 'false');
 
-  renderDetailBase(place, null);
+  let nearby = null;
+  let media = null;
+  const isStillOpen = () => state.activeId === place.id;
 
-  try {
-    const nearby = await fetchNearbyFacts(place.lat, place.lon);
-    renderDetailBase(place, nearby);
-  } catch (e) {
-    renderDetailBase(place, 'error');
-  }
+  renderDetailBase(place, nearby, media);
+
+  fetchNearbyFacts(place.lat, place.lon)
+    .then(r => { nearby = r; })
+    .catch(() => { nearby = 'error'; })
+    .then(() => { if (isStillOpen()) renderDetailBase(place, nearby, media); });
+
+  fetchPlaceMedia(place)
+    .then(r => { media = r; })
+    .catch(() => { media = 'error'; })
+    .then(() => { if (isStillOpen()) renderDetailBase(place, nearby, media); });
 }
 
 function closeDetail() {
@@ -485,7 +496,7 @@ async function fetchNearbyFacts(lat, lon) {
   return { toilets, picnic, sports: [...sports], swimming, beach, drinkingWater, shade };
 }
 
-function renderDetailBase(place, nearby) {
+function renderDetailBase(place, nearby, media) {
   const t = place.tags;
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lon}`;
   const mapsUrl = `https://www.openstreetmap.org/${place.id}`;
@@ -499,6 +510,7 @@ function renderDetailBase(place, nearby) {
       <h2 class="detail-title">${escapeHtml(place.name)}</h2>
       <p class="detail-sub">${formatDistance(place.distance)} away${t['addr:street'] ? ' · ' + escapeHtml(addressLine(t)) : ''}</p>
     </div>
+    ${renderPhotosSection(place, media)}
     <div class="detail-actions">
       <a class="primary" href="${directionsUrl}" target="_blank" rel="noopener">↗ Directions</a>
       <a href="${mapsUrl}" target="_blank" rel="noopener">View on map</a>
@@ -508,6 +520,8 @@ function renderDetailBase(place, nearby) {
     <div class="fact-grid" id="factGrid"></div>
     ${nearby === null ? `<div class="loader"><span class="spinner"></span> Checking nearby amenities…</div>` : ''}
     ${nearby === 'error' ? `<p class="detail-note">Could not load extra amenity info for this spot right now.</p>` : ''}
+    <div class="detail-section-title">Reviews</div>
+    ${renderReviewsSection(media)}
     <p class="detail-note">Details are sourced from OpenStreetMap community data. Some fields may be missing or out of date — please verify on site, especially fees and hours.</p>
   `;
 
@@ -516,8 +530,223 @@ function renderDetailBase(place, nearby) {
 
   document.getElementById('favBtnDetail').addEventListener('click', () => {
     toggleFavorite(place.id);
-    renderDetailBase(place, nearby);
+    renderDetailBase(place, nearby, media);
   });
+}
+
+/* ---------------------------------------------------------------------
+   Photos & reviews (Google Places, with free Wikimedia Commons fallback
+   for photos when OpenStreetMap links the place to Wikidata/Commons)
+   --------------------------------------------------------------------- */
+let googleMapsPromise = null;
+let placesService = null;
+
+function ensureGoogleMaps() {
+  if (!GOOGLE_API_KEY) return Promise.resolve(false);
+  if (window.google && window.google.maps && window.google.maps.places) return Promise.resolve(true);
+  if (googleMapsPromise) return googleMapsPromise;
+  googleMapsPromise = new Promise(resolve => {
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_API_KEY)}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+  return googleMapsPromise;
+}
+
+function getPlacesService() {
+  if (!placesService) placesService = new google.maps.places.PlacesService(document.createElement('div'));
+  return placesService;
+}
+
+function findGooglePlaceId(place) {
+  return new Promise(resolve => {
+    const service = getPlacesService();
+    service.findPlaceFromQuery({
+      query: place.name,
+      fields: ['place_id'],
+      locationBias: new google.maps.Circle({ center: { lat: place.lat, lng: place.lon }, radius: 300 })
+    }, (results, status) => {
+      if (status === google.maps.places.PlacesServiceStatus.OK && results && results[0]) resolve(results[0].place_id);
+      else resolve(null);
+    });
+  });
+}
+
+function getGooglePlaceDetails(placeId) {
+  return new Promise(resolve => {
+    const service = getPlacesService();
+    service.getDetails({
+      placeId,
+      fields: ['rating', 'user_ratings_total', 'reviews', 'photos', 'url']
+    }, (result, status) => {
+      if (status === google.maps.places.PlacesServiceStatus.OK && result) resolve(result);
+      else resolve(null);
+    });
+  });
+}
+
+async function fetchGoogleEnrichment(place) {
+  if (!GOOGLE_API_KEY) return { enabled: false, found: false };
+
+  const cacheKey = `traildriv_google_${place.id}`;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch (e) { /* storage unavailable, ignore */ }
+
+  const ready = await ensureGoogleMaps();
+  if (!ready || !window.google || !window.google.maps || !window.google.maps.places) {
+    return { enabled: true, found: false };
+  }
+
+  const placeId = await findGooglePlaceId(place);
+  if (!placeId) {
+    const result = { enabled: true, found: false };
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch (e) { /* ignore */ }
+    return result;
+  }
+
+  const details = await getGooglePlaceDetails(placeId);
+  if (!details) return { enabled: true, found: false };
+
+  const photos = (details.photos || []).slice(0, 6).map(p => {
+    try { return { url: p.getUrl({ maxWidth: 640 }) }; }
+    catch (e) { return null; }
+  }).filter(Boolean);
+
+  const reviews = (details.reviews || []).slice(0, 5).map(r => ({
+    author: r.author_name,
+    authorPhoto: r.profile_photo_url,
+    authorUrl: r.author_url,
+    rating: r.rating,
+    time: r.relative_time_description,
+    text: r.text
+  }));
+
+  const result = {
+    enabled: true,
+    found: true,
+    rating: details.rating || null,
+    totalRatings: details.user_ratings_total || 0,
+    reviews,
+    photos,
+    mapsUrl: details.url || null
+  };
+  try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch (e) { /* ignore */ }
+  return result;
+}
+
+async function fetchWikimediaPhoto(tags) {
+  try {
+    let filename = null;
+    if (tags.wikimedia_commons) {
+      if (tags.wikimedia_commons.startsWith('File:')) {
+        filename = tags.wikimedia_commons.slice('File:'.length);
+      } else if (tags.wikimedia_commons.startsWith('Category:')) {
+        filename = await firstFileInCommonsCategory(tags.wikimedia_commons);
+      }
+    }
+    if (!filename && tags.wikidata) {
+      filename = await wikidataImageFilename(tags.wikidata);
+    }
+    return filename ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(filename)}?width=640` : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function firstFileInCommonsCategory(category) {
+  const url = `${WIKIMEDIA_COMMONS_API}?action=query&list=categorymembers&cmtitle=${encodeURIComponent(category)}&cmtype=file&cmlimit=1&format=json&origin=*`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const member = data && data.query && data.query.categorymembers && data.query.categorymembers[0];
+  return member ? member.title.replace(/^File:/, '') : null;
+}
+
+async function wikidataImageFilename(qid) {
+  const url = `${WIKIDATA_API}?action=wbgetclaims&entity=${encodeURIComponent(qid)}&property=P18&format=json&origin=*`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const claims = data && data.claims && data.claims.P18;
+  const value = claims && claims[0] && claims[0].mainsnak && claims[0].mainsnak.datavalue && claims[0].mainsnak.datavalue.value;
+  return value || null;
+}
+
+async function fetchPlaceMedia(place) {
+  const [google, wikiPhotoUrl] = await Promise.all([
+    fetchGoogleEnrichment(place).catch(() => ({ enabled: !!GOOGLE_API_KEY, found: false })),
+    (place.tags.wikimedia_commons || place.tags.wikidata)
+      ? fetchWikimediaPhoto(place.tags).catch(() => null)
+      : Promise.resolve(null)
+  ]);
+
+  const photos = [];
+  if (google.found && google.photos) photos.push(...google.photos);
+  if (wikiPhotoUrl) photos.push({ url: wikiPhotoUrl, source: 'wikimedia' });
+
+  return {
+    photos,
+    googleEnabled: google.enabled,
+    googleFound: google.found,
+    rating: google.found ? google.rating : null,
+    totalRatings: google.found ? google.totalRatings : 0,
+    reviews: google.found ? google.reviews : [],
+    mapsUrl: google.found ? google.mapsUrl : null
+  };
+}
+
+function renderStars(rating) {
+  if (rating == null) return '';
+  const full = Math.max(0, Math.min(5, Math.round(rating)));
+  return '★'.repeat(full) + '☆'.repeat(5 - full);
+}
+
+function renderPhotosSection(place, media) {
+  if (media === null) return `<div class="photo-strip-loading"><span class="spinner"></span> Loading photos…</div>`;
+  if (media === 'error' || !media.photos || !media.photos.length) return '';
+  return `<div class="photo-strip">${media.photos.map(p =>
+    `<a href="${p.url}" target="_blank" rel="noopener"><img src="${p.url}" alt="${escapeHtml(place.name)}" loading="lazy" class="photo-thumb"></a>`
+  ).join('')}</div>`;
+}
+
+function renderReviewsSection(media) {
+  if (!GOOGLE_API_KEY) {
+    return `<p class="detail-note">Add a Google Places API key in <code>js/config.js</code> to show Google ratings and reviews here.</p>`;
+  }
+  if (media === null) return `<div class="loader"><span class="spinner"></span> Loading Google reviews…</div>`;
+  if (media === 'error') return `<p class="detail-note">Could not load Google reviews right now.</p>`;
+  if (!media.googleFound) return `<p class="detail-note">No matching Google listing was found for this place.</p>`;
+  if (!media.rating && !media.reviews.length) return `<p class="detail-note">This place has no Google reviews yet.</p>`;
+
+  return `
+    <div class="google-rating-row">
+      <span class="google-stars">${renderStars(media.rating)}</span>
+      <span class="google-rating-num">${media.rating != null ? media.rating.toFixed(1) : '—'}</span>
+      <span class="google-rating-count">(${media.totalRatings} review${media.totalRatings === 1 ? '' : 's'})</span>
+      ${media.mapsUrl ? `<a href="${media.mapsUrl}" target="_blank" rel="noopener" class="google-link">View on Google →</a>` : ''}
+    </div>
+    <div class="review-list">
+      ${media.reviews.map(r => `
+        <div class="review-card">
+          <div class="review-head">
+            ${r.authorPhoto
+              ? `<img class="review-avatar" src="${r.authorPhoto}" alt="">`
+              : `<div class="review-avatar review-avatar-fallback">${escapeHtml((r.author || '?').charAt(0))}</div>`}
+            <div>
+              <div class="review-author">${escapeHtml(r.author || 'Google user')}</div>
+              <div class="review-meta">${renderStars(r.rating)} · ${escapeHtml(r.time || '')}</div>
+            </div>
+          </div>
+          <p class="review-text">${escapeHtml(r.text || '')}</p>
+        </div>
+      `).join('')}
+    </div>
+    <p class="google-attribution">Reviews and ratings via Google</p>
+  `;
 }
 
 function buildFactEl(fact) {
