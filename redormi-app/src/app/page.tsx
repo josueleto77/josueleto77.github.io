@@ -1,6 +1,7 @@
 import Link from "next/link";
 import SearchBar from "@/components/search/SearchBar";
 import TrustBar from "@/components/layout/TrustBar";
+import CategoryRow from "@/components/layout/CategoryRow";
 import Carousel from "@/components/ui/Carousel";
 import ListingCard from "@/components/listing/ListingCard";
 import DealCard from "@/components/listing/DealCard";
@@ -14,30 +15,38 @@ export default function Home() {
 
   return (
     <div>
-      <section className="relative overflow-hidden bg-navy">
-        <div className="absolute inset-0 opacity-25">
+      <section className="relative">
+        <div className="relative h-[56vh] min-h-[380px] w-full overflow-hidden sm:h-[62vh] sm:max-h-[600px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="https://picsum.photos/seed/redormi-hero/1800/900"
             alt=""
             className="h-full w-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-navy via-navy/70 to-navy/30" />
-        </div>
-        <div className="relative mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-28">
-          <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-sage">Stay. Rest. Redormi.</p>
-          <h1 className="max-w-2xl text-4xl font-extrabold text-cream sm:text-5xl lg:text-6xl">
-            Rent the classic way, or swap homes and pay nothing for the stay.
-          </h1>
-          <p className="mt-4 max-w-xl text-base text-cream/70 sm:text-lg">
-            Redormi is a full accommodation marketplace — plus Redormi Switch, reciprocal home exchanges
-            between verified owners. No rent, just a home for a home.
-          </p>
-          <div className="mt-8 max-w-4xl">
-            <SearchBar variant="hero" />
+          <div className="absolute inset-0 bg-gradient-to-t from-navy/80 via-navy/25 to-navy/10" />
+          <div className="absolute inset-0 flex items-center">
+            <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
+              <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white">
+                Stay. Rest. Redormi.
+              </p>
+              <h1 className="max-w-2xl text-4xl font-extrabold text-white sm:text-5xl lg:text-6xl">
+                Rent the classic way, or swap homes and pay nothing for the stay.
+              </h1>
+              <p className="mt-4 max-w-xl text-base text-white/85 sm:text-lg">
+                Redormi is a full accommodation marketplace — plus Redormi Switch, reciprocal home exchanges
+                between verified owners. No rent, just a home for a home.
+              </p>
+            </div>
           </div>
         </div>
+
+        {/* search card floats over the seam between the hero photo and the page */}
+        <div className="relative z-10 mx-auto -mt-8 max-w-5xl px-4 sm:-mt-10 sm:px-6">
+          <SearchBar variant="hero" />
+        </div>
       </section>
+
+      <CategoryRow />
 
       <TrustBar />
 
