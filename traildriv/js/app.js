@@ -18,26 +18,30 @@ const GOOGLE_API_KEY = (window.TRAILDRIV_CONFIG && window.TRAILDRIV_CONFIG.googl
 const WIKIMEDIA_COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
 
+// Every subquery below requires a "name" tag. This is deliberate: it cuts
+// the amount of data Overpass has to return (the #1 cause of slow loads),
+// and it means every result the app shows has an actual name instead of a
+// generic "Unnamed X" placeholder.
 const CATEGORIES = {
   playground: {
     label: 'Playgrounds', icon: '🛝', color: '#f39c12',
     query: (r, lat, lon) => `
-      node["leisure"="playground"](around:${r},${lat},${lon});
-      way["leisure"="playground"](around:${r},${lat},${lon});`
+      node["leisure"="playground"]["name"](around:${r},${lat},${lon});
+      way["leisure"="playground"]["name"](around:${r},${lat},${lon});`
   },
   hiking: {
     label: 'Hiking Trails', icon: '🥾', color: '#8e44ad',
     query: (r, lat, lon) => `
-      node["information"="trailhead"](around:${r},${lat},${lon});
+      node["information"="trailhead"]["name"](around:${r},${lat},${lon});
       way["highway"="path"]["name"](around:${r},${lat},${lon});
-      way["route"="hiking"](around:${r},${lat},${lon});
+      way["route"="hiking"]["name"](around:${r},${lat},${lon});
       relation["route"="hiking"]["name"](around:${r},${lat},${lon});`
   },
   fishing: {
     label: 'Fishing Spots', icon: '🎣', color: '#2980b9',
     query: (r, lat, lon) => `
-      node["leisure"="fishing"](around:${r},${lat},${lon});
-      way["leisure"="fishing"](around:${r},${lat},${lon});`
+      node["leisure"="fishing"]["name"](around:${r},${lat},${lon});
+      way["leisure"="fishing"]["name"](around:${r},${lat},${lon});`
   },
   biking: {
     label: 'Bike Trails', icon: '🚴', color: '#16a085',
@@ -56,19 +60,19 @@ const CATEGORIES = {
   restaurants: {
     label: 'Restaurants', icon: '🍽️', color: '#e74c3c',
     query: (r, lat, lon) => `
-      node["amenity"="restaurant"](around:${r},${lat},${lon});`
+      node["amenity"="restaurant"]["name"](around:${r},${lat},${lon});`
   },
   dancing: {
     label: 'Dance Clubs', icon: '💃', color: '#d35400',
     query: (r, lat, lon) => `
-      node["amenity"="nightclub"](around:${r},${lat},${lon});`
+      node["amenity"="nightclub"]["name"](around:${r},${lat},${lon});`
   },
   massage: {
     label: 'Massage & Spa', icon: '💆', color: '#27ae60',
     query: (r, lat, lon) => `
-      node["shop"="massage"](around:${r},${lat},${lon});
-      node["amenity"="spa"](around:${r},${lat},${lon});
-      node["leisure"="spa"](around:${r},${lat},${lon});`
+      node["shop"="massage"]["name"](around:${r},${lat},${lon});
+      node["amenity"="spa"]["name"](around:${r},${lat},${lon});
+      node["leisure"="spa"]["name"](around:${r},${lat},${lon});`
   }
 };
 
@@ -256,52 +260,67 @@ async function fetchPlaces() {
   setStatus('Searching nearby places…', 'info');
   renderSkeletons();
 
+  // One combined request for every selected category, instead of one
+  // request per category: the public Overpass server throttles concurrent
+  // queries per client, so firing several at once mostly queued them
+  // serially anyway — a single larger query is faster in practice and
+  // easier on the shared server.
   const categories = [...state.activeCategories];
-  const results = await Promise.allSettled(categories.map(async key => {
-    const cat = CATEGORIES[key];
-    const body = `[out:json][timeout:25];(${cat.query(r, lat, lon)});out center tags;`;
-    const data = await runOverpassQuery(body);
-    return { key, elements: data.elements || [] };
-  }));
+  const combinedQuery = categories.map(key => CATEGORIES[key].query(r, lat, lon)).join('\n');
+  const body = `[out:json][timeout:40];(${combinedQuery});out center tags;`;
+
+  let data = null;
+  let failed = false;
+  try {
+    data = await runOverpassQuery(body, 35000);
+  } catch (err) {
+    failed = true;
+  }
 
   const places = [];
-  let anyFailed = false;
   const seen = new Set();
 
-  results.forEach((res, i) => {
-    const key = categories[i];
-    if (res.status !== 'fulfilled') { anyFailed = true; return; }
-    res.value.elements.forEach(elm => {
-      const coords = elementCoords(elm);
-      if (!coords || !elm.tags) return;
-      const dedupeKey = `${elm.type}/${elm.id}`;
-      if (seen.has(dedupeKey)) return;
-      seen.add(dedupeKey);
-      const dist = haversine(lat, lon, coords.lat, coords.lon);
-      places.push({
-        id: dedupeKey,
-        catKey: key,
-        cat: CATEGORIES[key],
-        name: placeName(elm.tags, CATEGORIES[key].label),
-        tags: elm.tags,
-        lat: coords.lat,
-        lon: coords.lon,
-        distance: dist
-      });
+  (data && data.elements ? data.elements : []).forEach(elm => {
+    const coords = elementCoords(elm);
+    if (!coords || !elm.tags || !elm.tags.name) return;
+    const catKey = categorizeElement(elm.tags);
+    if (!catKey || !state.activeCategories.has(catKey)) return;
+    const dedupeKey = `${elm.type}/${elm.id}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    const dist = haversine(lat, lon, coords.lat, coords.lon);
+    places.push({
+      id: dedupeKey,
+      catKey,
+      cat: CATEGORIES[catKey],
+      name: placeName(elm.tags, CATEGORIES[catKey].label),
+      tags: elm.tags,
+      lat: coords.lat,
+      lon: coords.lon,
+      distance: dist
     });
   });
 
   state.places = places;
-  if (anyFailed && places.length === 0) {
-    setStatus('Could not reach the map data service right now. Please try again in a moment.', 'error');
-  } else if (anyFailed) {
-    setStatus('Some categories could not be loaded — showing what we found so far.', 'info');
-  } else {
-    setStatus('');
-  }
+  setStatus(failed ? 'Could not reach the map data service right now. Please try again in a moment.' : '', failed ? 'error' : undefined);
 
   renderResults();
   renderMapMarkers();
+}
+
+// Mirrors the tag combinations used in CATEGORIES' queries above (kept in
+// sync with them) to attribute a combined query's results back to the
+// category each element actually matches.
+function categorizeElement(tags) {
+  if (tags.leisure === 'playground') return 'playground';
+  if (tags.information === 'trailhead' || tags.highway === 'path' || tags.route === 'hiking') return 'hiking';
+  if (tags.leisure === 'fishing') return 'fishing';
+  if (tags.route === 'mtb' || tags.highway === 'cycleway' || tags.route === 'bicycle') return 'biking';
+  if (tags.natural === 'water') return 'lakes';
+  if (tags.amenity === 'restaurant') return 'restaurants';
+  if (tags.amenity === 'nightclub') return 'dancing';
+  if (tags.shop === 'massage' || tags.amenity === 'spa' || tags.leisure === 'spa') return 'massage';
+  return null;
 }
 
 /* ---------------------------------------------------------------------
