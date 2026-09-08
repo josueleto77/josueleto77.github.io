@@ -342,6 +342,60 @@ input,select{font-family:inherit;}
   margin-top:16px;line-height:1.5;
   background:#f7f8fa;border-radius:10px;padding:10px 12px;
 }
+.detail-note code{
+  background:#eceff3;border-radius:4px;padding:1px 5px;font-size:11px;
+}
+
+/* ===== Photos ===== */
+.photo-strip{
+  display:flex;gap:8px;overflow-x:auto;margin-bottom:18px;
+  scroll-snap-type:x proximity;
+}
+.photo-strip a{flex:0 0 auto;scroll-snap-align:start;}
+.photo-thumb{
+  height:120px;width:160px;object-fit:cover;
+  border-radius:10px;border:1px solid var(--border);
+  display:block;background:var(--bg);
+}
+.photo-strip-loading{
+  display:flex;align-items:center;gap:8px;
+  font-size:12px;color:var(--text-muted);
+  padding:14px 0;margin-bottom:6px;
+}
+
+/* ===== Reviews ===== */
+.google-rating-row{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  margin-bottom:14px;
+}
+.google-stars{color:#f4b400;font-size:15px;letter-spacing:1px;}
+.google-rating-num{font-weight:700;font-size:15px;}
+.google-rating-count{font-size:12px;color:var(--text-muted);}
+.google-link{margin-left:auto;font-size:12px;font-weight:600;}
+.review-list{display:flex;flex-direction:column;gap:12px;}
+.review-card{
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:10px;padding:12px;
+}
+.review-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.review-avatar{
+  width:32px;height:32px;border-radius:50%;object-fit:cover;flex:0 0 auto;
+}
+.review-avatar-fallback{
+  display:flex;align-items:center;justify-content:center;
+  background:var(--navy);color:#fff;font-size:13px;font-weight:700;
+}
+.review-author{font-size:13px;font-weight:600;color:var(--text);}
+.review-meta{font-size:11px;color:#f4b400;}
+.review-meta{display:flex;gap:6px;align-items:center;}
+.review-text{
+  font-size:13px;line-height:1.5;color:var(--text);
+  margin:0;
+}
+.google-attribution{
+  font-size:11px;color:var(--text-muted);
+  margin-top:10px;text-align:right;
+}
 
 .loader{
   display:flex;align-items:center;justify-content:center;
