@@ -280,21 +280,28 @@ input,select{font-family:inherit;}
 .marker-pin.user{background:#182333;}
 .leaflet-div-icon{background:transparent;border:none;}
 
-/* ===== Detail drawer ===== */
+/* ===== Detail drawer =====
+   Desktop: a real flex column next to the map, so opening it shrinks the
+   map instead of covering it — the selected place's info always stays
+   fully visible. Mobile: a full-screen sheet over a dimmed backdrop
+   (there's no room for a 3-column layout on small screens). */
 .detail-overlay{
-  position:fixed;inset:0;background:rgba(24,35,51,.45);z-index:40;
+  display:none; /* enabled only on mobile, see media query below */
 }
 .detail-drawer{
-  position:fixed;top:0;right:0;bottom:0;
-  width:420px;max-width:92vw;
+  position:relative;
+  flex:0 1 380px;
+  width:380px;
+  min-width:300px;
+  max-width:44vw;
   background:#fff;
-  z-index:41;
+  border-left:1px solid var(--border);
   box-shadow:var(--shadow-lg);
   overflow-y:auto;
   padding:24px 22px 40px;
   animation:slideIn .2s ease-out;
 }
-@keyframes slideIn{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes slideIn{from{transform:translateX(16px);opacity:0}to{transform:translateX(0);opacity:1}}
 .detail-close{
   position:absolute;top:16px;right:16px;
   width:32px;height:32px;border-radius:50%;
@@ -418,6 +425,13 @@ input,select{font-family:inherit;}
   .app-main{flex-direction:column;}
   .results-pane{width:100%;border-right:none;border-bottom:1px solid var(--border);}
   .map-pane{height:60vh;}
-  .detail-drawer{width:100%;max-width:100%;}
+  .detail-overlay:not([hidden]){
+    display:block;position:fixed;inset:0;background:rgba(24,35,51,.45);z-index:40;
+  }
+  .detail-drawer{
+    position:fixed;inset:0;
+    flex:none;width:100%;max-width:100%;min-width:0;
+    border-left:none;z-index:41;
+  }
   .fact-grid{grid-template-columns:1fr;}
 }

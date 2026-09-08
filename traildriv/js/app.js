@@ -78,7 +78,7 @@ const CATEGORIES = {
 const state = {
   userLocation: null,        // {lat, lon, label}
   radius: 8000,
-  activeCategories: new Set(Object.keys(CATEGORIES)),
+  activeCategories: new Set(), // empty until the visitor picks categories
   places: [],                 // all fetched places
   favorites: loadFavorites(),
   showFavoritesOnly: false,
@@ -249,6 +249,7 @@ el.catAllBtn.addEventListener('click', () => {
    --------------------------------------------------------------------- */
 async function fetchPlaces() {
   if (!state.userLocation) return;
+  if (state.activeCategories.size === 0) { renderCategoryPrompt(); return; }
   const { lat, lon } = state.userLocation;
   const r = state.radius;
 
@@ -306,6 +307,17 @@ async function fetchPlaces() {
 /* ---------------------------------------------------------------------
    Rendering: results list
    --------------------------------------------------------------------- */
+function renderCategoryPrompt() {
+  el.resultsCount.textContent = 'Choose a category above';
+  el.resultsList.innerHTML = `
+    <div class="empty-state">
+      <h3>What are you looking for?</h3>
+      <p>Pick one or more categories above — playgrounds, hiking trails, restaurants and more — to see what's nearby.</p>
+    </div>
+  `;
+  renderMapMarkers();
+}
+
 function renderSkeletons() {
   el.resultsList.innerHTML = '';
   el.resultsCount.textContent = 'Loading…';
@@ -326,6 +338,11 @@ function getFilteredSortedPlaces() {
 }
 
 function renderResults() {
+  if (state.activeCategories.size === 0) {
+    renderCategoryPrompt();
+    return;
+  }
+
   const list = getFilteredSortedPlaces();
   el.resultsCount.textContent = list.length
     ? `${list.length} place${list.length === 1 ? '' : 's'} found`
@@ -426,11 +443,18 @@ function focusPlaceOnMap(place) {
 async function openDetail(place) {
   state.activeId = place.id;
   document.querySelectorAll('.place-card').forEach(c => c.classList.toggle('active', c.dataset.id === place.id));
-  focusPlaceOnMap(place);
 
   el.detailOverlay.hidden = false;
   el.detailDrawer.hidden = false;
   el.detailDrawer.setAttribute('aria-hidden', 'false');
+
+  // The drawer taking up layout space resizes the map container (desktop)
+  // or covers it (mobile) — either way Leaflet needs to recompute its size
+  // before we pan, so the selected place lands in the still-visible area.
+  requestAnimationFrame(() => {
+    map.invalidateSize();
+    focusPlaceOnMap(place);
+  });
 
   let nearby = null;
   let media = null;
@@ -453,6 +477,9 @@ function closeDetail() {
   el.detailOverlay.hidden = true;
   el.detailDrawer.hidden = true;
   el.detailDrawer.setAttribute('aria-hidden', 'true');
+  state.activeId = null;
+  document.querySelectorAll('.place-card.active').forEach(c => c.classList.remove('active'));
+  requestAnimationFrame(() => map.invalidateSize());
 }
 el.detailClose.addEventListener('click', closeDetail);
 el.detailOverlay.addEventListener('click', closeDetail);
@@ -887,6 +914,7 @@ function setUserLocation(lat, lon, label) {
   radiusCircle = L.circle([lat, lon], { radius: state.radius, color: '#2ecc71', weight: 1, fillOpacity: 0.05 }).addTo(map);
 
   map.setView([lat, lon], zoomForRadius(state.radius));
+  setStatus('');
   fetchPlaces();
 }
 
