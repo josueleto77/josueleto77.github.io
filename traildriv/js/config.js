@@ -13,5 +13,5 @@
 //    A referrer-restricted browser key is safe to commit/publish.
 // 4. Paste the key below.
 window.TRAILDRIV_CONFIG = {
-  googleMapsApiKey: ''
+  googleMapsApiKey: 'AIzaSyAW4H6uO21teND6oTQus7OEz3mTIOKEO8k'
 };
