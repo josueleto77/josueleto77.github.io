@@ -8,6 +8,7 @@ import Badge from "@/components/ui/Badge";
 import StarRating from "@/components/ui/StarRating";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatMoney } from "@/lib/utils/format";
+import { listingHref } from "@/lib/utils/listingHref";
 import { dealForListing } from "@/lib/data/deals";
 
 export default function ListingCard({ listing, showOffers = true }: { listing: Listing; showOffers?: boolean }) {
@@ -20,7 +21,7 @@ export default function ListingCard({ listing, showOffers = true }: { listing: L
   return (
     <div className="group flex flex-col gap-2.5">
       <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-navy/5">
-        <Link href={`/listing/${listing.id}`} className="block h-full w-full">
+        <Link href={listingHref(listing.id)} className="block h-full w-full">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={listing.photos[photoIdx]?.url}
@@ -73,7 +74,7 @@ export default function ListingCard({ listing, showOffers = true }: { listing: L
         )}
       </div>
 
-      <Link href={`/listing/${listing.id}`} className="flex flex-col gap-0.5">
+      <Link href={listingHref(listing.id)} className="flex flex-col gap-0.5">
         <div className="flex items-start justify-between gap-2">
           <h3 className="line-clamp-1 text-sm font-bold text-navy">{listing.title}</h3>
           <StarRating rating={listing.ratingAvg} showValue />

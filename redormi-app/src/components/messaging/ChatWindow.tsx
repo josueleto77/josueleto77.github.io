@@ -11,6 +11,7 @@ import { useAppData } from "@/lib/store/AppDataContext";
 import { QUICK_REPLIES } from "@/lib/data/messages";
 import { formatDate, formatMoney, isoToday } from "@/lib/utils/format";
 import { priceBreakdown, OFFER_DISCOUNT_STEP, OFFER_MAX_DISCOUNT, OFFER_MIN_DISCOUNT } from "@/lib/utils/pricing";
+import { listingHref } from "@/lib/utils/listingHref";
 
 export default function ChatWindow({ threadId }: { threadId: string }) {
   const { state, currentUser, sendMessage, markThreadRead, createOffer } = useAppData();
@@ -98,7 +99,7 @@ export default function ChatWindow({ threadId }: { threadId: string }) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-navy">{other.name}</p>
           {listing && (
-            <Link href={`/listing/${listing.id}`} className="truncate text-xs text-ink/50 hover:text-coral">
+            <Link href={listingHref(listing.id)} className="truncate text-xs text-ink/50 hover:text-coral">
               {listing.title}
             </Link>
           )}

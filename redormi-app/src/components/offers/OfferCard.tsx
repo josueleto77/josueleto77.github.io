@@ -10,6 +10,7 @@ import Icon from "@/components/ui/icons";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDateShort, formatMoney } from "@/lib/utils/format";
 import { useCountdownText } from "@/lib/utils/useClientOnly";
+import { listingHref } from "@/lib/utils/listingHref";
 import { OFFER_MAX_DISCOUNT, OFFER_MIN_DISCOUNT } from "@/lib/utils/pricing";
 
 const STATUS_TONE: Record<Offer["status"], "coral" | "sage" | "navy" | "cream"> = {
@@ -36,7 +37,7 @@ export default function OfferCard({ offer, viewAs }: { offer: Offer; viewAs: "gu
     <div className="flex flex-col gap-3 rounded-2xl border border-navy/10 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <Link href={`/listing/${listing.id}`} className="text-sm font-bold text-navy hover:text-coral">
+          <Link href={listingHref(listing.id)} className="text-sm font-bold text-navy hover:text-coral">
             {listing.title}
           </Link>
           <p className="text-xs text-ink/60">

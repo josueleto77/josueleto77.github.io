@@ -8,6 +8,7 @@ import StarRating from "@/components/ui/StarRating";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { computeSwitchTier, TIER_ORDER } from "@/lib/utils/tier";
 import { formatDateShort } from "@/lib/utils/format";
+import { listingHref } from "@/lib/utils/listingHref";
 
 const STEPS: { title: string; body: string; icon: IconName }[] = [
   { title: "Enable Switch", body: "Turn on Switch for your listing and share your travel dates and destination wishlist.", icon: "sparkles" },
@@ -100,7 +101,7 @@ export default function SwitchLandingClient() {
                       {score.label} tier · {score.composite.toFixed(1)}/5
                     </p>
                   </div>
-                  <Link href={`/listing/${l.id}`} className="text-xs font-bold text-coral hover:underline">
+                  <Link href={listingHref(l.id)} className="text-xs font-bold text-coral hover:underline">
                     View
                   </Link>
                 </div>

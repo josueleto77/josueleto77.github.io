@@ -4,6 +4,7 @@ import type { Listing } from "@/lib/types";
 import Link from "next/link";
 import { projectListings } from "@/lib/utils/mapProjection";
 import { formatMoney } from "@/lib/utils/format";
+import { listingHref } from "@/lib/utils/listingHref";
 
 export default function MapPanel({
   listings,
@@ -45,7 +46,7 @@ export default function MapPanel({
           return (
             <Link
               key={listing.id}
-              href={`/listing/${listing.id}`}
+              href={listingHref(listing.id)}
               onMouseEnter={() => onHover?.(listing.id)}
               onMouseLeave={() => onHover?.(null)}
               style={{ left: `${x}%`, top: `${y}%` }}
