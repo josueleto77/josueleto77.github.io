@@ -104,19 +104,29 @@ export default function SignupWizard() {
     setStep((s) => Math.min(STEPS.length - 1, s + 1));
   }
 
-  function finish() {
-    const user = signup({
+  async function finish() {
+    const result = await signup(form.email, form.password, {
       name: form.name,
-      email: form.email,
       phone: form.phone,
       dateOfBirth: form.dob,
       address: form.address,
       avatar: avatarFor(form.avatarSeed),
       roles: form.roles,
-      city: undefined,
     });
+    if (!result.ok) {
+      toast?.push({ tone: "error", text: result.error ?? "Something went wrong creating your account." });
+      return;
+    }
+    if (result.needsEmailConfirmation) {
+      toast?.push({
+        tone: "info",
+        text: `Almost there — check ${form.email} for a confirmation link before logging in.`,
+      });
+      router.push("/login");
+      return;
+    }
     acceptAgreement("terms-of-service", "1.0");
-    toast?.push({ tone: "success", text: `Welcome to Redormi, ${user.name.split(" ")[0]}!` });
+    toast?.push({ tone: "success", text: `Welcome to Redormi, ${form.name.split(" ")[0]}!` });
     router.push(form.roles.includes("host") ? "/dashboard/host" : "/dashboard/guest");
   }
 

@@ -12,6 +12,7 @@ import OfferCard from "@/components/offers/OfferCard";
 import ExtraServiceCard from "@/components/services/ExtraServiceCard";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDateShort, formatMoney } from "@/lib/utils/format";
+import { listingHref } from "@/lib/utils/listingHref";
 
 const STATUS_TONE: Record<string, "coral" | "sage" | "navy" | "cream"> = {
   held: "coral",
@@ -73,7 +74,7 @@ export default function GuestDashboardClient() {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={listing.photos[0]?.url} alt={listing.title} className="h-20 w-24 rounded-xl object-cover" />
                       <div className="flex-1">
-                        <Link href={`/listing/${listing.id}`} className="text-sm font-bold text-navy hover:text-coral">
+                        <Link href={listingHref(listing.id)} className="text-sm font-bold text-navy hover:text-coral">
                           {listing.title}
                         </Link>
                         <p className="text-xs text-ink/60">

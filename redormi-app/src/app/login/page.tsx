@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/logo/Logo";
@@ -9,43 +9,73 @@ import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/icons";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { useToast } from "@/lib/store/ToastContext";
+import { sendPasswordReset, updatePassword } from "@/lib/supabase/auth";
 import { DEMO_USER_ID } from "@/lib/data/users";
+
+type Step = "credentials" | "reset-password" | "reset-email" | "set-new-password";
 
 export default function LoginPage() {
   const router = useRouter();
   const toast = useToast();
-  const { login, state } = useAppData();
-  const [email, setEmail] = useState("jordan@redormi.demo");
+  const { login, loginDemo, state } = useAppData();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [step, setStep] = useState<"credentials" | "2fa" | "reset-password" | "reset-email">("credentials");
-  const [code, setCode] = useState("");
+  const [step, setStep] = useState<Step>("credentials");
+  const [submitting, setSubmitting] = useState(false);
   const [recoveryPhone, setRecoveryPhone] = useState("");
   const [recoverySent, setRecoverySent] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   const demoUser = state.users.find((u) => u.id === DEMO_USER_ID);
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-    if (user?.twoFactorEnabled) {
-      setStep("2fa");
-      return;
+  useEffect(() => {
+    // A password-reset email link lands back here with a recovery token in
+    // the URL hash — Supabase's client auto-exchanges it into a session
+    // (detectSessionInUrl: true), so all that's left is to prompt for a
+    // new password rather than showing the normal log-in form.
+    if (typeof window !== "undefined" && window.location.hash.includes("type=recovery")) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time URL-driven branch, not derivable from props/state.
+      setStep("set-new-password");
     }
-    if (login(email)) router.push("/dashboard/guest");
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    const result = await login(email, password);
+    setSubmitting(false);
+    if (result.ok) router.push("/dashboard/guest");
   }
 
-  function confirm2fa(e: React.FormEvent) {
-    e.preventDefault();
-    if (code.length !== 6) {
-      toast?.push({ tone: "error", text: "Enter the 6-digit code from your authenticator app." });
-      return;
-    }
-    if (login(email)) router.push("/dashboard/guest");
+  async function requestPasswordReset() {
+    setSubmitting(true);
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    await sendPasswordReset(email, redirectTo);
+    setSubmitting(false);
+    setStep("reset-password");
   }
 
-  function oauth(provider: "Google" | "Apple") {
-    toast?.push({ tone: "info", text: `${provider} sign-in is simulated in this demo — logging in as ${demoUser?.name}.` });
-    login(email || demoUser?.email || "");
+  async function confirmNewPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      toast?.push({ tone: "error", text: "Password must be at least 6 characters." });
+      return;
+    }
+    setSubmitting(true);
+    const { error } = await updatePassword(newPassword);
+    setSubmitting(false);
+    if (error) {
+      toast?.push({ tone: "error", text: error });
+      return;
+    }
+    toast?.push({ tone: "success", text: "Password updated — you're logged in." });
+    router.push("/dashboard/guest");
+  }
+
+  function tryDemo() {
+    if (!demoUser) return;
+    loginDemo(demoUser.id);
+    toast?.push({ tone: "info", text: `Browsing as ${demoUser.name} (demo account, not a real login).` });
     router.push("/dashboard/guest");
   }
 
@@ -55,12 +85,28 @@ export default function LoginPage() {
         <Logo />
       </Link>
       <div className="w-full rounded-2xl border border-navy/10 bg-white p-7 shadow-sm">
-        {step === "reset-password" ? (
+        {step === "set-new-password" ? (
+          <form onSubmit={confirmNewPassword} className="flex flex-col gap-4">
+            <h1 className="text-xl font-extrabold text-navy">Set a new password</h1>
+            <p className="text-sm text-ink/60">Choose a new password for your account.</p>
+            <Input
+              label="New password"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              hint="At least 6 characters."
+              required
+            />
+            <Button type="submit" fullWidth size="lg" disabled={submitting}>
+              {submitting ? "Saving…" : "Save password"}
+            </Button>
+          </form>
+        ) : step === "reset-password" ? (
           <div className="flex flex-col gap-4 text-center">
             <Icon name="mail" className="mx-auto h-8 w-8 text-coral" />
             <h1 className="text-xl font-extrabold text-navy">Check your email</h1>
             <p className="text-sm text-ink/60">
-              If an account exists for <strong>{email}</strong>, we&apos;ve sent a simulated password reset link.
+              If an account exists for <strong>{email}</strong>, we&apos;ve sent a password reset link.
             </p>
             <Button variant="ghost" onClick={() => setStep("credentials")}>
               Back to log in
@@ -109,52 +155,42 @@ export default function LoginPage() {
               </>
             )}
           </div>
-        ) : step === "2fa" ? (
-          <form onSubmit={confirm2fa} className="flex flex-col gap-4">
-            <h1 className="text-xl font-extrabold text-navy">Two-factor verification</h1>
-            <p className="text-sm text-ink/60">Enter the 6-digit code from your authenticator app. (Demo: any 6 digits work.)</p>
-            <Input
-              label="Verification code"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              inputMode="numeric"
-              placeholder="000000"
-              required
-            />
-            <Button type="submit" fullWidth>
-              Verify & log in
-            </Button>
-          </form>
         ) : (
           <>
             <h1 className="text-xl font-extrabold text-navy">Log in</h1>
-            <p className="mb-5 mt-1 text-sm text-ink/60">
-              Demo tip: use <button type="button" onClick={() => setEmail(demoUser?.email ?? "")} className="font-semibold text-coral underline">{demoUser?.email}</button> to explore a fully populated account.
-            </p>
-            <div className="mb-5 flex flex-col gap-2">
-              <Button variant="outline" fullWidth onClick={() => oauth("Google")} icon={<Icon name="external-link" className="h-4 w-4" />}>
-                Continue with Google
-              </Button>
-              <Button variant="outline" fullWidth onClick={() => oauth("Apple")} icon={<Icon name="external-link" className="h-4 w-4" />}>
-                Continue with Apple
-              </Button>
-            </div>
-            <div className="mb-5 flex items-center gap-3 text-xs text-ink/40">
-              <span className="h-px flex-1 bg-navy/10" /> or <span className="h-px flex-1 bg-navy/10" />
-            </div>
+            {demoUser && (
+              <p className="mb-5 mt-1 text-sm text-ink/60">
+                Just want to look around?{" "}
+                <button type="button" onClick={tryDemo} className="font-semibold text-coral underline">
+                  Browse the demo account
+                </button>{" "}
+                — no sign-up needed.
+              </p>
+            )}
             <form onSubmit={submit} className="flex flex-col gap-4">
               <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Any password works in this demo" />
+              <Input
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
               <div className="flex items-center justify-end gap-3">
                 <button type="button" onClick={() => setStep("reset-email")} className="text-xs font-semibold text-coral hover:underline">
                   Forgot email?
                 </button>
-                <button type="button" onClick={() => setStep("reset-password")} className="text-xs font-semibold text-coral hover:underline">
+                <button
+                  type="button"
+                  onClick={requestPasswordReset}
+                  disabled={!email || submitting}
+                  className="text-xs font-semibold text-coral hover:underline disabled:opacity-50"
+                >
                   Forgot password?
                 </button>
               </div>
-              <Button type="submit" fullWidth size="lg">
-                Log in
+              <Button type="submit" fullWidth size="lg" disabled={submitting}>
+                {submitting ? "Logging in…" : "Log in"}
               </Button>
             </form>
             <p className="mt-5 text-center text-sm text-ink/60">

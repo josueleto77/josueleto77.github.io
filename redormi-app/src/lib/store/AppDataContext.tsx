@@ -16,7 +16,7 @@ import type {
   SwapProposal,
   User,
 } from "@/lib/types";
-import { users as seedUsers, DEMO_USER_ID } from "@/lib/data/users";
+import { users as seedUsers } from "@/lib/data/users";
 import { listings as seedListings } from "@/lib/data/listings";
 import { offers as seedOffers } from "@/lib/data/offers";
 import { threads as seedThreads, messages as seedMessages } from "@/lib/data/messages";
@@ -28,6 +28,9 @@ import { notifications as seedNotifications, savedListingIds } from "@/lib/data/
 import { makeId } from "@/lib/utils/ids";
 import { OFFER_EXPIRY_HOURS } from "@/lib/utils/pricing";
 import { useToast } from "@/lib/store/ToastContext";
+import { supabase } from "@/lib/supabase/client";
+import { signInWithEmail, signUpWithEmail, signOutSupabase, fetchProfile, upsertProfile } from "@/lib/supabase/auth";
+import { fetchPublishedListings } from "@/lib/supabase/listings";
 
 interface AppState {
   currentUserId: string | null;
@@ -51,7 +54,10 @@ const STORAGE_KEY = "redormi_state_v1";
 
 function initialState(): AppState {
   return {
-    currentUserId: DEMO_USER_ID,
+    // Logged out by default now that real accounts exist — visitors opt
+    // into the demo account explicitly (see loginDemo) rather than being
+    // silently signed in as "Jordan Ellis" on their first visit.
+    currentUserId: null,
     users: seedUsers,
     listings: seedListings,
     offers: seedOffers,
@@ -85,9 +91,14 @@ interface AppDataApi {
   state: AppState;
   currentUser: User | undefined;
   isLoggedIn: boolean;
-  login: (email: string) => boolean;
-  logout: () => void;
-  signup: (partial: Partial<User> & { name: string; email: string }) => User;
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  loginDemo: (userId: string) => void;
+  logout: () => Promise<void>;
+  signup: (
+    email: string,
+    password: string,
+    profile: Partial<User> & { name: string }
+  ) => Promise<{ ok: boolean; needsEmailConfirmation?: boolean; error?: string }>;
   updateUser: (userId: string, patch: Partial<User>) => void;
   acceptAgreement: (documentSlug: string, version: string) => void;
   hasAccepted: (documentSlug: string, version: string) => boolean;
@@ -146,42 +157,126 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state]);
 
+  // Real backend sync: restore a real Supabase session (if any) and pull in
+  // real, host-created listings alongside the seed/demo ones. Runs once
+  // after the localStorage hydration above, and again on auth changes so a
+  // real sign-in/out (including via the password-reset flow) stays in sync.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncSession() {
+      const { data } = await supabase.auth.getSession();
+      const userId = data.session?.user.id;
+      if (!userId) return;
+      const profile = await fetchProfile(userId);
+      if (cancelled || !profile) return;
+      setState((s) => ({
+        ...s,
+        users: s.users.some((u) => u.id === profile.id)
+          ? s.users.map((u) => (u.id === profile.id ? profile : u))
+          : [...s.users, profile],
+        currentUserId: profile.id,
+      }));
+    }
+
+    async function syncListings() {
+      const realListings = await fetchPublishedListings();
+      if (cancelled || realListings.length === 0) return;
+      setState((s) => {
+        const seedIds = new Set(s.listings.map((l) => l.id));
+        const merged = [...realListings.filter((l) => !seedIds.has(l.id)), ...s.listings];
+        return { ...s, listings: merged };
+      });
+    }
+
+    syncSession();
+    syncListings();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setState((s) => ({ ...s, currentUserId: null }));
+      } else if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        syncSession();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
   const currentUser = useMemo(
     () => state.users.find((u) => u.id === state.currentUserId),
     [state.users, state.currentUserId]
   );
 
   const login = useCallback<AppDataApi["login"]>(
-    (email) => {
-      const user = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-      if (!user) {
-        toast?.push({ tone: "error", text: "We couldn't find an account with that email." });
-        return false;
+    async (email, password) => {
+      const { userId, error } = await signInWithEmail(email, password);
+      if (error || !userId) {
+        toast?.push({ tone: "error", text: error ?? "We couldn't log you in with those details." });
+        return { ok: false, error: error ?? undefined };
       }
-      setState((s) => ({ ...s, currentUserId: user.id }));
-      toast?.push({ tone: "success", text: `Welcome back, ${user.name.split(" ")[0]}!` });
-      return true;
+      const profile = await fetchProfile(userId);
+      if (profile) {
+        setState((s) => ({
+          ...s,
+          users: s.users.some((u) => u.id === profile.id)
+            ? s.users.map((u) => (u.id === profile.id ? profile : u))
+            : [...s.users, profile],
+          currentUserId: profile.id,
+        }));
+        toast?.push({ tone: "success", text: `Welcome back, ${profile.name.split(" ")[0]}!` });
+      } else {
+        setState((s) => ({ ...s, currentUserId: userId }));
+      }
+      return { ok: true };
     },
-    [state.users, toast]
+    [toast]
   );
 
-  const logout = useCallback(() => {
+  const loginDemo = useCallback<AppDataApi["loginDemo"]>((userId) => {
+    setState((s) => ({ ...s, currentUserId: userId }));
+  }, []);
+
+  const logout = useCallback(async () => {
+    await signOutSupabase();
     setState((s) => ({ ...s, currentUserId: null }));
   }, []);
 
-  const signup = useCallback<AppDataApi["signup"]>((partial) => {
-    const user: User = {
-      id: makeId("usr"),
-      roles: partial.roles ?? ["traveler"],
-      isHost: partial.roles?.includes("host") ?? false,
-      isSwitchMember: partial.roles?.includes("switch_member") ?? false,
-      avatar: partial.avatar ?? "https://i.pravatar.cc/150?img=68",
-      verification: { identity: "unverified", email: false, phone: false },
-      memberSince: new Date().toISOString().slice(0, 10),
-      ...partial,
+  const signup = useCallback<AppDataApi["signup"]>(async (email, password, profile) => {
+    const { userId, error } = await signUpWithEmail(email, password);
+    if (error || !userId) {
+      return { ok: false, error: error ?? "Something went wrong creating your account." };
+    }
+    const roles = profile.roles ?? ["traveler"];
+    const patch = {
+      name: profile.name,
+      phone: profile.phone,
+      date_of_birth: profile.dateOfBirth,
+      address: profile.address,
+      city: profile.city,
+      roles,
+      is_host: roles.includes("host"),
+      is_switch_member: roles.includes("switch_member"),
     };
-    setState((s) => ({ ...s, users: [...s.users, user], currentUserId: user.id }));
-    return user;
+    const updatedProfile = await upsertProfile(userId, patch);
+    // Supabase projects default to requiring email confirmation before a
+    // session exists — signUp() succeeds but there's no session yet. In
+    // that case the account is created but not yet logged in.
+    const { data: sessionData } = await supabase.auth.getSession();
+    const loggedIn = !!sessionData.session;
+    if (updatedProfile) {
+      setState((s) => ({
+        ...s,
+        users: s.users.some((u) => u.id === updatedProfile.id)
+          ? s.users.map((u) => (u.id === updatedProfile.id ? updatedProfile : u))
+          : [...s.users, updatedProfile],
+        currentUserId: loggedIn ? updatedProfile.id : s.currentUserId,
+      }));
+    }
+    return { ok: true, needsEmailConfirmation: !loggedIn };
   }, []);
 
   const updateUser = useCallback<AppDataApi["updateUser"]>((userId, patch) => {
@@ -415,7 +510,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createListing = useCallback<AppDataApi["createListing"]>((listing) => {
-    setState((s) => ({ ...s, listings: [...s.listings, listing] }));
+    setState((s) => ({
+      ...s,
+      listings: s.listings.some((l) => l.id === listing.id)
+        ? s.listings.map((l) => (l.id === listing.id ? listing : l))
+        : [...s.listings, listing],
+    }));
   }, []);
 
   const updateListing = useCallback<AppDataApi["updateListing"]>((listingId, patch) => {
@@ -461,6 +561,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     currentUser,
     isLoggedIn: !!currentUser,
     login,
+    loginDemo,
     logout,
     signup,
     updateUser,

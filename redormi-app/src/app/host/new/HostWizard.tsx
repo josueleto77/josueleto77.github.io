@@ -16,6 +16,8 @@ import { PROPERTY_TYPE_LABEL } from "@/lib/utils/filters";
 import type { CancellationPolicy, Listing, Photo, PropertyType } from "@/lib/types";
 import { seededPhoto } from "@/lib/utils/ids";
 import { formatMoney, isoToday } from "@/lib/utils/format";
+import { supabase } from "@/lib/supabase/client";
+import { createListingInSupabase, uploadListingPhotos } from "@/lib/supabase/listings";
 
 const STEPS = [
   "Property type",
@@ -118,6 +120,10 @@ export default function HostWizard() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<WizardState>(defaultWizardState);
   const [photoDraftId, setPhotoDraftId] = useState(1);
+  // Real uploaded files, keyed by photo id — kept out of `form` since File
+  // objects can't be JSON-serialized into the localStorage draft.
+  const [photoFiles, setPhotoFiles] = useState<Record<string, File>>({});
+  const [publishing, setPublishing] = useState(false);
   const [loadedDraft, setLoadedDraft] = useState(false);
 
   useEffect(() => {
@@ -156,7 +162,7 @@ export default function HostWizard() {
     }));
   }
 
-  function addPhoto() {
+  function addSamplePhoto() {
     const id = `draft-${photoDraftId}`;
     setForm((f) => ({
       ...f,
@@ -166,6 +172,19 @@ export default function HostWizard() {
       ],
     }));
     setPhotoDraftId((n) => n + 1);
+  }
+
+  function addUploadedPhotos(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const id = `upload-${photoDraftId}-${file.name}`;
+      setPhotoFiles((p) => ({ ...p, [id]: file }));
+      setForm((f) => ({
+        ...f,
+        photos: [...f.photos, { id, url: URL.createObjectURL(file), alt: file.name, isCover: f.photos.length === 0 }],
+      }));
+      setPhotoDraftId((n) => n + 1);
+    });
   }
 
   function movePhoto(index: number, dir: -1 | 1) {
@@ -183,6 +202,14 @@ export default function HostWizard() {
   }
 
   function removePhoto(index: number) {
+    const removed = form.photos[index];
+    if (removed && photoFiles[removed.id]) {
+      setPhotoFiles((p) => {
+        const next = { ...p };
+        delete next[removed.id];
+        return next;
+      });
+    }
     setForm((f) => ({ ...f, photos: f.photos.filter((_, i) => i !== index) }));
   }
 
@@ -199,11 +226,77 @@ export default function HostWizard() {
     }
   }, [step, form]);
 
-  function publish() {
+  async function publish() {
     if (!currentUser) {
       router.push("/login");
       return;
     }
+
+    const pricing = {
+      baseNightly: form.baseNightly,
+      weekendNightly: Math.round(form.baseNightly * 1.15),
+      weeklyDiscountPct: form.weeklyDiscountPct,
+      monthlyDiscountPct: form.monthlyDiscountPct,
+      cleaningFee: form.cleaningFee,
+      extraGuestFee: form.extraGuestFee,
+      serviceFeePct: 12,
+      taxPct: 8,
+    };
+
+    setPublishing(true);
+    const { data: sessionData } = await supabase.auth.getSession();
+    const hostId = sessionData.session?.user.id;
+
+    if (hostId) {
+      // Real, signed-in host: upload any real photo files, then persist a
+      // real row in Supabase — this listing is visible to every visitor,
+      // not just this browser.
+      const filesToUpload = form.photos.filter((p) => photoFiles[p.id]).map((p) => photoFiles[p.id]);
+      const uploaded = filesToUpload.length ? await uploadListingPhotos(filesToUpload, hostId) : [];
+      let uploadIndex = 0;
+      const photos = form.photos.map((p) =>
+        photoFiles[p.id] ? uploaded[uploadIndex++] ?? { url: p.url, alt: p.alt } : { url: p.url, alt: p.alt }
+      );
+
+      const created = await createListingInSupabase(
+        {
+          title: form.title,
+          description: form.description,
+          propertyType: form.propertyType,
+          city: form.city,
+          region: form.region,
+          country: form.country,
+          guests: form.guests,
+          bedrooms: form.bedrooms,
+          beds: form.beds,
+          baths: form.baths,
+          amenities: form.amenityIds,
+          photos,
+          pricing,
+          houseRules: form.houseRules,
+          cancellationPolicy: form.cancellationPolicy,
+          instantBook: false,
+          acceptsOffers: form.acceptsOffers,
+          minNights: form.minNights,
+          maxNights: form.maxNights,
+          switchEnabled: form.switchEnabled,
+        },
+        hostId
+      );
+      setPublishing(false);
+      if (!created) {
+        return;
+      }
+      createListing(created);
+      form.services.forEach((s) => createExtraService({ ...s, listingId: created.id }));
+      window.localStorage.removeItem(DRAFT_KEY);
+      router.push("/dashboard/host");
+      return;
+    }
+
+    // No real session (e.g. browsing the demo account) — fall back to the
+    // local-only demo listing, exactly as before.
+    setPublishing(false);
     const id = `lst_new_${Date.now()}`;
     const listing: Listing = {
       id,
@@ -225,16 +318,7 @@ export default function HostWizard() {
       yearRenovated: form.yearRenovated,
       amenities: form.amenityIds,
       photos: form.photos,
-      pricing: {
-        baseNightly: form.baseNightly,
-        weekendNightly: Math.round(form.baseNightly * 1.15),
-        weeklyDiscountPct: form.weeklyDiscountPct,
-        monthlyDiscountPct: form.monthlyDiscountPct,
-        cleaningFee: form.cleaningFee,
-        extraGuestFee: form.extraGuestFee,
-        serviceFeePct: 12,
-        taxPct: 8,
-      },
+      pricing,
       houseRules: form.houseRules,
       cancellationPolicy: form.cancellationPolicy,
       instantBook: false,
@@ -349,7 +433,10 @@ export default function HostWizard() {
 
         {step === 4 && (
           <StepBlock title="Add photos">
-            <p className="mb-3 text-sm text-ink/60">Add at least 3 photos. (Demo: photos are auto-generated placeholders.)</p>
+            <p className="mb-3 text-sm text-ink/60">
+              Add at least 3 real photos of your place — they&apos;ll upload when you publish. You can also drop in
+              a sample placeholder if you just want to try the wizard.
+            </p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {form.photos.map((p, i) => (
                 <div key={p.id} className="group relative overflow-hidden rounded-xl border border-navy/10">
@@ -372,14 +459,27 @@ export default function HostWizard() {
                   </div>
                 </div>
               ))}
-              <button
-                onClick={addPhoto}
-                className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-navy/20 text-navy/50 hover:border-coral hover:text-coral"
-              >
+              <label className="flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-navy/20 text-navy/50 hover:border-coral hover:text-coral">
                 <Icon name="upload" className="h-5 w-5" />
-                <span className="text-xs font-semibold">Add photo</span>
-              </button>
+                <span className="text-xs font-semibold">Upload photos</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    addUploadedPhotos(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
             </div>
+            <button
+              onClick={addSamplePhoto}
+              className="mt-3 text-xs font-semibold text-ink/50 hover:text-coral"
+            >
+              + Add a sample placeholder photo instead
+            </button>
           </StepBlock>
         )}
 
@@ -572,8 +672,8 @@ export default function HostWizard() {
             Back
           </Button>
           {step === STEPS.length - 1 ? (
-            <Button onClick={publish} size="lg">
-              Publish listing
+            <Button onClick={publish} size="lg" disabled={publishing}>
+              {publishing ? "Publishing…" : "Publish listing"}
             </Button>
           ) : (
             <Button onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))} disabled={!canContinue}>

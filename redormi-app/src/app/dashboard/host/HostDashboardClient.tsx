@@ -13,6 +13,7 @@ import ExtraServicesManager from "@/components/services/ExtraServicesManager";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { addDays, formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { computeSwitchTier } from "@/lib/utils/tier";
+import { listingHref } from "@/lib/utils/listingHref";
 
 const SWAP_STATUS_TONE: Record<string, "coral" | "sage" | "navy" | "cream"> = {
   proposed: "coral",
@@ -100,7 +101,7 @@ export default function HostDashboardClient() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={l.photos[0]?.url} alt={l.title} className="h-20 w-24 shrink-0 rounded-xl object-cover" />
                   <div className="min-w-0 flex-1">
-                    <Link href={`/listing/${l.id}`} className="text-sm font-bold text-navy hover:text-coral">
+                    <Link href={listingHref(l.id)} className="text-sm font-bold text-navy hover:text-coral">
                       {l.title}
                     </Link>
                     <p className="text-xs text-ink/60">{l.city}, {l.country} · {formatMoney(l.pricing.baseNightly)}/night</p>

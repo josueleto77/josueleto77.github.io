@@ -6,6 +6,7 @@ import Icon from "@/components/ui/icons";
 import Badge from "@/components/ui/Badge";
 import { formatMoney, formatDateShort } from "@/lib/utils/format";
 import { useCountdownText } from "@/lib/utils/useClientOnly";
+import { listingHref } from "@/lib/utils/listingHref";
 
 export default function DealCard({ deal, listing }: { deal: LastMinuteDeal; listing: Listing }) {
   const left = useCountdownText(deal.expiresAt);
@@ -13,7 +14,7 @@ export default function DealCard({ deal, listing }: { deal: LastMinuteDeal; list
 
   return (
     <Link
-      href={`/listing/${listing.id}`}
+      href={listingHref(listing.id)}
       className="flex gap-3 rounded-2xl border border-navy/10 bg-white p-3 shadow-sm transition-shadow hover:shadow-md"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
