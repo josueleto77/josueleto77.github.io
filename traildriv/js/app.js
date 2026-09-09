@@ -22,59 +22,65 @@ const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
 // the amount of data Overpass has to return (the #1 cause of slow loads),
 // and it means every result the app shows has an actual name instead of a
 // generic "Unnamed X" placeholder.
+//
+// No per-statement (around:...) filter: fetchPlaces() wraps the combined
+// query in a single global [bbox:...] instead. A global bbox restricts the
+// working set before any tag filtering runs, which is noticeably cheaper
+// for Overpass to evaluate than making it test every candidate's geometry
+// against a circular radius one statement at a time. The exact circle is
+// still enforced client-side afterwards (see fetchPlaces), so results
+// shown never actually exceed the selected radius.
 const CATEGORIES = {
   playground: {
     label: 'Playgrounds', icon: '🛝', color: '#f39c12',
-    query: (r, lat, lon) => `
-      node["leisure"="playground"]["name"](around:${r},${lat},${lon});
-      way["leisure"="playground"]["name"](around:${r},${lat},${lon});`
+    query: `
+      node["leisure"="playground"]["name"];
+      way["leisure"="playground"]["name"];`
   },
   hiking: {
     label: 'Hiking Trails', icon: '🥾', color: '#8e44ad',
     // Route relations are deliberately excluded: Overpass has to resolve
-    // every member way of a relation to test it against the radius, which
-    // is by far the slowest kind of query it runs — a bad trade for trails
-    // that can span whole regions well beyond "nearby" anyway.
-    query: (r, lat, lon) => `
-      node["information"="trailhead"]["name"](around:${r},${lat},${lon});
-      way["highway"="path"]["name"](around:${r},${lat},${lon});`
+    // every member way of a relation to test it, which is by far the
+    // slowest kind of query it runs — a bad trade for trails that can
+    // span whole regions well beyond "nearby" anyway.
+    query: `
+      node["information"="trailhead"]["name"];
+      way["highway"="path"]["name"];`
   },
   fishing: {
     label: 'Fishing Spots', icon: '🎣', color: '#2980b9',
-    query: (r, lat, lon) => `
-      node["leisure"="fishing"]["name"](around:${r},${lat},${lon});
-      way["leisure"="fishing"]["name"](around:${r},${lat},${lon});`
+    query: `
+      node["leisure"="fishing"]["name"];
+      way["leisure"="fishing"]["name"];`
   },
   biking: {
     label: 'Bike Trails', icon: '🚴', color: '#16a085',
     // Same reasoning as hiking above: no route relations, way-level tags
     // only (much cheaper for Overpass to evaluate).
-    query: (r, lat, lon) => `
-      way["route"="mtb"]["name"](around:${r},${lat},${lon});
-      way["highway"="cycleway"]["name"](around:${r},${lat},${lon});`
+    query: `
+      way["route"="mtb"]["name"];
+      way["highway"="cycleway"]["name"];`
   },
   lakes: {
     label: 'Lakes', icon: '🏞️', color: '#2c7fb8',
-    query: (r, lat, lon) => `
-      way["natural"="water"]["name"](around:${r},${lat},${lon});
-      relation["natural"="water"]["name"](around:${r},${lat},${lon});`
+    query: `
+      way["natural"="water"]["name"];
+      relation["natural"="water"]["name"];`
   },
   restaurants: {
     label: 'Restaurants', icon: '🍽️', color: '#e74c3c',
-    query: (r, lat, lon) => `
-      node["amenity"="restaurant"]["name"](around:${r},${lat},${lon});`
+    query: `node["amenity"="restaurant"]["name"];`
   },
   dancing: {
     label: 'Dance Clubs', icon: '💃', color: '#d35400',
-    query: (r, lat, lon) => `
-      node["amenity"="nightclub"]["name"](around:${r},${lat},${lon});`
+    query: `node["amenity"="nightclub"]["name"];`
   },
   massage: {
     label: 'Massage & Spa', icon: '💆', color: '#27ae60',
-    query: (r, lat, lon) => `
-      node["shop"="massage"]["name"](around:${r},${lat},${lon});
-      node["amenity"="spa"]["name"](around:${r},${lat},${lon});
-      node["leisure"="spa"]["name"](around:${r},${lat},${lon});`
+    query: `
+      node["shop"="massage"]["name"];
+      node["amenity"="spa"]["name"];
+      node["leisure"="spa"]["name"];`
   }
 };
 
@@ -161,6 +167,37 @@ function elementCoords(elm) {
   if (elm.type === 'node') return { lat: elm.lat, lon: elm.lon };
   if (elm.center) return { lat: elm.center.lat, lon: elm.center.lon };
   return null;
+}
+
+function bboxFromCenter(lat, lon, radiusMeters) {
+  const latDelta = radiusMeters / 111320;
+  const lonDelta = radiusMeters / (111320 * Math.cos(lat * Math.PI / 180));
+  return { south: lat - latDelta, west: lon - lonDelta, north: lat + latDelta, east: lon + lonDelta };
+}
+
+// Short-lived cache so flipping between categories/radius for the same
+// spot, or a page reload, doesn't re-hit Overpass for data that was just
+// fetched. Rounded to ~110m so tiny GPS jitter still hits the same entry.
+const SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function buildSearchCacheKey(lat, lon, radius, categories) {
+  return `traildriv_search_${lat.toFixed(3)}_${lon.toFixed(3)}_${radius}_${[...categories].sort().join(',')}`;
+}
+function readSearchCache(key) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.t > SEARCH_CACHE_TTL_MS) return null;
+    return { elements: parsed.elements };
+  } catch (e) {
+    return null;
+  }
+}
+function writeSearchCache(key, data) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), elements: (data && data.elements) || [] }));
+  } catch (e) { /* storage full or unavailable, skip caching */ }
 }
 
 function placeName(tags, categoryLabel) {
@@ -263,35 +300,43 @@ async function fetchPlaces() {
   const { lat, lon } = state.userLocation;
   const r = state.radius;
   const searchStart = performance.now();
-  console.log(`[Traildriv] Search started — categories: ${[...state.activeCategories].join(', ')}, radius: ${r}m`);
+  const categories = [...state.activeCategories];
+  console.log(`[Traildriv] Search started — categories: ${categories.join(', ')}, radius: ${r}m`);
 
   setStatus('Searching nearby places…', 'info');
   renderSkeletons();
 
-  // Overpass is a free, shared public service — response time depends on
-  // how busy it is right now, not just on this query. Let the visitor know
-  // it hasn't stalled if it's taking a while.
-  const slowNotice = setTimeout(() => {
-    setStatus('Still searching… the map data service is shared and can be slow at busy times.', 'info');
-  }, 7000);
-
-  // One combined request for every selected category, instead of one
-  // request per category: the public Overpass server throttles concurrent
-  // queries per client, so firing several at once mostly queued them
-  // serially anyway — a single larger query is faster in practice and
-  // easier on the shared server.
-  const categories = [...state.activeCategories];
-  const combinedQuery = categories.map(key => CATEGORIES[key].query(r, lat, lon)).join('\n');
-  const body = `[out:json][timeout:25];(${combinedQuery});out center tags;`;
-
-  let data = null;
+  const cacheKey = buildSearchCacheKey(lat, lon, r, categories);
+  let data = readSearchCache(cacheKey);
   let failed = false;
-  try {
-    data = await runOverpassQuery(body, 20000);
-  } catch (err) {
-    failed = true;
-  } finally {
-    clearTimeout(slowNotice);
+
+  if (data) {
+    console.log('[Traildriv] Served from local cache — no network request needed');
+  } else {
+    // Overpass is a free, shared public service — response time depends on
+    // how busy it is right now, not just on this query. Let the visitor
+    // know it hasn't stalled if it's taking a while.
+    const slowNotice = setTimeout(() => {
+      setStatus('Still searching… the map data service is shared and can be slow at busy times.', 'info');
+    }, 7000);
+
+    // One combined request for every selected category (instead of one per
+    // category — the public server throttles concurrent queries per
+    // client anyway), scoped with a single global bbox instead of a
+    // per-statement (around:...) filter (see the CATEGORIES comment above
+    // for why that's cheaper for Overpass to run).
+    const bbox = bboxFromCenter(lat, lon, r);
+    const combinedQuery = categories.map(key => CATEGORIES[key].query).join('\n');
+    const body = `[out:json][timeout:25][bbox:${bbox.south},${bbox.west},${bbox.north},${bbox.east}];(${combinedQuery});out center tags;`;
+
+    try {
+      data = await runOverpassQuery(body, 20000);
+      writeSearchCache(cacheKey, data);
+    } catch (err) {
+      failed = true;
+    } finally {
+      clearTimeout(slowNotice);
+    }
   }
 
   const places = [];
@@ -302,10 +347,11 @@ async function fetchPlaces() {
     if (!coords || !elm.tags || !elm.tags.name) return;
     const catKey = categorizeElement(elm.tags);
     if (!catKey || !state.activeCategories.has(catKey)) return;
+    const dist = haversine(lat, lon, coords.lat, coords.lon);
+    if (dist > r) return; // the bbox is a square around the circle — trim back to the exact radius
     const dedupeKey = `${elm.type}/${elm.id}`;
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
-    const dist = haversine(lat, lon, coords.lat, coords.lon);
     places.push({
       id: dedupeKey,
       catKey,
