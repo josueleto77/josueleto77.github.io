@@ -31,11 +31,13 @@ const CATEGORIES = {
   },
   hiking: {
     label: 'Hiking Trails', icon: '🥾', color: '#8e44ad',
+    // Route relations are deliberately excluded: Overpass has to resolve
+    // every member way of a relation to test it against the radius, which
+    // is by far the slowest kind of query it runs — a bad trade for trails
+    // that can span whole regions well beyond "nearby" anyway.
     query: (r, lat, lon) => `
       node["information"="trailhead"]["name"](around:${r},${lat},${lon});
-      way["highway"="path"]["name"](around:${r},${lat},${lon});
-      way["route"="hiking"]["name"](around:${r},${lat},${lon});
-      relation["route"="hiking"]["name"](around:${r},${lat},${lon});`
+      way["highway"="path"]["name"](around:${r},${lat},${lon});`
   },
   fishing: {
     label: 'Fishing Spots', icon: '🎣', color: '#2980b9',
@@ -45,11 +47,11 @@ const CATEGORIES = {
   },
   biking: {
     label: 'Bike Trails', icon: '🚴', color: '#16a085',
+    // Same reasoning as hiking above: no route relations, way-level tags
+    // only (much cheaper for Overpass to evaluate).
     query: (r, lat, lon) => `
       way["route"="mtb"]["name"](around:${r},${lat},${lon});
-      relation["route"="mtb"]["name"](around:${r},${lat},${lon});
-      way["highway"="cycleway"]["name"](around:${r},${lat},${lon});
-      relation["route"="bicycle"]["name"](around:${r},${lat},${lon});`
+      way["highway"="cycleway"]["name"](around:${r},${lat},${lon});`
   },
   lakes: {
     label: 'Lakes', icon: '🏞️', color: '#2c7fb8',
@@ -260,6 +262,13 @@ async function fetchPlaces() {
   setStatus('Searching nearby places…', 'info');
   renderSkeletons();
 
+  // Overpass is a free, shared public service — response time depends on
+  // how busy it is right now, not just on this query. Let the visitor know
+  // it hasn't stalled if it's taking a while.
+  const slowNotice = setTimeout(() => {
+    setStatus('Still searching… the map data service is shared and can be slow at busy times.', 'info');
+  }, 7000);
+
   // One combined request for every selected category, instead of one
   // request per category: the public Overpass server throttles concurrent
   // queries per client, so firing several at once mostly queued them
@@ -267,14 +276,16 @@ async function fetchPlaces() {
   // easier on the shared server.
   const categories = [...state.activeCategories];
   const combinedQuery = categories.map(key => CATEGORIES[key].query(r, lat, lon)).join('\n');
-  const body = `[out:json][timeout:40];(${combinedQuery});out center tags;`;
+  const body = `[out:json][timeout:25];(${combinedQuery});out center tags;`;
 
   let data = null;
   let failed = false;
   try {
-    data = await runOverpassQuery(body, 35000);
+    data = await runOverpassQuery(body, 20000);
   } catch (err) {
     failed = true;
+  } finally {
+    clearTimeout(slowNotice);
   }
 
   const places = [];
