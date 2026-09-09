@@ -1,10 +1,25 @@
-import Link from "next/link";
+"use client";
+
+import { useRouter } from "next/navigation";
 import type { User } from "@/lib/types";
 import Avatar from "@/components/ui/Avatar";
 import Icon from "@/components/ui/icons";
+import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDate } from "@/lib/utils/format";
 
-export default function HostCard({ host }: { host: User }) {
+export default function HostCard({ host, listingId }: { host: User; listingId: string }) {
+  const router = useRouter();
+  const { currentUser, ensureThread } = useAppData();
+
+  function messageHost() {
+    if (!currentUser) {
+      router.push("/login");
+      return;
+    }
+    const threadId = ensureThread(listingId, host.id, "rent");
+    if (threadId) router.push(`/messages/${threadId}`);
+  }
+
   return (
     <div className="flex items-center gap-4 rounded-2xl border border-navy/10 bg-white p-5">
       <Avatar src={host.avatar} name={host.name} size={56} />
@@ -25,13 +40,14 @@ export default function HostCard({ host }: { host: User }) {
           {host.responseTimeMins && <span>Responds within {host.responseTimeMins < 60 ? `${host.responseTimeMins}m` : `${Math.round(host.responseTimeMins / 60)}h`}</span>}
         </div>
       </div>
-      <Link
-        href="/messages"
+      <button
+        type="button"
+        onClick={messageHost}
         className="hidden shrink-0 items-center gap-1.5 rounded-lg border border-navy/15 px-3.5 py-2 text-xs font-bold text-navy hover:bg-navy/5 sm:flex"
       >
         <Icon name="message" className="h-3.5 w-3.5" />
         Message
-      </Link>
+      </button>
     </div>
   );
 }

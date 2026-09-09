@@ -9,7 +9,7 @@ export type IconName =
   | "tv" | "pool" | "hot-tub" | "parking" | "water" | "patio" | "bbq" | "garden" | "gym" | "fireplace"
   | "elevator" | "pet" | "ev" | "smoke" | "co" | "first-aid" | "camera-security" | "info" | "alert"
   | "image" | "send" | "trash" | "edit" | "bell" | "logout" | "kayak" | "bike" | "route" | "layers"
-  | "handshake" | "scale" | "download" | "external-link";
+  | "handshake" | "scale" | "download" | "external-link" | "tag";
 
 const paths: Record<IconName, React.ReactNode> = {
   search: <><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></>,
@@ -87,6 +87,7 @@ const paths: Record<IconName, React.ReactNode> = {
   scale: <><path d="M12 3v18M6 8l-3.5 6a3.5 3.5 0 0 0 7 0L6 8ZM18 8l-3.5 6a3.5 3.5 0 0 0 7 0L18 8ZM4 8h4M16 8h4M8 21h8" /></>,
   download: <><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 21h14" /></>,
   "external-link": <><path d="M14 4h6v6M20 4L10 14" /><path d="M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4" /></>,
+  tag: <><path d="M12.6 2.6l7.8 7.8a2 2 0 0 1 0 2.8l-7.4 7.4a2 2 0 0 1-2.8 0L2.6 12.9a2 2 0 0 1-.6-1.4V4.4A1.8 1.8 0 0 1 3.8 2.6h7a2 2 0 0 1 1.8 0Z" /><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none" /></>,
 };
 
 export default function Icon({ name, className = "h-5 w-5", ...rest }: { name: IconName } & SVGProps<SVGSVGElement>) {

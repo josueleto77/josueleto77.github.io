@@ -6,8 +6,11 @@ import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/icons";
 import { renderMarkdown } from "@/lib/legal/markdown";
 import { LEGAL_DOCS } from "@/lib/legal/generated";
+import { SWITCH_DOCS } from "@/lib/legal/registry";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDate } from "@/lib/utils/format";
+
+const SWITCH_SLUGS = new Set(SWITCH_DOCS.map((d) => d.slug));
 
 export default function AgreementModal({
   open,
@@ -24,7 +27,7 @@ export default function AgreementModal({
   const [scrolledToBottom, setScrolledToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const docs = LEGAL_DOCS.filter((d) => includeSwitchAgreement || d.slug !== "home-exchange-agreement");
+  const docs = LEGAL_DOCS.filter((d) => includeSwitchAgreement || !SWITCH_SLUGS.has(d.slug));
 
   function handleScroll() {
     const el = scrollRef.current;

@@ -4,6 +4,7 @@ import "./globals.css";
 import Providers from "@/components/layout/Providers";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import SupportBotWidget from "@/components/support/SupportBotWidget";
 
 const manrope = Manrope({
   variable: "--font-manrope",
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </main>
             <Footer />
           </div>
+          <SupportBotWidget />
         </Providers>
       </body>
     </html>

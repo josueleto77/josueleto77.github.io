@@ -11,7 +11,7 @@ import { useAppData } from "@/lib/store/AppDataContext";
 import { priceBreakdown } from "@/lib/utils/pricing";
 import { formatMoney, isoToday, nightsBetween } from "@/lib/utils/format";
 import { seedToday } from "@/lib/utils/seedClock";
-import { OFFER_DISCOUNT_PRESETS, OFFER_MAX_DISCOUNT, OFFER_MIN_DISCOUNT } from "@/lib/utils/pricing";
+import { OFFER_DISCOUNT_PRESETS, OFFER_DISCOUNT_STEP, OFFER_MAX_DISCOUNT, OFFER_MIN_DISCOUNT } from "@/lib/utils/pricing";
 
 export default function MakeOfferModal({
   listing,
@@ -123,6 +123,7 @@ export default function MakeOfferModal({
             <RangeSlider
               min={OFFER_MIN_DISCOUNT}
               max={OFFER_MAX_DISCOUNT}
+              step={OFFER_DISCOUNT_STEP}
               value={discount}
               onChange={setDiscount}
               label="Discount requested"

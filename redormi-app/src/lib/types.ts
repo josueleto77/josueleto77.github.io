@@ -43,6 +43,7 @@ export interface User {
   city?: string;
   country?: string;
   twoFactorEnabled?: boolean;
+  lastKnownCoords?: { lat: number; lng: number };
 }
 
 export interface Amenity {
