@@ -5,16 +5,21 @@ import Link from "next/link";
 import Avatar from "@/components/ui/Avatar";
 import Icon from "@/components/ui/icons";
 import Badge from "@/components/ui/Badge";
+import RangeSlider from "@/components/ui/RangeSlider";
+import Button from "@/components/ui/Button";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { QUICK_REPLIES } from "@/lib/data/messages";
-import { formatDate } from "@/lib/utils/format";
+import { formatDate, formatMoney, isoToday } from "@/lib/utils/format";
+import { priceBreakdown, OFFER_DISCOUNT_STEP, OFFER_MAX_DISCOUNT, OFFER_MIN_DISCOUNT } from "@/lib/utils/pricing";
 
 export default function ChatWindow({ threadId }: { threadId: string }) {
-  const { state, currentUser, sendMessage, markThreadRead } = useAppData();
+  const { state, currentUser, sendMessage, markThreadRead, createOffer } = useAppData();
   const [text, setText] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [offerOpen, setOfferOpen] = useState(false);
+  const [offerPercent, setOfferPercent] = useState(10);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const thread = state.threads.find((t) => t.id === threadId);
@@ -54,6 +59,32 @@ export default function ChatWindow({ threadId }: { threadId: string }) {
     const file = e.target.files?.[0];
     if (!file) return;
     setImagePreview(URL.createObjectURL(file));
+  }
+
+  const canOffer = !!(listing && thread?.context !== "switch" && currentUser && currentUser.id !== listing.hostId);
+  const offerNights = listing?.minNights ?? 1;
+  const offerBreakdown = listing ? priceBreakdown(listing.pricing, offerNights, offerPercent) : null;
+
+  function sendOffer() {
+    if (!listing || !currentUser || !offerBreakdown) return;
+    const checkIn = isoToday(3);
+    const checkOut = isoToday(3 + offerNights);
+    createOffer({
+      listingId: listing.id,
+      guestId: currentUser.id,
+      checkIn,
+      checkOut,
+      discountPercent: offerPercent,
+      resultingNightly: offerBreakdown.nightlyRate,
+      resultingTotal: offerBreakdown.total,
+    });
+    sendMessage(
+      threadId,
+      `📩 Sent an offer: ${offerPercent}% off — ${formatMoney(offerBreakdown.total)} total for ${offerNights} nights. See it in your offers.`
+    );
+    setOfferOpen(false);
+    setOfferPercent(10);
+    simulateReply();
   }
 
   if (!thread || !other) {
@@ -141,6 +172,35 @@ export default function ChatWindow({ threadId }: { threadId: string }) {
         </div>
       )}
 
+      {offerOpen && offerBreakdown && (
+        <div className="flex flex-col gap-3 border-t border-navy/10 bg-cream/60 px-4 py-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-navy/50">Send an offer</p>
+          <RangeSlider
+            min={OFFER_MIN_DISCOUNT}
+            max={OFFER_MAX_DISCOUNT}
+            step={OFFER_DISCOUNT_STEP}
+            value={offerPercent}
+            onChange={setOfferPercent}
+            label="Discount off nightly rate"
+            formatValue={(v) => `${v}%`}
+          />
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-ink/60">
+              {formatMoney(offerBreakdown.nightlyRate)} × {offerNights} nights
+            </span>
+            <span className="font-bold text-coral">{formatMoney(offerBreakdown.total)} total</span>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setOfferOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={sendOffer}>
+              Send offer
+            </Button>
+          </div>
+        </div>
+      )}
+
       {imagePreview && (
         <div className="flex items-center gap-2 border-t border-navy/10 px-4 py-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -164,6 +224,17 @@ export default function ChatWindow({ threadId }: { threadId: string }) {
           <Icon name="camera" className="h-[18px] w-[18px]" />
           <input type="file" accept="image/*" className="hidden" onChange={onFile} />
         </label>
+        {canOffer && (
+          <button
+            type="button"
+            onClick={() => setOfferOpen((o) => !o)}
+            aria-label="Send an offer"
+            title="Send an offer"
+            className={`rounded-full p-2 hover:bg-navy/8 ${offerOpen ? "text-coral" : "text-navy/50"}`}
+          >
+            <Icon name="tag" className="h-[18px] w-[18px]" />
+          </button>
+        )}
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}

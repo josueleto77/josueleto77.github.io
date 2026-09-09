@@ -81,7 +81,7 @@ export default function ListingDetailClient({ listingId }: { listingId: string }
             </div>
           </div>
 
-          {host && <HostCard host={host} />}
+          {host && <HostCard host={host} listingId={listing.id} />}
 
           <p className="text-sm leading-relaxed text-ink/80">{listing.description}</p>
 

@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import { LEGAL_DOCS } from "@/lib/legal/generated";
 import { renderMarkdown } from "@/lib/legal/markdown";
+import { SWITCH_DOCS } from "@/lib/legal/registry";
 import { formatDate } from "@/lib/utils/format";
 
 export const metadata: Metadata = { title: "Terms & Policies" };
 
+const SWITCH_SLUGS = new Set(SWITCH_DOCS.map((d) => d.slug));
+
 export default function TermsPage() {
-  const docs = LEGAL_DOCS.filter((d) => d.slug !== "home-exchange-agreement");
+  const docs = LEGAL_DOCS.filter((d) => !SWITCH_SLUGS.has(d.slug));
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">

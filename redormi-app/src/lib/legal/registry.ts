@@ -18,6 +18,8 @@ export const CORE_AGREEMENT_DOCS: LegalMeta[] = [
   { slug: "nondiscrimination-policy", title: "Nondiscrimination Policy", version: "1.0", summary: "Equal access for every Member." },
   { slug: "cancellation-policies", title: "Cancellation Policies", version: "1.0", summary: "Flexible, Moderate, and Strict, defined." },
   { slug: "payments-fees", title: "Payments & Fees", version: "1.0", summary: "How money moves through Rent and Switch." },
+  { slug: "house-rules", title: "Guest Standards & House Rules", version: "1.0", summary: "Occupancy, conduct, and check-in/check-out standards for every stay." },
+  { slug: "vehicle-rental-agreement", title: "Vehicle & Equipment Rental Agreement", version: "1.0", summary: "Eligibility, waivers, and liability for renting a vehicle through Extra Services." },
 ];
 
 export const SWITCH_AGREEMENT_DOC: LegalMeta = {
@@ -27,4 +29,13 @@ export const SWITCH_AGREEMENT_DOC: LegalMeta = {
   summary: "Mutual access, liability, insurance, and condition-on-return for swaps.",
 };
 
-export const ALL_LEGAL_DOCS = [...CORE_AGREEMENT_DOCS, SWITCH_AGREEMENT_DOC];
+export const SWITCH_CONDUCT_DOC: LegalMeta = {
+  slug: "switch-conduct-policy",
+  title: "Redormi Switch Safety & Conduct Policy",
+  version: "1.0",
+  summary: "Verification, conduct, and safety expectations for Switch members.",
+};
+
+export const SWITCH_DOCS = [SWITCH_AGREEMENT_DOC, SWITCH_CONDUCT_DOC];
+
+export const ALL_LEGAL_DOCS = [...CORE_AGREEMENT_DOCS, ...SWITCH_DOCS];

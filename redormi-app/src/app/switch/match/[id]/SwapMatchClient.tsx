@@ -26,7 +26,7 @@ const CHECKLIST_ITEMS = [
 
 export default function SwapMatchClient({ targetListingId }: { targetListingId: string }) {
   const router = useRouter();
-  const { state, currentUser, createSwap, respondSwap, signAgreement } = useAppData();
+  const { state, currentUser, createSwap, respondSwap, signAgreement, ensureThread } = useAppData();
   const target = state.listings.find((l) => l.id === targetListingId);
   const targetHost = state.users.find((u) => u.id === target?.hostId);
 
@@ -81,6 +81,12 @@ export default function SwapMatchClient({ targetListingId }: { targetListingId: 
     );
   }
 
+  function messageOwner() {
+    if (!currentUser || !target) return;
+    const threadId = ensureThread(target.id, target.hostId, "switch");
+    if (threadId) router.push(`/messages/${threadId}`);
+  }
+
   function submitProposal() {
     if (!myListing || !currentUser || !target) return;
     createSwap({
@@ -126,9 +132,17 @@ export default function SwapMatchClient({ targetListingId }: { targetListingId: 
             {target.city}, {target.country} · Hosted by {targetHost.name}
           </p>
         </div>
-        <Badge tone="sage" className="ml-auto">
-          {targetScore.label}
-        </Badge>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={messageOwner}
+            className="flex items-center gap-1.5 rounded-lg border border-navy/15 px-3 py-1.5 text-xs font-bold text-navy hover:bg-navy/5"
+          >
+            <Icon name="message" className="h-3.5 w-3.5" />
+            Message {targetHost.name.split(" ")[0]}
+          </button>
+          <Badge tone="sage">{targetScore.label}</Badge>
+        </div>
       </div>
 
       {!existingSwap ? (

@@ -17,8 +17,10 @@ export default function LoginPage() {
   const { login, state } = useAppData();
   const [email, setEmail] = useState("jordan@redormi.demo");
   const [password, setPassword] = useState("");
-  const [step, setStep] = useState<"credentials" | "2fa" | "reset">("credentials");
+  const [step, setStep] = useState<"credentials" | "2fa" | "reset-password" | "reset-email">("credentials");
   const [code, setCode] = useState("");
+  const [recoveryPhone, setRecoveryPhone] = useState("");
+  const [recoverySent, setRecoverySent] = useState(false);
 
   const demoUser = state.users.find((u) => u.id === DEMO_USER_ID);
 
@@ -53,7 +55,7 @@ export default function LoginPage() {
         <Logo />
       </Link>
       <div className="w-full rounded-2xl border border-navy/10 bg-white p-7 shadow-sm">
-        {step === "reset" ? (
+        {step === "reset-password" ? (
           <div className="flex flex-col gap-4 text-center">
             <Icon name="mail" className="mx-auto h-8 w-8 text-coral" />
             <h1 className="text-xl font-extrabold text-navy">Check your email</h1>
@@ -63,6 +65,49 @@ export default function LoginPage() {
             <Button variant="ghost" onClick={() => setStep("credentials")}>
               Back to log in
             </Button>
+          </div>
+        ) : step === "reset-email" ? (
+          <div className="flex flex-col gap-4">
+            {recoverySent ? (
+              <div className="flex flex-col gap-4 text-center">
+                <Icon name="mail" className="mx-auto h-8 w-8 text-coral" />
+                <h1 className="text-xl font-extrabold text-navy">Check your email</h1>
+                <p className="text-sm text-ink/60">
+                  If an account is linked to <strong>{recoveryPhone}</strong>, we&apos;ve sent the email address on
+                  file to it in a simulated message.
+                </p>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setStep("credentials");
+                    setRecoverySent(false);
+                    setRecoveryPhone("");
+                  }}
+                >
+                  Back to log in
+                </Button>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-xl font-extrabold text-navy">Find your account email</h1>
+                <p className="text-sm text-ink/60">
+                  Enter the phone number on your account and we&apos;ll send the associated email address to it.
+                </p>
+                <Input
+                  label="Phone number"
+                  type="tel"
+                  value={recoveryPhone}
+                  onChange={(e) => setRecoveryPhone(e.target.value)}
+                  placeholder="+1 555 010 1000"
+                />
+                <Button fullWidth onClick={() => setRecoverySent(true)} disabled={recoveryPhone.length < 7}>
+                  Send
+                </Button>
+                <Button variant="ghost" onClick={() => setStep("credentials")}>
+                  Back to log in
+                </Button>
+              </>
+            )}
           </div>
         ) : step === "2fa" ? (
           <form onSubmit={confirm2fa} className="flex flex-col gap-4">
@@ -100,9 +145,14 @@ export default function LoginPage() {
             <form onSubmit={submit} className="flex flex-col gap-4">
               <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
               <Input label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Any password works in this demo" />
-              <button type="button" onClick={() => setStep("reset")} className="self-end text-xs font-semibold text-coral hover:underline">
-                Forgot password?
-              </button>
+              <div className="flex items-center justify-end gap-3">
+                <button type="button" onClick={() => setStep("reset-email")} className="text-xs font-semibold text-coral hover:underline">
+                  Forgot email?
+                </button>
+                <button type="button" onClick={() => setStep("reset-password")} className="text-xs font-semibold text-coral hover:underline">
+                  Forgot password?
+                </button>
+              </div>
               <Button type="submit" fullWidth size="lg">
                 Log in
               </Button>

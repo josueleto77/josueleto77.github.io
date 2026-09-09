@@ -25,9 +25,10 @@ export function priceBreakdown(
   return { nights, nightlyRate, subtotal, cleaningFee, serviceFee, taxes, total };
 }
 
-export const OFFER_DISCOUNT_PRESETS = [5, 10, 15, 20];
+export const OFFER_DISCOUNT_PRESETS = [5, 10, 20, 30, 50, 75, 100];
 export const OFFER_MIN_DISCOUNT = 5;
-export const OFFER_MAX_DISCOUNT = 30;
+export const OFFER_MAX_DISCOUNT = 100;
+export const OFFER_DISCOUNT_STEP = 5;
 export const OFFER_EXPIRY_HOURS = 48;
 
 export const SWITCH_PROCESSING_FEE_BASE = 129;
