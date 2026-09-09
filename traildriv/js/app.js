@@ -83,7 +83,7 @@ const CATEGORIES = {
    --------------------------------------------------------------------- */
 const state = {
   userLocation: null,        // {lat, lon, label}
-  radius: 8000,
+  radius: 3000, // small default on purpose — query cost on the free Overpass service scales with area (radius squared)
   activeCategories: new Set(), // empty until the visitor picks categories
   places: [],                 // all fetched places
   favorites: loadFavorites(),
