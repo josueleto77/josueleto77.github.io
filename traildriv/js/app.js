@@ -191,6 +191,7 @@ async function runOverpassQuery(body, timeoutMs = 22000) {
   for (const endpoint of OVERPASS_ENDPOINTS) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const t0 = performance.now();
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -200,9 +201,12 @@ async function runOverpassQuery(body, timeoutMs = 22000) {
       });
       clearTimeout(timer);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
+      const json = await res.json();
+      console.log(`[Traildriv] ${endpoint} responded in ${Math.round(performance.now() - t0)}ms with ${(json.elements || []).length} elements`);
+      return json;
     } catch (err) {
       clearTimeout(timer);
+      console.log(`[Traildriv] ${endpoint} failed after ${Math.round(performance.now() - t0)}ms (${err.name === 'AbortError' ? 'timed out' : err.message}) — trying next endpoint if any`);
       lastErr = err;
     }
   }
@@ -258,6 +262,8 @@ async function fetchPlaces() {
   if (state.activeCategories.size === 0) { renderCategoryPrompt(); return; }
   const { lat, lon } = state.userLocation;
   const r = state.radius;
+  const searchStart = performance.now();
+  console.log(`[Traildriv] Search started — categories: ${[...state.activeCategories].join(', ')}, radius: ${r}m`);
 
   setStatus('Searching nearby places…', 'info');
   renderSkeletons();
@@ -314,6 +320,7 @@ async function fetchPlaces() {
 
   state.places = places;
   setStatus(failed ? 'Could not reach the map data service right now. Please try again in a moment.' : '', failed ? 'error' : undefined);
+  console.log(`[Traildriv] Search finished in ${Math.round(performance.now() - searchStart)}ms — ${places.length} place(s) shown${failed ? ' (request failed)' : ''}`);
 
   renderResults();
   renderMapMarkers();
