@@ -11,15 +11,25 @@ import EmptyState from "@/components/ui/EmptyState";
 import Icon from "@/components/ui/icons";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { defaultFilters, filterListings } from "@/lib/utils/filters";
+import type { PropertyType } from "@/lib/types";
+
+const VALID_PROPERTY_TYPES: PropertyType[] = ["studio", "apartment", "house", "villa", "cabin", "loft"];
 
 export default function SearchPageClient() {
   const params = useSearchParams();
   const mode = (params.get("mode") as "rent" | "switch") ?? "rent";
   const { state } = useAppData();
-  const [filters, setFilters] = useState(() => ({
-    ...defaultFilters(mode),
-    where: params.get("where") ?? "",
-  }));
+  const [filters, setFilters] = useState(() => {
+    const type = params.get("type");
+    const amenity = params.get("amenity");
+    return {
+      ...defaultFilters(mode),
+      where: params.get("where") ?? "",
+      propertyTypes:
+        type && VALID_PROPERTY_TYPES.includes(type as PropertyType) ? [type as PropertyType] : [],
+      amenities: amenity ? [amenity] : [],
+    };
+  });
   const [showMap, setShowMap] = useState(true);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
