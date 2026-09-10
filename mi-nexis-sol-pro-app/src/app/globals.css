@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-nexis-primary: #ffa501;
+  --color-nexis-orange: #ff8501;
+  --color-nexis-dark: #2b3d4a;
+  --color-nexis-blue: #445a7d;
+  --color-nexis-warm-white: #fafaf6;
+  --color-nexis-accent: #ffead2;
+  --color-nexis-black: #000000;
+  --color-nexis-white: #ffffff;
+
+  --font-display: var(--font-barlow-condensed), "Arial Narrow", sans-serif;
+  --font-body: var(--font-poppins), "Montserrat", sans-serif;
+
+  --shadow-nexis-card: 0 20px 45px -20px rgba(43, 61, 74, 0.35);
+  --shadow-nexis-card-lg: 0 30px 70px -25px rgba(43, 61, 74, 0.45);
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--color-nexis-warm-white);
+  color: var(--color-nexis-dark);
+}
+
+body {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+
+.nexis-gradient-dark {
+  background: linear-gradient(160deg, #2b3d4a 0%, #1c2932 100%);
+}
+
+.nexis-gradient-primary {
+  background: linear-gradient(135deg, #ffa501 0%, #ff8501 100%);
+}
+
+@keyframes nexis-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-nexis-fade-up {
+  animation: nexis-fade-up 0.5s ease-out both;
+}
+
+@keyframes nexis-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 165, 1, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(255, 165, 1, 0);
+  }
+}
+
+.animate-nexis-pulse {
+  animation: nexis-pulse-ring 1.8s ease-out infinite;
+}
+
+/* pac-container = Google Places Autocomplete dropdown; restyle to match brand */
+.pac-container {
+  font-family: var(--font-body);
+  border-radius: 1rem;
+  margin-top: 0.5rem;
+  border: 1px solid #ffead2;
+  box-shadow: 0 20px 45px -20px rgba(43, 61, 74, 0.35);
+  overflow: hidden;
+}
+
+.pac-item {
+  padding: 0.65rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.pac-item:hover {
+  background: #ffead2;
+}
+
+.pac-item-query {
+  font-weight: 600;
+  color: #2b3d4a;
+}

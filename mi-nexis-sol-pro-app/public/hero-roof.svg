@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#445a7d" />
+      <stop offset="100%" stop-color="#2b3d4a" />
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1c2932" />
+      <stop offset="100%" stop-color="#0a0f13" />
+    </linearGradient>
+  </defs>
+
+  <rect width="800" height="600" fill="url(#sky)" />
+
+  <!-- ground / lot -->
+  <rect y="430" width="800" height="170" fill="#33465570" />
+
+  <!-- house body -->
+  <rect x="220" y="300" width="360" height="180" rx="6" fill="#fafaf6" opacity="0.95" />
+  <polygon points="200,300 400,180 600,300" fill="#ffead2" />
+  <polygon points="200,300 400,180 600,300" fill="none" stroke="#2b3d4a" stroke-width="3" opacity="0.2" />
+
+  <!-- windows / door -->
+  <rect x="260" y="340" width="60" height="60" rx="4" fill="#ffead2" />
+  <rect x="480" y="340" width="60" height="60" rx="4" fill="#ffead2" />
+  <rect x="375" y="400" width="50" height="80" rx="3" fill="#445a7d" />
+
+  <!-- solar panel array on the roof -->
+  <g transform="translate(0,-6)">
+    <rect x="245" y="210" width="90" height="52" rx="3" fill="url(#panel)" stroke="#ffa501" stroke-width="1.5" />
+    <rect x="345" y="210" width="90" height="52" rx="3" fill="url(#panel)" stroke="#ffa501" stroke-width="1.5" />
+    <rect x="445" y="210" width="90" height="52" rx="3" fill="url(#panel)" stroke="#ffa501" stroke-width="1.5" />
+    <g stroke="#33465580" stroke-width="1">
+      <line x1="275" y1="210" x2="275" y2="262" />
+      <line x1="305" y1="210" x2="305" y2="262" />
+      <line x1="375" y1="210" x2="375" y2="262" />
+      <line x1="405" y1="210" x2="405" y2="262" />
+      <line x1="475" y1="210" x2="475" y2="262" />
+      <line x1="505" y1="210" x2="505" y2="262" />
+    </g>
+  </g>
+
+  <!-- sun -->
+  <circle cx="670" cy="110" r="46" fill="#ffa501" opacity="0.9" />
+  <g stroke="#ffa501" stroke-width="4" stroke-linecap="round" opacity="0.7">
+    <line x1="670" y1="30" x2="670" y2="10" />
+    <line x1="740" y1="60" x2="754" y2="46" />
+    <line x1="760" y1="110" x2="780" y2="110" />
+  </g>
+</svg>

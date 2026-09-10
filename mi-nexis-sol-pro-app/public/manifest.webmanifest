@@ -1,0 +1,12 @@
+{
+  "name": "Mi Nexis Sol Pro",
+  "short_name": "Sol Pro",
+  "description": "Instant homeowner solar assessment, powered by Nexis Power.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafaf6",
+  "theme_color": "#2b3d4a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,0 +1,142 @@
+// Mi Nexis Sol Pro — database schema
+// HubSpot remains the system of record for CRM/sales workflows; this database
+// exists to power the shareable /solar-report/{id} URL and to guarantee a
+// lead is captured even if a downstream API (Solar, HubSpot) fails.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SolarCoverageStatus {
+  COVERED
+  NOT_FOUND
+  NO_BUILDING
+  IMAGERY_UNAVAILABLE
+  ERROR
+}
+
+enum SolarAnalysisStatus {
+  completed
+  partial
+  unavailable
+  error
+}
+
+enum SystemOptionKey {
+  essential
+  recommended
+  maximum
+}
+
+model Property {
+  // UUID primary key — never a sequential/auto-increment id — so it is safe
+  // to reference this record's id from a public-facing URL if ever needed.
+  id               String   @id @default(uuid())
+  formattedAddress String
+  latitude         Float
+  longitude        Float
+  placeId          String?
+  createdAt        DateTime @default(now())
+
+  leads SolarLead[]
+
+  @@index([placeId])
+}
+
+model SolarLead {
+  // Doubles as the public /solar-report/{id} identifier — a UUID, not a
+  // sequential id, so report URLs can't be enumerated.
+  id                    String   @id @default(uuid())
+  // Idempotency key generated client-side per form session; unique so a
+  // retried/double-clicked submission updates this row instead of creating
+  // a duplicate lead (and, downstream, a duplicate HubSpot deal).
+  submissionId          String   @unique
+  phone                 String
+  annualConsumptionKwh  Float
+  consentAcceptedAt     DateTime
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id])
+
+  analysis     SolarAnalysis?
+  hubspotSync  HubSpotSync?
+
+  @@index([phone])
+  @@index([createdAt])
+}
+
+model SolarAnalysis {
+  id                    String              @id @default(uuid())
+  coverageStatus        SolarCoverageStatus
+  errorMessage          String?
+
+  // Nexis Solar Score
+  solarScore            Int?
+  solarScoreCategory    String?
+
+  // Roof analysis (homeowner-facing summary — see src/lib/solar/roofAnalysis.ts)
+  roofSuitability       String?
+  usableAreaSqFt         Float?
+  primaryOrientation     String?
+  primaryPitchDegrees    Float?
+  solarExposure          String?
+  shading                String?
+  maxPanelCapacity       Int?
+  maxSunshineHoursPerYear Float?
+  imageryDate             String?
+  imageryQuality          String?
+
+  // System recommendation (see src/lib/solar/sizing.ts)
+  recommendedSystemSizeKw           Float?
+  recommendedPanelCount             Int?
+  estimatedAnnualProductionKwh      Float?
+  estimatedOffsetPercent            Float?
+  offsetCapped                      Boolean @default(false)
+
+  // Raw Google Solar API response, kept separately from HubSpot (which should
+  // never receive this full payload — see lib/hubspot/deals.ts) for support/debugging.
+  rawSolarApiResponse   Json?
+
+  createdAt DateTime @default(now())
+
+  leadId String    @unique
+  lead   SolarLead @relation(fields: [leadId], references: [id])
+
+  systemOptions SolarSystemDesign[]
+}
+
+model SolarSystemDesign {
+  id                            String           @id @default(uuid())
+  key                            SystemOptionKey
+  label                          String
+  systemSizeKw                   Float
+  panelCount                     Int
+  estimatedAnnualProductionKwh   Float
+  estimatedOffsetPercent         Float
+  isNexisRecommended             Boolean          @default(false)
+
+  analysisId String
+  analysis   SolarAnalysis @relation(fields: [analysisId], references: [id])
+
+  @@index([analysisId])
+}
+
+model HubSpotSync {
+  id            String   @id @default(uuid())
+  contactId     String?
+  dealId        String?
+  status        SolarAnalysisStatus @default(partial)
+  lastSyncedAt  DateTime @updatedAt
+  lastError     String?
+  createdAt     DateTime @default(now())
+
+  leadId String    @unique
+  lead   SolarLead @relation(fields: [leadId], references: [id])
+}
