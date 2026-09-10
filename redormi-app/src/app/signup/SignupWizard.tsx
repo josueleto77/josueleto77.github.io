@@ -6,6 +6,7 @@ import Link from "next/link";
 import Logo from "@/components/logo/Logo";
 import Stepper from "@/components/ui/Stepper";
 import Input from "@/components/ui/Input";
+import AddressAutocomplete from "@/components/ui/AddressAutocomplete";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/icons";
 import AgreementModal from "@/components/auth/AgreementModal";
@@ -29,6 +30,8 @@ interface FormState {
   phone: string;
   dob: string;
   address: string;
+  city: string;
+  country: string;
   avatarSeed: number;
   idUploaded: boolean;
   cardNumber: string;
@@ -49,6 +52,8 @@ export default function SignupWizard() {
     phone: "",
     dob: "",
     address: "",
+    city: "",
+    country: "",
     avatarSeed: 1,
     idUploaded: false,
     cardNumber: "",
@@ -103,6 +108,8 @@ export default function SignupWizard() {
       phone: form.phone,
       dateOfBirth: form.dob,
       address: form.address,
+      city: form.city || undefined,
+      country: form.country || undefined,
       avatar: avatarFor(form.avatarSeed),
       roles: form.roles,
     });
@@ -190,7 +197,14 @@ export default function SignupWizard() {
           <div className="flex flex-col gap-4">
             <h1 className="text-xl font-extrabold text-navy">A little about you</h1>
             <Input label="Date of birth" type="date" value={form.dob} onChange={(e) => patch({ dob: e.target.value })} required />
-            <Input label="Home address" value={form.address} onChange={(e) => patch({ address: e.target.value })} placeholder="Street, city, country" required />
+            <AddressAutocomplete
+              label="Home address"
+              value={form.address}
+              onChange={(address) => patch({ address })}
+              onSelect={(s) => patch({ city: s.city ?? "", country: s.country ?? "" })}
+              placeholder="Start typing your street, city, country…"
+              required
+            />
           </div>
         )}
 

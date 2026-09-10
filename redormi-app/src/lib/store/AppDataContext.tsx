@@ -257,6 +257,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       date_of_birth: profile.dateOfBirth,
       address: profile.address,
       city: profile.city,
+      country: profile.country,
       roles,
       is_host: roles.includes("host"),
       is_switch_member: roles.includes("switch_member"),
