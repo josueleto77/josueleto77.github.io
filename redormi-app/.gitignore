@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# capacitor mobile build (regenerate with `npm run build:capacitor`)
+/capacitor-www/
+
 # generated from content/legal/*.md by scripts/build-legal.mjs (predev/prebuild)
 /src/lib/legal/generated.ts
 

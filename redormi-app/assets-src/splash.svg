@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <rect width="2732" height="2732" fill="#172a3a"/>
+  <g transform="translate(1366 1266)">
+    <text x="0" y="0" text-anchor="middle" font-family="DejaVu Sans" font-weight="bold" font-size="220" fill="#f7f4ee">redormi</text>
+    <path d="M -70 62 Q 0 122 70 62" fill="none" stroke="#c24b2e" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="332" cy="-10" r="16" fill="#c24b2e"/>
+  </g>
+  <text x="1366" y="1466" text-anchor="middle" font-family="DejaVu Sans" font-weight="bold" font-size="52" fill="#c24b2e" letter-spacing="4">STAY. REST. REDORMI.</text>
+</svg>
