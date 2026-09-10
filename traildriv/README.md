@@ -14,10 +14,19 @@ It's a static, client-side web app (no backend, no build step). Open
 - **Location**: uses the browser Geolocation API automatically on load, with
   a manual search fallback (city/address) if permission is denied or
   unavailable.
-- **Data**: live queries against the public [Overpass API](https://overpass-api.de)
-  (OpenStreetMap), with automatic fallback to alternate Overpass mirrors if
-  one is unreachable. Search-by-name uses OpenStreetMap's Nominatim
-  geocoder.
+- **Data**: hybrid by design. Playgrounds, hiking trails, fishing spots,
+  bike trails and lakes always come from the public
+  [Overpass API](https://overpass-api.de) (OpenStreetMap) — the best free
+  source for that kind of outdoor/trail data — queried with a combined,
+  bbox-scoped request per search and a short local cache to keep it fast,
+  with automatic fallback to alternate Overpass mirrors if one is
+  unreachable. Restaurants, dance clubs and massage/spas are searched via
+  **Google Places Nearby Search** instead when a Google API key is
+  configured (see below) — Google's commercial database is faster and
+  better-populated for that kind of business listing than OpenStreetMap;
+  with no key, or if Google is briefly unreachable, those three categories
+  fall back to Overpass too, exactly like before this existed. Search-by-name
+  uses OpenStreetMap's Nominatim geocoder.
 - **Map**: [Leaflet](https://leafletjs.com) with OpenStreetMap tiles.
 - **Photos**: free, no key required — when OpenStreetMap links a place to
   Wikidata/Wikimedia Commons, its photo is pulled from Commons. Optionally
@@ -47,13 +56,24 @@ available rather than guessing.
 4. Paste the key into `js/config.js` (`googleMapsApiKey`).
 
 Notes:
+- With a key configured, restaurants/dance clubs/massage-spa searches also
+  switch from Overpass to Google Places **Nearby Search** (in addition to
+  reviews/photos on any place's detail panel) — this is the part meant to
+  make searches feel fast, since it's what Overpass covers most weakly and
+  slowly. Nearby Search results are cached client-side for a few minutes
+  too.
 - Each place opened in the detail panel triggers a small number of Places
-  API calls (find place + place details), cached per browser tab
+  API calls (place details, using the place's real ID directly when it was
+  already found via Nearby Search), cached per browser tab
   (`sessionStorage`) to avoid repeat charges while browsing.
 - Only Google's public "Basic"/"Atmosphere" fields are used (rating, review
-  count, up to 5 reviews, photos) — nothing is scraped.
+  count, up to 5 reviews, photos, phone, website, hours) — nothing is
+  scraped.
 - Google's terms require showing their attribution next to reviews/photos;
   the app already includes it and it should not be removed.
+- Nearby Search and Place Details are billed per request beyond Google's
+  free monthly credit — check current pricing on Google's own site before
+  relying on this for meaningful traffic.
 
 ## Structure
 

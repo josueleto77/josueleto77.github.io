@@ -18,6 +18,16 @@ const GOOGLE_API_KEY = (window.TRAILDRIV_CONFIG && window.TRAILDRIV_CONFIG.googl
 const WIKIMEDIA_COMMONS_API = 'https://commons.wikimedia.org/w/api.php';
 const WIKIDATA_API = 'https://www.wikidata.org/w/api.php';
 
+// Hybrid data source: OpenStreetMap/Overpass has no real coverage of
+// "business" categories with formal names/hours/ratings the way a
+// commercial places database does, while it's the best free source for
+// trails, fishing spots and playgrounds. So when a Google API key is
+// configured, these three categories are searched via Google Places
+// (fast, well-populated) instead of Overpass; every other category keeps
+// using Overpass as before. With no key, everything falls back to
+// Overpass exactly like before this existed.
+const GOOGLE_CATEGORY_TYPES = { restaurants: 'restaurant', dancing: 'night_club', massage: 'spa' };
+
 // Every subquery below requires a "name" tag. This is deliberate: it cuts
 // the amount of data Overpass has to return (the #1 cause of slow loads),
 // and it means every result the app shows has an actual name instead of a
@@ -200,6 +210,24 @@ function writeSearchCache(key, data) {
   } catch (e) { /* storage full or unavailable, skip caching */ }
 }
 
+// Generic version of the above for values that aren't the Overpass
+// {elements:[...]} shape (Google Nearby Search results, Place Details).
+function readCache(key, ttlMs = SEARCH_CACHE_TTL_MS) {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.t > ttlMs) return null;
+    return parsed.v;
+  } catch (e) {
+    return null;
+  }
+}
+function writeCache(key, value) {
+  try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), v: value })); }
+  catch (e) { /* storage full or unavailable, skip caching */ }
+}
+
 function placeName(tags, categoryLabel) {
   return tags.name || tags['name:en'] || `Unnamed ${categoryLabel.replace(/s$/, '')}`;
 }
@@ -306,47 +334,77 @@ async function fetchPlaces() {
   setStatus('Searching nearby places…', 'info');
   renderSkeletons();
 
-  const cacheKey = buildSearchCacheKey(lat, lon, r, categories);
-  let data = readSearchCache(cacheKey);
+  // Categories with a Google Places type go through Nearby Search (fast,
+  // well-populated for businesses) when a key is configured; everything
+  // else — and everything, with no key — goes through Overpass as before.
+  const googleCats = GOOGLE_API_KEY ? categories.filter(k => GOOGLE_CATEGORY_TYPES[k]) : [];
+  const overpassCats = categories.filter(k => !googleCats.includes(k));
+
+  // Overpass is a free, shared public service — response time depends on
+  // how busy it is right now. Let the visitor know it hasn't stalled if a
+  // search is taking a while (Google Nearby Search is fast enough that
+  // this practically only ever fires for the Overpass side).
+  const slowNotice = setTimeout(() => {
+    setStatus('Still searching… the map data service is shared and can be slow at busy times.', 'info');
+  }, 7000);
+
+  const places = [];
+  const seen = new Set();
+  const addPlaces = list => list.forEach(p => { if (!seen.has(p.id)) { seen.add(p.id); places.push(p); } });
   let failed = false;
 
-  if (data) {
-    console.log('[Traildriv] Served from local cache — no network request needed');
-  } else {
-    // Overpass is a free, shared public service — response time depends on
-    // how busy it is right now, not just on this query. Let the visitor
-    // know it hasn't stalled if it's taking a while.
-    const slowNotice = setTimeout(() => {
-      setStatus('Still searching… the map data service is shared and can be slow at busy times.', 'info');
-    }, 7000);
+  const tasks = [];
+  if (overpassCats.length) {
+    tasks.push(
+      fetchOverpassPlaces(overpassCats, lat, lon, r)
+        .then(addPlaces)
+        .catch(() => { failed = true; })
+    );
+  }
+  if (googleCats.length) {
+    tasks.push(
+      Promise.all(googleCats.map(catKey => fetchGoogleCategoryPlaces(catKey, lat, lon, r)))
+        .then(lists => addPlaces(lists.flat()))
+        .catch(() => { /* a Google-side failure shouldn't blank out Overpass results */ })
+    );
+  }
+  await Promise.all(tasks);
+  clearTimeout(slowNotice);
 
-    // One combined request for every selected category (instead of one per
-    // category — the public server throttles concurrent queries per
-    // client anyway), scoped with a single global bbox instead of a
+  state.places = places;
+  setStatus(failed ? 'Could not reach the map data service right now. Please try again in a moment.' : '', failed ? 'error' : undefined);
+  console.log(`[Traildriv] Search finished in ${Math.round(performance.now() - searchStart)}ms — ${places.length} place(s) shown${failed ? ' (Overpass request failed)' : ''}`);
+
+  renderResults();
+  renderMapMarkers();
+}
+
+async function fetchOverpassPlaces(cats, lat, lon, r) {
+  const cacheKey = buildSearchCacheKey(lat, lon, r, cats);
+  let data = readSearchCache(cacheKey);
+
+  if (data) {
+    console.log('[Traildriv] Overpass: served from local cache — no network request needed');
+  } else {
+    // One combined request for every category in this source (instead of
+    // one per category — the public server throttles concurrent queries
+    // per client anyway), scoped with a single global bbox instead of a
     // per-statement (around:...) filter (see the CATEGORIES comment above
     // for why that's cheaper for Overpass to run).
     const bbox = bboxFromCenter(lat, lon, r);
-    const combinedQuery = categories.map(key => CATEGORIES[key].query).join('\n');
+    const combinedQuery = cats.map(key => CATEGORIES[key].query).join('\n');
     const body = `[out:json][timeout:25][bbox:${bbox.south},${bbox.west},${bbox.north},${bbox.east}];(${combinedQuery});out center tags;`;
-
-    try {
-      data = await runOverpassQuery(body, 20000);
-      writeSearchCache(cacheKey, data);
-    } catch (err) {
-      failed = true;
-    } finally {
-      clearTimeout(slowNotice);
-    }
+    data = await runOverpassQuery(body, 20000); // lets the caller catch a failure
+    writeSearchCache(cacheKey, data);
   }
 
   const places = [];
   const seen = new Set();
-
   (data && data.elements ? data.elements : []).forEach(elm => {
     const coords = elementCoords(elm);
     if (!coords || !elm.tags || !elm.tags.name) return;
     const catKey = categorizeElement(elm.tags);
-    if (!catKey || !state.activeCategories.has(catKey)) return;
+    if (!catKey || !cats.includes(catKey)) return;
     const dist = haversine(lat, lon, coords.lat, coords.lon);
     if (dist > r) return; // the bbox is a square around the circle — trim back to the exact radius
     const dedupeKey = `${elm.type}/${elm.id}`;
@@ -360,16 +418,72 @@ async function fetchPlaces() {
       tags: elm.tags,
       lat: coords.lat,
       lon: coords.lon,
-      distance: dist
+      distance: dist,
+      source: 'osm'
     });
   });
+  return places;
+}
 
-  state.places = places;
-  setStatus(failed ? 'Could not reach the map data service right now. Please try again in a moment.' : '', failed ? 'error' : undefined);
-  console.log(`[Traildriv] Search finished in ${Math.round(performance.now() - searchStart)}ms — ${places.length} place(s) shown${failed ? ' (request failed)' : ''}`);
+async function fetchGoogleCategoryPlaces(catKey, lat, lon, r) {
+  const cacheKey = `traildriv_google_nearby_${catKey}_${lat.toFixed(3)}_${lon.toFixed(3)}_${r}`;
+  const cached = readCache(cacheKey);
+  if (cached) {
+    console.log(`[Traildriv] Google (${catKey}): served from local cache`);
+    return cached;
+  }
 
-  renderResults();
-  renderMapMarkers();
+  const ready = await ensureGoogleMaps();
+  if (!ready || !window.google || !window.google.maps || !window.google.maps.places) {
+    console.log(`[Traildriv] Google (${catKey}): Maps script unavailable, falling back to Overpass`);
+    return fetchOverpassPlaces([catKey], lat, lon, r);
+  }
+
+  const t0 = performance.now();
+  const results = await nearbySearchGoogle(GOOGLE_CATEGORY_TYPES[catKey], lat, lon, r);
+  console.log(`[Traildriv] Google Nearby Search (${catKey}) returned ${results.length} result(s) in ${Math.round(performance.now() - t0)}ms`);
+
+  const places = results.map(res => {
+    const loc = res.geometry && res.geometry.location;
+    if (!loc) return null;
+    const rlat = typeof loc.lat === 'function' ? loc.lat() : loc.lat;
+    const rlon = typeof loc.lng === 'function' ? loc.lng() : loc.lng;
+    const dist = haversine(lat, lon, rlat, rlon);
+    if (dist > r) return null;
+    return {
+      id: `google/${res.place_id}`,
+      catKey,
+      cat: CATEGORIES[catKey],
+      name: res.name,
+      tags: {},
+      lat: rlat,
+      lon: rlon,
+      distance: dist,
+      source: 'google',
+      googlePlaceId: res.place_id,
+      googleRating: res.rating,
+      googleUserRatingsTotal: res.user_ratings_total,
+      googleVicinity: res.vicinity,
+      googlePriceLevel: res.price_level
+    };
+  }).filter(Boolean);
+
+  writeCache(cacheKey, places);
+  return places;
+}
+
+function nearbySearchGoogle(type, lat, lon, r) {
+  return new Promise(resolve => {
+    const service = getPlacesService();
+    service.nearbySearch({
+      location: { lat, lng: lon },
+      radius: Math.min(r, 50000),
+      type
+    }, (results, status) => {
+      if (status === google.maps.places.PlacesServiceStatus.OK && results) resolve(results);
+      else resolve([]);
+    });
+  });
 }
 
 // Mirrors the tag combinations used in CATEGORIES' queries above (kept in
@@ -482,6 +596,8 @@ function buildPlaceCard(place) {
 function quickBadges(place) {
   const t = place.tags;
   const badges = [];
+  if (place.source === 'google' && place.googleRating) badges.push(`★ ${place.googleRating.toFixed(1)}`);
+  if (place.source === 'google' && place.googlePriceLevel != null) badges.push('$'.repeat(Math.max(1, place.googlePriceLevel)));
   if (t.fee === 'no') badges.push('Free');
   else if (t.fee === 'yes') badges.push('Fee required');
   if (t.sac_scale) badges.push(`Difficulty: ${humanizeSacScale(t.sac_scale)}`);
@@ -609,16 +725,22 @@ async function fetchNearbyFacts(lat, lon) {
 function renderDetailBase(place, nearby, media) {
   const t = place.tags;
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${place.lat},${place.lon}`;
-  const mapsUrl = `https://www.openstreetmap.org/${place.id}`;
+  const mapsUrl = place.source === 'google'
+    ? `https://www.google.com/maps/place/?q=place_id:${place.googlePlaceId}`
+    : `https://www.openstreetmap.org/${place.id}`;
+  const addressText = t['addr:street'] ? addressLine(t) : (place.googleVicinity || (media && media.address) || '');
 
-  const facts = buildFacts(place, nearby);
+  const facts = buildFacts(place, nearby, media);
   const isFav = state.favorites.has(place.id);
+  const sourceNote = place.source === 'google'
+    ? 'Basic details are sourced from Google Places; nearby-amenity checks (restrooms, picnic areas, etc.) are sourced from OpenStreetMap. Some fields may be missing or out of date — please verify on site, especially hours and fees.'
+    : 'Details are sourced from OpenStreetMap community data. Some fields may be missing or out of date — please verify on site, especially fees and hours.';
 
   el.detailContent.innerHTML = `
     <div class="detail-header">
       <span class="detail-cat-badge">${place.cat.icon} ${place.cat.label}</span>
       <h2 class="detail-title">${escapeHtml(place.name)}</h2>
-      <p class="detail-sub">${formatDistance(place.distance)} away${t['addr:street'] ? ' · ' + escapeHtml(addressLine(t)) : ''}</p>
+      <p class="detail-sub">${formatDistance(place.distance)} away${addressText ? ' · ' + escapeHtml(addressText) : ''}</p>
     </div>
     ${renderPhotosSection(place, media)}
     <div class="detail-actions">
@@ -632,7 +754,7 @@ function renderDetailBase(place, nearby, media) {
     ${nearby === 'error' ? `<p class="detail-note">Could not load extra amenity info for this spot right now.</p>` : ''}
     <div class="detail-section-title">Reviews</div>
     ${renderReviewsSection(media)}
-    <p class="detail-note">Details are sourced from OpenStreetMap community data. Some fields may be missing or out of date — please verify on site, especially fees and hours.</p>
+    <p class="detail-note">${sourceNote}</p>
   `;
 
   const grid = document.getElementById('factGrid');
@@ -691,7 +813,11 @@ function getGooglePlaceDetails(placeId) {
     const service = getPlacesService();
     service.getDetails({
       placeId,
-      fields: ['rating', 'user_ratings_total', 'reviews', 'photos', 'url']
+      fields: [
+        'rating', 'user_ratings_total', 'reviews', 'photos', 'url',
+        'formatted_phone_number', 'website', 'opening_hours',
+        'wheelchair_accessible_entrance', 'price_level', 'formatted_address'
+      ]
     }, (result, status) => {
       if (status === google.maps.places.PlacesServiceStatus.OK && result) resolve(result);
       else resolve(null);
@@ -713,7 +839,9 @@ async function fetchGoogleEnrichment(place) {
     return { enabled: true, found: false };
   }
 
-  const placeId = await findGooglePlaceId(place);
+  // Places found via Google Nearby Search already carry a real place_id —
+  // skip the imprecise name-based lookup and go straight to Place Details.
+  const placeId = place.googlePlaceId || await findGooglePlaceId(place);
   if (!placeId) {
     const result = { enabled: true, found: false };
     try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch (e) { /* ignore */ }
@@ -744,7 +872,13 @@ async function fetchGoogleEnrichment(place) {
     totalRatings: details.user_ratings_total || 0,
     reviews,
     photos,
-    mapsUrl: details.url || null
+    mapsUrl: details.url || null,
+    phone: details.formatted_phone_number || null,
+    website: details.website || null,
+    address: details.formatted_address || null,
+    openingHoursText: (details.opening_hours && details.opening_hours.weekday_text) ? details.opening_hours.weekday_text.join('; ') : null,
+    wheelchairAccessible: details.wheelchair_accessible_entrance,
+    priceLevel: details.price_level
   };
   try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch (e) { /* ignore */ }
   return result;
@@ -805,7 +939,13 @@ async function fetchPlaceMedia(place) {
     rating: google.found ? google.rating : null,
     totalRatings: google.found ? google.totalRatings : 0,
     reviews: google.found ? google.reviews : [],
-    mapsUrl: google.found ? google.mapsUrl : null
+    mapsUrl: google.found ? google.mapsUrl : null,
+    phone: google.found ? google.phone : null,
+    website: google.found ? google.website : null,
+    address: google.found ? google.address : null,
+    openingHoursText: google.found ? google.openingHoursText : null,
+    wheelchairAccessible: google.found ? google.wheelchairAccessible : null,
+    priceLevel: google.found ? google.priceLevel : null
   };
 }
 
@@ -870,15 +1010,22 @@ function buildFactEl(fact) {
   return node;
 }
 
-function buildFacts(place, nearby) {
+function buildFacts(place, nearby, media) {
   const t = place.tags;
+  const googleFacts = (media && media.googleFound) ? media : null;
   const facts = [];
 
   // Fee
   facts.push(feeFact(t));
 
+  // Price level (Google-sourced businesses only)
+  if (place.source === 'google' && place.googlePriceLevel != null) {
+    facts.push({ icon: '💲', label: 'Price level', value: '$'.repeat(Math.max(1, place.googlePriceLevel)) + ' / 4' });
+  }
+
   // Hours
-  facts.push({ icon: '🕒', label: 'Hours', value: t.opening_hours || 'Not listed', na: !t.opening_hours });
+  const hoursText = t.opening_hours || (googleFacts && googleFacts.openingHoursText);
+  facts.push({ icon: '🕒', label: 'Hours', value: hoursText || 'Not listed', na: !hoursText });
 
   // Difficulty (hiking / biking specific)
   if (place.catKey === 'hiking' || place.catKey === 'biking') {
@@ -927,11 +1074,10 @@ function buildFacts(place, nearby) {
   }
 
   // Accessibility
-  facts.push({
-    icon: '♿', label: 'Wheelchair access',
-    value: t.wheelchair ? capitalize(t.wheelchair.replace(/_/g, ' ')) : 'Not specified',
-    na: !t.wheelchair
-  });
+  const wheelchairValue = t.wheelchair
+    ? capitalize(t.wheelchair.replace(/_/g, ' '))
+    : (googleFacts && googleFacts.wheelchairAccessible != null ? (googleFacts.wheelchairAccessible ? 'Yes' : 'No') : null);
+  facts.push({ icon: '♿', label: 'Wheelchair access', value: wheelchairValue || 'Not specified', na: !wheelchairValue });
 
   // Dogs
   if (t.dog) facts.push({ icon: '🐾', label: 'Dogs', value: capitalize(t.dog.replace(/_/g, ' ')) });
@@ -945,8 +1091,8 @@ function buildFacts(place, nearby) {
   }
 
   // Contact
-  const phone = t.phone || t['contact:phone'];
-  const website = t.website || t['contact:website'];
+  const phone = t.phone || t['contact:phone'] || (googleFacts && googleFacts.phone);
+  const website = t.website || t['contact:website'] || (googleFacts && googleFacts.website);
   if (phone) facts.push({ icon: '📞', label: 'Phone', value: phone });
   if (website) facts.push({ icon: '🔗', label: 'Website', value: website.replace(/^https?:\/\//, '') });
 
