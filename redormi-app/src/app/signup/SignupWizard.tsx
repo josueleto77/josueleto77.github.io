@@ -27,8 +27,6 @@ interface FormState {
   email: string;
   password: string;
   phone: string;
-  smsCode: string;
-  phoneVerified: boolean;
   dob: string;
   address: string;
   avatarSeed: number;
@@ -44,14 +42,11 @@ export default function SignupWizard() {
   const { signup, acceptAgreement } = useAppData();
   const [step, setStep] = useState(0);
   const [agreementOpen, setAgreementOpen] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
   const [form, setForm] = useState<FormState>({
     name: "",
     email: "",
     password: "",
     phone: "",
-    smsCode: "",
-    phoneVerified: false,
     dob: "",
     address: "",
     avatarSeed: 1,
@@ -78,8 +73,6 @@ export default function SignupWizard() {
         return form.name.trim().length > 1 && /\S+@\S+\.\S+/.test(form.email) && form.password.length >= 6;
       case 1:
         return form.roles.length > 0;
-      case 2:
-        return form.phoneVerified;
       case 3:
         return form.dob !== "" && form.address.trim().length > 3;
       case 4:
@@ -184,36 +177,12 @@ export default function SignupWizard() {
 
         {step === 2 && (
           <div className="flex flex-col gap-4">
-            <h1 className="text-xl font-extrabold text-navy">Verify your phone</h1>
+            <h1 className="text-xl font-extrabold text-navy">Phone number</h1>
+            <p className="text-sm text-ink/60">
+              Optional for now — we&apos;ll use it for booking updates. SMS verification isn&apos;t set up yet, so
+              there&apos;s nothing to confirm here.
+            </p>
             <Input label="Phone number" type="tel" value={form.phone} onChange={(e) => patch({ phone: e.target.value })} placeholder="+1 555 010 1000" />
-            {!codeSent ? (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setCodeSent(true);
-                  toast?.push({ tone: "info", text: "Simulated SMS sent — use code 123456." });
-                }}
-                disabled={form.phone.length < 7}
-              >
-                Send verification code
-              </Button>
-            ) : form.phoneVerified ? (
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-sage-dark">
-                <Icon name="check-circle" className="h-4 w-4" /> Phone verified
-              </p>
-            ) : (
-              <div className="flex items-end gap-2">
-                <Input label="6-digit code" value={form.smsCode} onChange={(e) => patch({ smsCode: e.target.value.slice(0, 6) })} />
-                <Button
-                  onClick={() => {
-                    if (form.smsCode.length === 6) patch({ phoneVerified: true });
-                    else toast?.push({ tone: "error", text: "Enter the 6-digit code (try 123456)." });
-                  }}
-                >
-                  Verify
-                </Button>
-              </div>
-            )}
           </div>
         )}
 
