@@ -13,7 +13,7 @@ import AgreementModal from "@/components/auth/AgreementModal";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { useToast } from "@/lib/store/ToastContext";
 import type { Role } from "@/lib/types";
-import { avatarFor } from "@/lib/utils/ids";
+import { AVATAR_OPTIONS, avatarById } from "@/lib/utils/avatarIcons";
 
 const STEPS = ["Account", "Roles", "Phone", "About you", "Photo", "Verify ID", "Payment", "Review"];
 
@@ -32,7 +32,7 @@ interface FormState {
   address: string;
   city: string;
   country: string;
-  avatarSeed: number;
+  avatarId: string;
   idUploaded: boolean;
   cardNumber: string;
   payoutAccount: string;
@@ -54,7 +54,7 @@ export default function SignupWizard() {
     address: "",
     city: "",
     country: "",
-    avatarSeed: 1,
+    avatarId: AVATAR_OPTIONS[0].id,
     idUploaded: false,
     cardNumber: "",
     payoutAccount: "",
@@ -110,7 +110,7 @@ export default function SignupWizard() {
       address: form.address,
       city: form.city || undefined,
       country: form.country || undefined,
-      avatar: avatarFor(form.avatarSeed),
+      avatar: avatarById(form.avatarId),
       roles: form.roles,
     });
     if (!result.ok) {
@@ -212,15 +212,20 @@ export default function SignupWizard() {
           <div className="flex flex-col gap-4">
             <h1 className="text-xl font-extrabold text-navy">Add a profile photo</h1>
             <p className="text-sm text-ink/60">Pick an avatar for now — you can upload your own later from Account.</p>
-            <div className="grid grid-cols-6 gap-3">
-              {Array.from({ length: 12 }, (_, i) => i * 5 + 2).map((seed) => (
+            <div className="grid grid-cols-4 gap-3 sm:grid-cols-8">
+              {AVATAR_OPTIONS.map((opt) => (
                 <button
-                  key={seed}
-                  onClick={() => patch({ avatarSeed: seed })}
-                  className={`overflow-hidden rounded-full border-2 ${form.avatarSeed === seed ? "border-coral" : "border-transparent"}`}
+                  key={opt.id}
+                  type="button"
+                  onClick={() => patch({ avatarId: opt.id })}
+                  aria-label={opt.label}
+                  aria-pressed={form.avatarId === opt.id}
+                  className={`overflow-hidden rounded-full ring-2 ring-offset-2 ring-offset-white transition-all ${
+                    form.avatarId === opt.id ? "ring-coral scale-105" : "ring-transparent hover:ring-navy/20"
+                  }`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={avatarFor(seed)} alt={`Avatar option ${seed}`} className="h-full w-full object-cover" />
+                  <img src={opt.src} alt={opt.label} className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>
