@@ -1,0 +1,8 @@
+# Edge Functions config. Stripe calls stripe-webhook directly (no
+# Supabase session), so it must skip the platform's JWT check — the
+# function verifies the request itself via the Stripe-Signature header
+# instead. The other two functions are called by signed-in users through
+# supabase.functions.invoke(), which forwards their session JWT, so they
+# keep the default verify_jwt = true.
+[functions.stripe-webhook]
+verify_jwt = false

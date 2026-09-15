@@ -579,3 +579,32 @@ create policy "Hosts manage deals on their own listings"
   on public.last_minute_deals for all
   using (exists (select 1 from public.listings l where l.id = last_minute_deals.listing_id and l.host_id = auth.uid()))
   with check (exists (select 1 from public.listings l where l.id = last_minute_deals.listing_id and l.host_id = auth.uid()));
+
+-- ============================================================
+-- Redormi Phase 3 schema: Stripe payments. A host's Stripe Connect
+-- account status, and payment fields on bookings. Both are written
+-- exclusively by the stripe-* Edge Functions (using the service_role key,
+-- which bypasses RLS) — there are deliberately no insert/update policies
+-- here for the anon/authenticated roles, so a signed-in user can read
+-- their own payout status but can never write payment state directly.
+-- ============================================================
+create table if not exists public.host_stripe_accounts (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  stripe_account_id text not null unique,
+  charges_enabled boolean not null default false,
+  payouts_enabled boolean not null default false,
+  details_submitted boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.host_stripe_accounts enable row level security;
+
+drop policy if exists "Hosts can view their own Stripe account status" on public.host_stripe_accounts;
+create policy "Hosts can view their own Stripe account status"
+  on public.host_stripe_accounts for select
+  using (user_id = auth.uid());
+
+alter table public.bookings add column if not exists stripe_checkout_session_id text;
+alter table public.bookings add column if not exists stripe_payment_intent_id text;
+alter table public.bookings add column if not exists payment_status text not null default 'unpaid';

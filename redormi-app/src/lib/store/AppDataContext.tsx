@@ -139,7 +139,9 @@ interface AppDataApi {
   ensureThread: (listingId: string, otherUserId: string, context: "rent" | "switch") => Promise<string>;
   markThreadRead: (threadId: string) => Promise<void>;
 
-  createBooking: (booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds">) => Promise<Booking>;
+  createBooking: (
+    booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds" | "paymentStatus" | "stripeCheckoutSessionId">
+  ) => Promise<Booking>;
   orderService: (order: Omit<ExtraServiceOrder, "id" | "createdAt" | "status">) => Promise<ExtraServiceOrder>;
 
   toggleSaved: (listingId: string) => Promise<void>;
@@ -661,6 +663,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       status: "held",
       extraServiceOrderIds: [],
       createdAt: new Date().toISOString(),
+      paymentStatus: "unpaid",
     };
     setState((s) => ({ ...s, bookings: [full, ...s.bookings] }));
     toast?.push({ tone: "success", text: "Reservation held! Check your trips for details." });

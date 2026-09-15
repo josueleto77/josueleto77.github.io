@@ -10,6 +10,7 @@ import Icon from "@/components/ui/icons";
 import EmptyState from "@/components/ui/EmptyState";
 import OfferCard from "@/components/offers/OfferCard";
 import ExtraServicesManager from "@/components/services/ExtraServicesManager";
+import PayoutStatusCard from "@/components/host/PayoutStatusCard";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { addDays, formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { computeSwitchTier } from "@/lib/utils/tier";
@@ -235,10 +236,19 @@ export default function HostDashboardClient() {
           ))}
 
         {tab === "earnings" && (
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StatCard label="Rent earnings (confirmed + completed)" value={formatMoney(rentEarnings)} icon="credit-card" />
-            <StatCard label="Confirmed swaps" value={String(mySwaps.filter((s) => s.status === "confirmed").length)} icon="sparkles" />
-            <StatCard label="Active listings" value={String(myListings.length)} icon="home" />
+          <div className="flex flex-col gap-4">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <StatCard label="Rent earnings (confirmed + completed)" value={formatMoney(rentEarnings)} icon="credit-card" />
+              <StatCard label="Confirmed swaps" value={String(mySwaps.filter((s) => s.status === "confirmed").length)} icon="sparkles" />
+              <StatCard label="Active listings" value={String(myListings.length)} icon="home" />
+            </div>
+            {state.hasSupabaseSession ? (
+              <PayoutStatusCard />
+            ) : (
+              <p className="text-xs text-ink/50">
+                Payouts require a real account — you&apos;re browsing the demo account, so Stripe setup isn&apos;t available here.
+              </p>
+            )}
           </div>
         )}
 

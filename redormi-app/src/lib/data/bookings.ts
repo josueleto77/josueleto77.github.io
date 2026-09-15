@@ -49,6 +49,9 @@ export const bookings: Booking[] = seeds.map((s) => {
     fromOfferId: s.fromOfferId,
     extraServiceOrderIds: [],
     createdAt: addDays(checkIn, -14),
+    // Seed bookings are demo data, never real Stripe payments — "completed"
+    // reads oddly as unpaid, so mark anything past "held" as paid for display.
+    paymentStatus: s.status === "held" ? "unpaid" : "paid",
   };
 });
 

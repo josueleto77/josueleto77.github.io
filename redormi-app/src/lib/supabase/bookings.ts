@@ -18,6 +18,8 @@ interface BookingRow {
   status: Booking["status"];
   from_offer_id: string | null;
   created_at: string;
+  payment_status: Booking["paymentStatus"];
+  stripe_checkout_session_id: string | null;
 }
 
 function mapRowToBooking(row: BookingRow): Booking {
@@ -39,6 +41,8 @@ function mapRowToBooking(row: BookingRow): Booking {
     fromOfferId: row.from_offer_id ?? undefined,
     extraServiceOrderIds: [],
     createdAt: row.created_at,
+    paymentStatus: row.payment_status,
+    stripeCheckoutSessionId: row.stripe_checkout_session_id ?? undefined,
   };
 }
 
@@ -50,7 +54,7 @@ export async function fetchBookingsForUser(): Promise<Booking[]> {
 }
 
 export async function createBookingInSupabase(
-  booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds">
+  booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds" | "paymentStatus" | "stripeCheckoutSessionId">
 ): Promise<Booking | null> {
   const { data, error } = await supabase
     .from("bookings")
