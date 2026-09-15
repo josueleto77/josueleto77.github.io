@@ -31,9 +31,18 @@ import { useToast } from "@/lib/store/ToastContext";
 import { supabase } from "@/lib/supabase/client";
 import { signInWithEmail, signUpWithEmail, signOutSupabase, fetchProfile, upsertProfile } from "@/lib/supabase/auth";
 import { fetchPublishedListings } from "@/lib/supabase/listings";
+import { fetchOffersForUser, createOfferInSupabase, counterOfferInSupabase, respondOfferInSupabase } from "@/lib/supabase/offers";
+import { fetchBookingsForUser, createBookingInSupabase } from "@/lib/supabase/bookings";
+import { fetchSavedListingIds, saveListingInSupabase, unsaveListingInSupabase } from "@/lib/supabase/saved";
+import { fetchAcceptancesForUser, recordAcceptanceInSupabase } from "@/lib/supabase/legal";
 
 interface AppState {
   currentUserId: string | null;
+  // True once a real (non-demo) Supabase session is confirmed. Gates
+  // whether writes (offers, bookings, ...) go to the real backend —
+  // loginDemo() never sets this, so the seed-data demo stays fully
+  // local/offline exactly as before.
+  hasSupabaseSession: boolean;
   users: User[];
   listings: Listing[];
   offers: Offer[];
@@ -58,6 +67,7 @@ function initialState(): AppState {
     // into the demo account explicitly (see loginDemo) rather than being
     // silently signed in as "Jordan Ellis" on their first visit.
     currentUserId: null,
+    hasSupabaseSession: false,
     users: seedUsers,
     listings: seedListings,
     offers: seedOffers,
@@ -100,12 +110,14 @@ interface AppDataApi {
     profile: Partial<User> & { name: string }
   ) => Promise<{ ok: boolean; needsEmailConfirmation?: boolean; error?: string }>;
   updateUser: (userId: string, patch: Partial<User>) => void;
-  acceptAgreement: (documentSlug: string, version: string) => void;
+  acceptAgreement: (documentSlug: string, version: string) => Promise<void>;
   hasAccepted: (documentSlug: string, version: string) => boolean;
 
-  createOffer: (offer: Omit<Offer, "id" | "createdAt" | "status" | "expiresAt" | "history" | "lastActor">) => Offer;
-  counterOffer: (offerId: string, actor: "guest" | "host", discountPercent: number, message?: string) => void;
-  respondOffer: (offerId: string, status: "accepted" | "declined") => void;
+  createOffer: (
+    offer: Omit<Offer, "id" | "createdAt" | "status" | "expiresAt" | "history" | "lastActor">
+  ) => Promise<Offer>;
+  counterOffer: (offerId: string, actor: "guest" | "host", discountPercent: number, message?: string) => Promise<void>;
+  respondOffer: (offerId: string, status: "accepted" | "declined") => Promise<void>;
 
   createSwap: (swap: Omit<SwapProposal, "id" | "createdAt" | "status">) => SwapProposal;
   respondSwap: (swapId: string, status: SwapProposal["status"]) => void;
@@ -115,10 +127,10 @@ interface AppDataApi {
   ensureThread: (listingId: string, otherUserId: string, context: "rent" | "switch") => string;
   markThreadRead: (threadId: string) => void;
 
-  createBooking: (booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds">) => Booking;
+  createBooking: (booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds">) => Promise<Booking>;
   orderService: (order: Omit<ExtraServiceOrder, "id" | "createdAt" | "status">) => ExtraServiceOrder;
 
-  toggleSaved: (listingId: string) => void;
+  toggleSaved: (listingId: string) => Promise<void>;
   isSaved: (listingId: string) => boolean;
 
   createListing: (listing: Listing) => void;
@@ -176,7 +188,43 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           ? s.users.map((u) => (u.id === profile.id ? profile : u))
           : [...s.users, profile],
         currentUserId: profile.id,
+        hasSupabaseSession: true,
       }));
+      await syncPrivateData();
+    }
+
+    // The user's own offers and bookings — anything created on the real
+    // backend, merged in alongside whatever demo/seed data is already
+    // in local state (same "real rows first, dedup by id" pattern as
+    // syncListings below).
+    async function syncPrivateData() {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData.session?.user.id;
+      if (!userId) return;
+      const [realOffers, realBookings, realSavedIds, realAcceptances] = await Promise.all([
+        fetchOffersForUser(),
+        fetchBookingsForUser(),
+        fetchSavedListingIds(),
+        fetchAcceptancesForUser(),
+      ]);
+      if (cancelled) return;
+      setState((s) => {
+        const offerIds = new Set(s.offers.map((o) => o.id));
+        const bookingIds = new Set(s.bookings.map((b) => b.id));
+        const localSaved = new Set(s.saved[userId] ?? []);
+        const mergedSaved = new Set([...localSaved, ...realSavedIds]);
+        const acceptanceKeys = new Set(s.acceptances.map((a) => `${a.userId}:${a.documentSlug}:${a.version}`));
+        return {
+          ...s,
+          offers: [...realOffers.filter((o) => !offerIds.has(o.id)), ...s.offers],
+          bookings: [...realBookings.filter((b) => !bookingIds.has(b.id)), ...s.bookings],
+          saved: { ...s.saved, [userId]: Array.from(mergedSaved) },
+          acceptances: [
+            ...s.acceptances,
+            ...realAcceptances.filter((a) => !acceptanceKeys.has(`${a.userId}:${a.documentSlug}:${a.version}`)),
+          ],
+        };
+      });
     }
 
     async function syncListings() {
@@ -194,7 +242,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
-        setState((s) => ({ ...s, currentUserId: null }));
+        setState((s) => ({ ...s, currentUserId: null, hasSupabaseSession: false }));
       } else if (event === "SIGNED_IN" || event === "USER_UPDATED") {
         syncSession();
       }
@@ -226,10 +274,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             ? s.users.map((u) => (u.id === profile.id ? profile : u))
             : [...s.users, profile],
           currentUserId: profile.id,
+          hasSupabaseSession: true,
         }));
         toast?.push({ tone: "success", text: `Welcome back, ${profile.name.split(" ")[0]}!` });
       } else {
-        setState((s) => ({ ...s, currentUserId: userId }));
+        setState((s) => ({ ...s, currentUserId: userId, hasSupabaseSession: true }));
       }
       return { ok: true };
     },
@@ -242,7 +291,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await signOutSupabase();
-    setState((s) => ({ ...s, currentUserId: null }));
+    setState((s) => ({ ...s, currentUserId: null, hasSupabaseSession: false }));
   }, []);
 
   const signup = useCallback<AppDataApi["signup"]>(async (email, password, profile) => {
@@ -275,6 +324,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           ? s.users.map((u) => (u.id === updatedProfile.id ? updatedProfile : u))
           : [...s.users, updatedProfile],
         currentUserId: loggedIn ? updatedProfile.id : s.currentUserId,
+        hasSupabaseSession: loggedIn ? true : s.hasSupabaseSession,
       }));
     }
     return { ok: true, needsEmailConfirmation: !loggedIn };
@@ -288,7 +338,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const acceptAgreement = useCallback<AppDataApi["acceptAgreement"]>(
-    (documentSlug, version) => {
+    async (documentSlug, version) => {
       if (!state.currentUserId) return;
       const record: AcceptanceRecord = {
         id: makeId("acc"),
@@ -299,8 +349,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         ip: "127.0.0.1 (simulated)",
       };
       setState((s) => ({ ...s, acceptances: [...s.acceptances, record] }));
+
+      if (state.hasSupabaseSession) {
+        await recordAcceptanceInSupabase(state.currentUserId, documentSlug, version);
+      }
     },
-    [state.currentUserId]
+    [state.currentUserId, state.hasSupabaseSession]
   );
 
   const hasAccepted = useCallback<AppDataApi["hasAccepted"]>(
@@ -314,22 +368,35 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [state.acceptances, state.currentUserId]
   );
 
-  const createOffer = useCallback<AppDataApi["createOffer"]>((offer) => {
+  const createOffer = useCallback<AppDataApi["createOffer"]>(async (offer) => {
+    const expiresAt = new Date(Date.now() + OFFER_EXPIRY_HOURS * 3600000).toISOString();
+    const tempId = makeId("off");
     const full: Offer = {
       ...offer,
-      id: makeId("off"),
+      id: tempId,
       status: "pending",
-      expiresAt: new Date(Date.now() + OFFER_EXPIRY_HOURS * 3600000).toISOString(),
+      expiresAt,
       createdAt: new Date().toISOString(),
       history: [],
       lastActor: "guest",
     };
     setState((s) => ({ ...s, offers: [full, ...s.offers] }));
     toast?.push({ tone: "success", text: "Offer sent! You'll hear back within 48 hours." });
-    return full;
-  }, [toast]);
 
-  const counterOffer = useCallback<AppDataApi["counterOffer"]>((offerId, actor, discountPercent, message) => {
+    if (state.hasSupabaseSession) {
+      const real = await createOfferInSupabase(offer, expiresAt);
+      if (real) {
+        setState((s) => ({ ...s, offers: s.offers.map((o) => (o.id === tempId ? real : o)) }));
+        return real;
+      }
+    }
+    return full;
+  }, [toast, state.hasSupabaseSession]);
+
+  const counterOffer = useCallback<AppDataApi["counterOffer"]>(async (offerId, actor, discountPercent, message) => {
+    let newHistory: Offer["history"] = [];
+    let newNightly = 0;
+    let newTotal = 0;
     setState((s) => ({
       ...s,
       offers: s.offers.map((o) => {
@@ -340,24 +407,31 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           1,
           Math.round((new Date(o.checkOut).getTime() - new Date(o.checkIn).getTime()) / 86400000)
         );
+        newNightly = Math.round(nightly * 100) / 100;
+        newTotal = Math.round(nightly * nights * 100) / 100;
+        newHistory = [
+          ...o.history,
+          { id: makeId("co"), offerId, actor, discountPercent, message, createdAt: new Date().toISOString() },
+        ];
         return {
           ...o,
           status: "countered",
           discountPercent,
-          resultingNightly: Math.round(nightly * 100) / 100,
-          resultingTotal: Math.round(nightly * nights * 100) / 100,
+          resultingNightly: newNightly,
+          resultingTotal: newTotal,
           lastActor: actor,
-          history: [
-            ...o.history,
-            { id: makeId("co"), offerId, actor, discountPercent, message, createdAt: new Date().toISOString() },
-          ],
+          history: newHistory,
         };
       }),
     }));
     toast?.push({ tone: "info", text: "Counter-offer sent." });
-  }, [toast]);
 
-  const respondOffer = useCallback<AppDataApi["respondOffer"]>((offerId, status) => {
+    if (state.hasSupabaseSession && newHistory.length > 0) {
+      await counterOfferInSupabase(offerId, actor, discountPercent, newNightly, newTotal, newHistory);
+    }
+  }, [toast, state.hasSupabaseSession]);
+
+  const respondOffer = useCallback<AppDataApi["respondOffer"]>(async (offerId, status) => {
     setState((s) => ({
       ...s,
       offers: s.offers.map((o) => (o.id === offerId ? { ...o, status } : o)),
@@ -366,7 +440,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       tone: status === "accepted" ? "success" : "info",
       text: status === "accepted" ? "Offer accepted — reservation held." : "Offer declined.",
     });
-  }, [toast]);
+
+    if (state.hasSupabaseSession) {
+      await respondOfferInSupabase(offerId, status);
+    }
+  }, [toast, state.hasSupabaseSession]);
 
   const createSwap = useCallback<AppDataApi["createSwap"]>((swap) => {
     const full: SwapProposal = { ...swap, id: makeId("sp"), status: "proposed", createdAt: new Date().toISOString() };
@@ -471,18 +549,27 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [state.currentUserId]);
 
-  const createBooking = useCallback<AppDataApi["createBooking"]>((booking) => {
+  const createBooking = useCallback<AppDataApi["createBooking"]>(async (booking) => {
+    const tempId = makeId("bk");
     const full: Booking = {
       ...booking,
-      id: makeId("bk"),
+      id: tempId,
       status: "held",
       extraServiceOrderIds: [],
       createdAt: new Date().toISOString(),
     };
     setState((s) => ({ ...s, bookings: [full, ...s.bookings] }));
     toast?.push({ tone: "success", text: "Reservation held! Check your trips for details." });
+
+    if (state.hasSupabaseSession) {
+      const real = await createBookingInSupabase(booking);
+      if (real) {
+        setState((s) => ({ ...s, bookings: s.bookings.map((b) => (b.id === tempId ? real : b)) }));
+        return real;
+      }
+    }
     return full;
-  }, [toast]);
+  }, [toast, state.hasSupabaseSession]);
 
   const orderService = useCallback<AppDataApi["orderService"]>((order) => {
     const full: ExtraServiceOrder = { ...order, id: makeId("eso"), status: "confirmed", createdAt: new Date().toISOString() };
@@ -491,19 +578,24 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return full;
   }, [toast]);
 
-  const toggleSaved = useCallback<AppDataApi["toggleSaved"]>((listingId) => {
+  const toggleSaved = useCallback<AppDataApi["toggleSaved"]>(async (listingId) => {
     if (!state.currentUserId) {
       toast?.push({ tone: "info", text: "Log in to save homes." });
       return;
     }
+    const userId = state.currentUserId;
+    const wasSaved = (state.saved[userId] ?? []).includes(listingId);
     setState((s) => {
-      const current = s.saved[state.currentUserId!] ?? [];
-      const next = current.includes(listingId)
-        ? current.filter((id) => id !== listingId)
-        : [...current, listingId];
-      return { ...s, saved: { ...s.saved, [state.currentUserId!]: next } };
+      const current = s.saved[userId] ?? [];
+      const next = wasSaved ? current.filter((id) => id !== listingId) : [...current, listingId];
+      return { ...s, saved: { ...s.saved, [userId]: next } };
     });
-  }, [state.currentUserId, toast]);
+
+    if (state.hasSupabaseSession) {
+      if (wasSaved) await unsaveListingInSupabase(userId, listingId);
+      else await saveListingInSupabase(userId, listingId);
+    }
+  }, [state.currentUserId, state.saved, state.hasSupabaseSession, toast]);
 
   const isSaved = useCallback<AppDataApi["isSaved"]>(
     (listingId) => (state.currentUserId ? (state.saved[state.currentUserId] ?? []).includes(listingId) : false),
