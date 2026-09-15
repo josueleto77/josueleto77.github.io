@@ -36,6 +36,17 @@ import { fetchBookingsForUser, createBookingInSupabase } from "@/lib/supabase/bo
 import { fetchSavedListingIds, saveListingInSupabase, unsaveListingInSupabase } from "@/lib/supabase/saved";
 import { fetchAcceptancesForUser, recordAcceptanceInSupabase } from "@/lib/supabase/legal";
 import { fetchMessagingForUser, createThreadInSupabase, sendMessageInSupabase, markThreadReadInSupabase } from "@/lib/supabase/messaging";
+import { fetchSwapsForUser, createSwapInSupabase, respondSwapInSupabase, upsertSwapAgreementInSupabase } from "@/lib/supabase/swaps";
+import {
+  fetchExtraServicesForHost,
+  fetchServiceOrdersForUser,
+  createExtraServiceInSupabase,
+  updateExtraServiceInSupabase,
+  deleteExtraServiceInSupabase,
+  orderServiceInSupabase,
+} from "@/lib/supabase/extraServices";
+import { fetchDeals, createDealInSupabase } from "@/lib/supabase/deals";
+import { fetchNotificationsForUser, markNotificationReadInSupabase } from "@/lib/supabase/notifications";
 
 interface AppState {
   currentUserId: string | null;
@@ -120,29 +131,29 @@ interface AppDataApi {
   counterOffer: (offerId: string, actor: "guest" | "host", discountPercent: number, message?: string) => Promise<void>;
   respondOffer: (offerId: string, status: "accepted" | "declined") => Promise<void>;
 
-  createSwap: (swap: Omit<SwapProposal, "id" | "createdAt" | "status">) => SwapProposal;
-  respondSwap: (swapId: string, status: SwapProposal["status"]) => void;
-  signAgreement: (swapId: string, actor: "from" | "to", addOnIds: string[]) => void;
+  createSwap: (swap: Omit<SwapProposal, "id" | "createdAt" | "status">) => Promise<SwapProposal>;
+  respondSwap: (swapId: string, status: SwapProposal["status"]) => Promise<void>;
+  signAgreement: (swapId: string, actor: "from" | "to", addOnIds: string[]) => Promise<void>;
 
   sendMessage: (threadId: string, text: string, imageUrl?: string) => Promise<void>;
   ensureThread: (listingId: string, otherUserId: string, context: "rent" | "switch") => Promise<string>;
   markThreadRead: (threadId: string) => Promise<void>;
 
   createBooking: (booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds">) => Promise<Booking>;
-  orderService: (order: Omit<ExtraServiceOrder, "id" | "createdAt" | "status">) => ExtraServiceOrder;
+  orderService: (order: Omit<ExtraServiceOrder, "id" | "createdAt" | "status">) => Promise<ExtraServiceOrder>;
 
   toggleSaved: (listingId: string) => Promise<void>;
   isSaved: (listingId: string) => boolean;
 
   createListing: (listing: Listing) => void;
   updateListing: (listingId: string, patch: Partial<Listing>) => void;
-  createDeal: (deal: Omit<LastMinuteDeal, "id" | "createdAt">) => void;
+  createDeal: (deal: Omit<LastMinuteDeal, "id" | "createdAt">) => Promise<void>;
 
-  createExtraService: (service: Omit<ExtraService, "id">) => ExtraService;
-  updateExtraService: (serviceId: string, patch: Partial<ExtraService>) => void;
-  deleteExtraService: (serviceId: string) => void;
+  createExtraService: (service: Omit<ExtraService, "id">) => Promise<ExtraService>;
+  updateExtraService: (serviceId: string, patch: Partial<ExtraService>) => Promise<void>;
+  deleteExtraService: (serviceId: string) => Promise<void>;
 
-  markNotificationRead: (id: string) => void;
+  markNotificationRead: (id: string) => Promise<void>;
 }
 
 const AppDataContext = createContext<AppDataApi | null>(null);
@@ -202,12 +213,26 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const { data: sessionData } = await supabase.auth.getSession();
       const userId = sessionData.session?.user.id;
       if (!userId) return;
-      const [realOffers, realBookings, realSavedIds, realAcceptances, realMessaging] = await Promise.all([
+      const [
+        realOffers,
+        realBookings,
+        realSavedIds,
+        realAcceptances,
+        realMessaging,
+        realSwaps,
+        realExtraServices,
+        realServiceOrders,
+        realNotifications,
+      ] = await Promise.all([
         fetchOffersForUser(),
         fetchBookingsForUser(),
         fetchSavedListingIds(),
         fetchAcceptancesForUser(),
         fetchMessagingForUser(),
+        fetchSwapsForUser(),
+        fetchExtraServicesForHost(userId),
+        fetchServiceOrdersForUser(),
+        fetchNotificationsForUser(),
       ]);
       if (cancelled) return;
       setState((s) => {
@@ -218,11 +243,30 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const acceptanceKeys = new Set(s.acceptances.map((a) => `${a.userId}:${a.documentSlug}:${a.version}`));
         const threadIds = new Set(s.threads.map((t) => t.id));
         const messageIds = new Set(s.messages.map((m) => m.id));
+        const swapIds = new Set(s.swaps.map((sw) => sw.id));
+        const agreementSwapIds = new Set(s.agreements.map((a) => a.swapId));
+        const extraServiceIds = new Set(s.extraServices.map((es) => es.id));
+        const serviceOrderIds = new Set(s.serviceOrders.map((o) => o.id));
+        const notificationIds = new Set(s.notifications.map((n) => n.id));
         return {
           ...s,
           offers: [...realOffers.filter((o) => !offerIds.has(o.id)), ...s.offers],
           bookings: [...realBookings.filter((b) => !bookingIds.has(b.id)), ...s.bookings],
           saved: { ...s.saved, [userId]: Array.from(mergedSaved) },
+          swaps: [...realSwaps.swaps.filter((sw) => !swapIds.has(sw.id)), ...s.swaps],
+          agreements: [
+            ...s.agreements,
+            ...realSwaps.agreements.filter((a) => !agreementSwapIds.has(a.swapId)),
+          ],
+          extraServices: [...s.extraServices, ...realExtraServices.filter((es) => !extraServiceIds.has(es.id))],
+          serviceOrders: [
+            ...realServiceOrders.filter((o) => !serviceOrderIds.has(o.id)),
+            ...s.serviceOrders,
+          ],
+          notifications: [
+            ...realNotifications.filter((n) => !notificationIds.has(n.id)),
+            ...s.notifications,
+          ],
           acceptances: [
             ...s.acceptances,
             ...realAcceptances.filter((a) => !acceptanceKeys.has(`${a.userId}:${a.documentSlug}:${a.version}`)),
@@ -243,8 +287,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
+    // Last-minute deals are public, like listings — no session required.
+    async function syncDeals() {
+      const realDeals = await fetchDeals();
+      if (cancelled || realDeals.length === 0) return;
+      setState((s) => {
+        const seedIds = new Set(s.deals.map((d) => d.id));
+        return { ...s, deals: [...realDeals.filter((d) => !seedIds.has(d.id)), ...s.deals] };
+      });
+    }
+
     syncSession();
     syncListings();
+    syncDeals();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_OUT") {
@@ -452,47 +507,69 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [toast, state.hasSupabaseSession]);
 
-  const createSwap = useCallback<AppDataApi["createSwap"]>((swap) => {
-    const full: SwapProposal = { ...swap, id: makeId("sp"), status: "proposed", createdAt: new Date().toISOString() };
+  const createSwap = useCallback<AppDataApi["createSwap"]>(async (swap) => {
+    const tempId = makeId("sp");
+    const full: SwapProposal = { ...swap, id: tempId, status: "proposed", createdAt: new Date().toISOString() };
     setState((s) => ({ ...s, swaps: [full, ...s.swaps] }));
     toast?.push({ tone: "success", text: "Swap proposal sent!" });
+
+    if (state.hasSupabaseSession) {
+      const real = await createSwapInSupabase(swap);
+      if (real) {
+        setState((s) => ({ ...s, swaps: s.swaps.map((sp) => (sp.id === tempId ? real : sp)) }));
+        return real;
+      }
+    }
     return full;
-  }, [toast]);
+  }, [toast, state.hasSupabaseSession]);
 
-  const respondSwap = useCallback<AppDataApi["respondSwap"]>((swapId, status) => {
+  const respondSwap = useCallback<AppDataApi["respondSwap"]>(async (swapId, status) => {
     setState((s) => ({ ...s, swaps: s.swaps.map((sp) => (sp.id === swapId ? { ...sp, status } : sp)) }));
-  }, []);
+    if (state.hasSupabaseSession) {
+      await respondSwapInSupabase(swapId, status);
+    }
+  }, [state.hasSupabaseSession]);
 
-  const signAgreement = useCallback<AppDataApi["signAgreement"]>((swapId, actor, addOnIds) => {
-    setState((s) => {
-      const existing = s.agreements.find((a) => a.swapId === swapId);
-      const base: SwapAgreement = existing ?? {
-        id: makeId("agr"),
+  const signAgreement = useCallback<AppDataApi["signAgreement"]>(async (swapId, actor, addOnIds) => {
+    const existing = state.agreements.find((a) => a.swapId === swapId);
+    const base: SwapAgreement = existing ?? {
+      id: makeId("agr"),
+      swapId,
+      signedByFrom: false,
+      signedByTo: false,
+      addOnIds: [],
+      version: "1.0",
+    };
+    const updated: SwapAgreement = {
+      ...base,
+      addOnIds: Array.from(new Set([...base.addOnIds, ...addOnIds])),
+      signedByFrom: actor === "from" ? true : base.signedByFrom,
+      signedByTo: actor === "to" ? true : base.signedByTo,
+    };
+    const bothSigned = updated.signedByFrom && updated.signedByTo;
+    if (bothSigned) updated.signedAt = new Date().toISOString();
+    const newSwapStatus: SwapProposal["status"] = bothSigned ? "confirmed" : "agreement_pending";
+
+    setState((s) => ({
+      ...s,
+      agreements: existing
+        ? s.agreements.map((a) => (a.swapId === swapId ? updated : a))
+        : [...s.agreements, updated],
+      swaps: s.swaps.map((sp) => (sp.id === swapId ? { ...sp, status: newSwapStatus } : sp)),
+    }));
+
+    if (state.hasSupabaseSession) {
+      await upsertSwapAgreementInSupabase({
         swapId,
-        signedByFrom: false,
-        signedByTo: false,
-        addOnIds: [],
-        version: "1.0",
-      };
-      const updated: SwapAgreement = {
-        ...base,
-        addOnIds: Array.from(new Set([...base.addOnIds, ...addOnIds])),
-        signedByFrom: actor === "from" ? true : base.signedByFrom,
-        signedByTo: actor === "to" ? true : base.signedByTo,
-      };
-      const bothSigned = updated.signedByFrom && updated.signedByTo;
-      if (bothSigned) updated.signedAt = new Date().toISOString();
-      return {
-        ...s,
-        agreements: existing
-          ? s.agreements.map((a) => (a.swapId === swapId ? updated : a))
-          : [...s.agreements, updated],
-        swaps: s.swaps.map((sp) =>
-          sp.id === swapId ? { ...sp, status: bothSigned ? "confirmed" : "agreement_pending" } : sp
-        ),
-      };
-    });
-  }, []);
+        signedByFrom: updated.signedByFrom,
+        signedByTo: updated.signedByTo,
+        addOnIds: updated.addOnIds,
+        signedAt: updated.signedAt,
+        version: updated.version,
+        status: newSwapStatus,
+      });
+    }
+  }, [state.agreements, state.hasSupabaseSession]);
 
   const ensureThread = useCallback<AppDataApi["ensureThread"]>(
     async (listingId, otherUserId, context) => {
@@ -598,12 +675,21 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     return full;
   }, [toast, state.hasSupabaseSession]);
 
-  const orderService = useCallback<AppDataApi["orderService"]>((order) => {
-    const full: ExtraServiceOrder = { ...order, id: makeId("eso"), status: "confirmed", createdAt: new Date().toISOString() };
+  const orderService = useCallback<AppDataApi["orderService"]>(async (order) => {
+    const tempId = makeId("eso");
+    const full: ExtraServiceOrder = { ...order, id: tempId, status: "confirmed", createdAt: new Date().toISOString() };
     setState((s) => ({ ...s, serviceOrders: [full, ...s.serviceOrders] }));
     toast?.push({ tone: "success", text: "Added to your trip." });
+
+    if (state.hasSupabaseSession) {
+      const real = await orderServiceInSupabase(order);
+      if (real) {
+        setState((s) => ({ ...s, serviceOrders: s.serviceOrders.map((o) => (o.id === tempId ? real : o)) }));
+        return real;
+      }
+    }
     return full;
-  }, [toast]);
+  }, [toast, state.hasSupabaseSession]);
 
   const toggleSaved = useCallback<AppDataApi["toggleSaved"]>(async (listingId) => {
     if (!state.currentUserId) {
@@ -645,36 +731,60 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const createDeal = useCallback<AppDataApi["createDeal"]>((deal) => {
-    const full: LastMinuteDeal = { ...deal, id: makeId("deal"), createdAt: new Date().toISOString() };
+  const createDeal = useCallback<AppDataApi["createDeal"]>(async (deal) => {
+    const tempId = makeId("deal");
+    const full: LastMinuteDeal = { ...deal, id: tempId, createdAt: new Date().toISOString() };
     setState((s) => ({ ...s, deals: [full, ...s.deals] }));
     toast?.push({ tone: "success", text: "Last-minute deal published." });
-  }, [toast]);
 
-  const createExtraService = useCallback<AppDataApi["createExtraService"]>((service) => {
-    const full: ExtraService = { ...service, id: makeId("svc") };
+    if (state.hasSupabaseSession) {
+      const real = await createDealInSupabase(deal);
+      if (real) setState((s) => ({ ...s, deals: s.deals.map((d) => (d.id === tempId ? real : d)) }));
+    }
+  }, [toast, state.hasSupabaseSession]);
+
+  const createExtraService = useCallback<AppDataApi["createExtraService"]>(async (service) => {
+    const tempId = makeId("svc");
+    const full: ExtraService = { ...service, id: tempId };
     setState((s) => ({ ...s, extraServices: [...s.extraServices, full] }));
     toast?.push({ tone: "success", text: "Extra service added." });
-    return full;
-  }, [toast]);
 
-  const updateExtraService = useCallback<AppDataApi["updateExtraService"]>((serviceId, patch) => {
+    if (state.hasSupabaseSession && state.currentUserId) {
+      const real = await createExtraServiceInSupabase(service, state.currentUserId);
+      if (real) {
+        setState((s) => ({ ...s, extraServices: s.extraServices.map((sv) => (sv.id === tempId ? real : sv)) }));
+        return real;
+      }
+    }
+    return full;
+  }, [toast, state.hasSupabaseSession, state.currentUserId]);
+
+  const updateExtraService = useCallback<AppDataApi["updateExtraService"]>(async (serviceId, patch) => {
     setState((s) => ({
       ...s,
       extraServices: s.extraServices.map((sv) => (sv.id === serviceId ? { ...sv, ...patch } : sv)),
     }));
-  }, []);
+    if (state.hasSupabaseSession) {
+      await updateExtraServiceInSupabase(serviceId, patch);
+    }
+  }, [state.hasSupabaseSession]);
 
-  const deleteExtraService = useCallback<AppDataApi["deleteExtraService"]>((serviceId) => {
+  const deleteExtraService = useCallback<AppDataApi["deleteExtraService"]>(async (serviceId) => {
     setState((s) => ({ ...s, extraServices: s.extraServices.filter((sv) => sv.id !== serviceId) }));
-  }, []);
+    if (state.hasSupabaseSession) {
+      await deleteExtraServiceInSupabase(serviceId);
+    }
+  }, [state.hasSupabaseSession]);
 
-  const markNotificationRead = useCallback<AppDataApi["markNotificationRead"]>((id) => {
+  const markNotificationRead = useCallback<AppDataApi["markNotificationRead"]>(async (id) => {
     setState((s) => ({
       ...s,
       notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
     }));
-  }, []);
+    if (state.hasSupabaseSession) {
+      await markNotificationReadInSupabase(id);
+    }
+  }, [state.hasSupabaseSession]);
 
   const value: AppDataApi = {
     state,
