@@ -20,6 +20,9 @@ export const CORE_AGREEMENT_DOCS: LegalMeta[] = [
   { slug: "payments-fees", title: "Payments & Fees", version: "1.0", summary: "How money moves through Rent and Switch." },
   { slug: "house-rules", title: "Guest Standards & House Rules", version: "1.0", summary: "Occupancy, conduct, and check-in/check-out standards for every stay." },
   { slug: "vehicle-rental-agreement", title: "Vehicle & Equipment Rental Agreement", version: "1.0", summary: "Eligibility, waivers, and liability for renting a vehicle through Extra Services." },
+  { slug: "code-of-conduct", title: "Code of Conduct", version: "1.0", summary: "How Members are expected to treat each other, on and off the platform." },
+  { slug: "cookie-policy", title: "Cookie Policy", version: "1.0", summary: "The cookies Redormi uses, and how to control them." },
+  { slug: "legal-notice", title: "Legal Notice", version: "1.0", summary: "Company identity, hosting, and intellectual property information." },
 ];
 
 export const SWITCH_AGREEMENT_DOC: LegalMeta = {

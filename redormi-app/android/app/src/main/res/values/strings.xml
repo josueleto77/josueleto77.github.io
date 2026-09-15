@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Redormi</string>
+    <string name="title_activity_main">Redormi</string>
+    <string name="package_name">com.redormi.app</string>
+    <string name="custom_url_scheme">com.redormi.app</string>
+</resources>
