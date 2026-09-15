@@ -35,6 +35,7 @@ import { fetchOffersForUser, createOfferInSupabase, counterOfferInSupabase, resp
 import { fetchBookingsForUser, createBookingInSupabase } from "@/lib/supabase/bookings";
 import { fetchSavedListingIds, saveListingInSupabase, unsaveListingInSupabase } from "@/lib/supabase/saved";
 import { fetchAcceptancesForUser, recordAcceptanceInSupabase } from "@/lib/supabase/legal";
+import { fetchMessagingForUser, createThreadInSupabase, sendMessageInSupabase, markThreadReadInSupabase } from "@/lib/supabase/messaging";
 
 interface AppState {
   currentUserId: string | null;
@@ -123,9 +124,9 @@ interface AppDataApi {
   respondSwap: (swapId: string, status: SwapProposal["status"]) => void;
   signAgreement: (swapId: string, actor: "from" | "to", addOnIds: string[]) => void;
 
-  sendMessage: (threadId: string, text: string, imageUrl?: string) => void;
-  ensureThread: (listingId: string, otherUserId: string, context: "rent" | "switch") => string;
-  markThreadRead: (threadId: string) => void;
+  sendMessage: (threadId: string, text: string, imageUrl?: string) => Promise<void>;
+  ensureThread: (listingId: string, otherUserId: string, context: "rent" | "switch") => Promise<string>;
+  markThreadRead: (threadId: string) => Promise<void>;
 
   createBooking: (booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds">) => Promise<Booking>;
   orderService: (order: Omit<ExtraServiceOrder, "id" | "createdAt" | "status">) => ExtraServiceOrder;
@@ -201,11 +202,12 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       const { data: sessionData } = await supabase.auth.getSession();
       const userId = sessionData.session?.user.id;
       if (!userId) return;
-      const [realOffers, realBookings, realSavedIds, realAcceptances] = await Promise.all([
+      const [realOffers, realBookings, realSavedIds, realAcceptances, realMessaging] = await Promise.all([
         fetchOffersForUser(),
         fetchBookingsForUser(),
         fetchSavedListingIds(),
         fetchAcceptancesForUser(),
+        fetchMessagingForUser(),
       ]);
       if (cancelled) return;
       setState((s) => {
@@ -214,6 +216,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         const localSaved = new Set(s.saved[userId] ?? []);
         const mergedSaved = new Set([...localSaved, ...realSavedIds]);
         const acceptanceKeys = new Set(s.acceptances.map((a) => `${a.userId}:${a.documentSlug}:${a.version}`));
+        const threadIds = new Set(s.threads.map((t) => t.id));
+        const messageIds = new Set(s.messages.map((m) => m.id));
         return {
           ...s,
           offers: [...realOffers.filter((o) => !offerIds.has(o.id)), ...s.offers],
@@ -223,6 +227,8 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
             ...s.acceptances,
             ...realAcceptances.filter((a) => !acceptanceKeys.has(`${a.userId}:${a.documentSlug}:${a.version}`)),
           ],
+          threads: [...realMessaging.threads.filter((t) => !threadIds.has(t.id)), ...s.threads],
+          messages: [...s.messages, ...realMessaging.messages.filter((m) => !messageIds.has(m.id))],
         };
       });
     }
@@ -489,7 +495,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const ensureThread = useCallback<AppDataApi["ensureThread"]>(
-    (listingId, otherUserId, context) => {
+    async (listingId, otherUserId, context) => {
       if (!state.currentUserId) return "";
       const existing = state.threads.find(
         (t) =>
@@ -498,6 +504,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           t.participantIds.includes(state.currentUserId!)
       );
       if (existing) return existing.id;
+
+      if (state.hasSupabaseSession) {
+        const real = await createThreadInSupabase(listingId, [state.currentUserId, otherUserId], context);
+        if (real) {
+          setState((s) => ({ ...s, threads: [real, ...s.threads] }));
+          return real.id;
+        }
+      }
+
       const id = makeId("th");
       const thread: MessageThread = {
         id,
@@ -510,18 +525,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       setState((s) => ({ ...s, threads: [thread, ...s.threads] }));
       return id;
     },
-    [state.currentUserId, state.threads]
+    [state.currentUserId, state.threads, state.hasSupabaseSession]
   );
 
-  const sendMessage = useCallback<AppDataApi["sendMessage"]>((threadId, text, imageUrl) => {
+  const sendMessage = useCallback<AppDataApi["sendMessage"]>(async (threadId, text, imageUrl) => {
     if (!state.currentUserId) return;
+    const tempId = makeId("m");
+    const sentAt = new Date().toISOString();
     const msg: Message = {
-      id: makeId("m"),
+      id: tempId,
       threadId,
       senderId: state.currentUserId,
       text,
       imageUrl,
-      sentAt: new Date().toISOString(),
+      sentAt,
       readBy: [state.currentUserId],
     };
     setState((s) => ({
@@ -537,17 +554,27 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
           : t
       ),
     }));
-  }, [state.currentUserId]);
 
-  const markThreadRead = useCallback<AppDataApi["markThreadRead"]>((threadId) => {
+    if (state.hasSupabaseSession) {
+      const real = await sendMessageInSupabase(threadId, state.currentUserId, text, imageUrl);
+      if (real) {
+        setState((s) => ({ ...s, messages: s.messages.map((m) => (m.id === tempId ? real : m)) }));
+      }
+    }
+  }, [state.currentUserId, state.hasSupabaseSession]);
+
+  const markThreadRead = useCallback<AppDataApi["markThreadRead"]>(async (threadId) => {
     if (!state.currentUserId) return;
+    const userId = state.currentUserId;
     setState((s) => ({
       ...s,
-      threads: s.threads.map((t) =>
-        t.id === threadId ? { ...t, unreadFor: t.unreadFor.filter((u) => u !== state.currentUserId) } : t
-      ),
+      threads: s.threads.map((t) => (t.id === threadId ? { ...t, unreadFor: t.unreadFor.filter((u) => u !== userId) } : t)),
     }));
-  }, [state.currentUserId]);
+
+    if (state.hasSupabaseSession) {
+      await markThreadReadInSupabase(threadId, userId);
+    }
+  }, [state.currentUserId, state.hasSupabaseSession]);
 
   const createBooking = useCallback<AppDataApi["createBooking"]>(async (booking) => {
     const tempId = makeId("bk");

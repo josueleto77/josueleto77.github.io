@@ -81,9 +81,9 @@ export default function SwapMatchClient({ targetListingId }: { targetListingId: 
     );
   }
 
-  function messageOwner() {
+  async function messageOwner() {
     if (!currentUser || !target) return;
-    const threadId = ensureThread(target.id, target.hostId, "switch");
+    const threadId = await ensureThread(target.id, target.hostId, "switch");
     if (threadId) router.push(`/messages/${threadId}`);
   }
 
