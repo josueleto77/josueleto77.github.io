@@ -4,6 +4,99 @@
    Users, Settings) — a working prototype of the CMS/reporting layer.
    ============================================================ */
 
+// ---------------- Real team data (Supabase) with a lazy self-refreshing cache ----------------
+// In real-backend mode, DEMO_TEAM is never used — this loads actual profiles +
+// progress (scoped by RLS to "my team" for managers, "everyone" for admins)
+// and reshapes each row into the exact same field names DEMO_TEAM uses, so
+// every existing render function below works unchanged either way.
+var TEAM_CACHE = null;
+function getTeamData(onReadyRerender) {
+  if (!window.NEXIS_BACKEND_READY) return DEMO_TEAM;
+  if (TEAM_CACHE) return TEAM_CACHE;
+  if (!window._teamLoading) {
+    window._teamLoading = true;
+    dbListTeamProfiles().then(function (res) {
+      var profiles = (res.data || []).filter(function (p) { return p.id !== NexisState.get().user.id; });
+      return Promise.all(profiles.map(function (p) { return dbFetchUserFullProgress(p.id).then(function (full) { return realMemberFromProfile(p, full); }); }));
+    }).then(function (members) {
+      TEAM_CACHE = members;
+      window._teamLoading = false;
+      if (onReadyRerender) onReadyRerender();
+    }).catch(function (e) {
+      console.error('Loading team data failed', e);
+      TEAM_CACHE = [];
+      window._teamLoading = false;
+      if (onReadyRerender) onReadyRerender();
+    });
+  }
+  return null;
+}
+function courseLessonPct(courseDef, lessonRows) {
+  var total = 0, done = 0;
+  courseDef.modules.forEach(function (m) {
+    total += m.lessons.length;
+    m.lessons.forEach(function (l) {
+      if (lessonRows.some(function (r) { return r.course_id === courseDef.id && r.module_id === m.id && r.lesson_id === l.id; })) done++;
+    });
+  });
+  return total ? Math.round((done / total) * 100) : 0;
+}
+function bestExamForCourse(examRows, courseId) {
+  var rows = examRows.filter(function (r) { return r.course_id === courseId; });
+  if (!rows.length) return null;
+  return rows.reduce(function (best, r) { return (!best || r.score_pct > best.score_pct) ? r : best; }, null);
+}
+function realMemberFromProfile(profile, full) {
+  var solarBest = bestExamForCourse(full.exams, 'solar');
+  var hvacBest = bestExamForCourse(full.exams, 'hvac');
+  var eaBest = bestExamForCourse(full.exams, 'energy-advisor');
+  var eaPractical = full.practicals.filter(function (r) { return r.course_id === 'energy-advisor'; }).reduce(function (best, r) { return (!best || r.score_pct > best.score_pct) ? r : best; }, null);
+  var solarCert = !!(solarBest && solarBest.passed);
+  var hvacCert = !!(hvacBest && hvacBest.passed);
+  var advisorStatus = 'locked';
+  if (solarCert && hvacCert) {
+    advisorStatus = (eaBest && eaBest.passed && (!ENERGY_ADVISOR_COURSE.practicalExam || (eaPractical && eaPractical.passed))) ? 'certified' : 'ready';
+  }
+  var checksAll = full.checks.map(function (c) { return c.score_pct; });
+  var quizAvg = checksAll.length ? Math.round(checksAll.reduce(function (a, b) { return a + b; }, 0) / checksAll.length) : 0;
+  var examScores = [solarBest, hvacBest, eaBest].filter(Boolean).map(function (e) { return e.score_pct; });
+  var examAvg = examScores.length ? Math.round(examScores.reduce(function (a, b) { return a + b; }, 0) / examScores.length) : 0;
+  var totalMinutes = full.lessons.reduce(function (s, r) { return s + (r.est_minutes || 6); }, 0);
+  var lastTimes = full.lessons.map(function (r) { return r.completed_at; }).concat(full.exams.map(function (r) { return r.at; })).filter(Boolean).sort();
+  var lastActivity = lastTimes.length ? lastTimes[lastTimes.length - 1].slice(0, 10) : (profile.created_at || '').slice(0, 10);
+  var weakTopics = [];
+  [solarBest, hvacBest, eaBest].forEach(function (best) {
+    if (best && best.category_breakdown) {
+      best.category_breakdown.filter(function (c) { return c.pct < 70; }).forEach(function (c) { if (weakTopics.indexOf(c.category) === -1) weakTopics.push(c.category); });
+    }
+  });
+  var examsByCourse = { solar: [], hvac: [], 'energy-advisor': [] };
+  full.exams.forEach(function (r) { examsByCourse[r.course_id] = examsByCourse[r.course_id] || []; examsByCourse[r.course_id].push({ scorePct: r.score_pct, passed: r.passed, at: r.at }); });
+  return {
+    id: profile.id, name: profile.name,
+    role: profile.role !== 'rep' ? (profile.role === 'admin' ? 'Admin' : 'Manager') : (solarCert && hvacCert ? 'Solar + HVAC Rep' : (solarCert ? 'Solar Rep' : (hvacCert ? 'HVAC Rep' : 'Rep'))),
+    solarPct: courseLessonPct(SOLAR_COURSE, full.lessons), hvacPct: courseLessonPct(HVAC_COURSE, full.lessons),
+    solarCert: solarCert, hvacCert: hvacCert, advisorStatus: advisorStatus,
+    quizAvg: quizAvg, examAvg: examAvg, trainingHours: Math.round((totalMinutes / 60) * 10) / 10,
+    lastActivity: lastActivity, weakTopics: weakTopics,
+    _lessons: full.lessons, _examsByCourse: examsByCourse
+  };
+}
+function moduleListFor(m, courseDef, pct) {
+  if (m._lessons) {
+    return courseDef.modules.map(function (mod) {
+      var doneIds = m._lessons.filter(function (r) { return r.course_id === courseDef.id && r.module_id === mod.id; }).map(function (r) { return r.lesson_id; });
+      var lessonsDone = mod.lessons.filter(function (l) { return doneIds.indexOf(l.id) !== -1; }).length;
+      return { number: mod.number, title: mod.title, lessonsDone: lessonsDone, lessonsTotal: mod.lessons.length, complete: lessonsDone >= mod.lessons.length && mod.lessons.length > 0 };
+    });
+  }
+  return synthModuleProgress(m, courseDef, pct);
+}
+function examAttemptsFor(m, courseId) {
+  if (m._examsByCourse) return m._examsByCourse[courseId] || [];
+  return synthExamAttempts(m, courseId);
+}
+
 // ---------------- Manager Dashboard ----------------
 function certCellForMember(m, track) {
   if (track === 'advisor') {
@@ -16,8 +109,14 @@ function certCellForMember(m, track) {
   if (done) return '<span class="pill pill-green">✅ Certified</span>';
   return '<span class="pill pill-blue">' + p + '%</span>';
 }
+function loadingCard(label) { return '<div class="card text-center" style="padding:50px;"><p class="muted mb-0">' + escapeHtml(label || 'Loading…') + '</p></div>'; }
 function renderManagerDashboardPage() {
-  var team = DEMO_TEAM;
+  var team = getTeamData(function () { renderShell('manager', renderManagerDashboardPage()); });
+  if (!team) return loadingCard('Loading your team…');
+  if (!team.length) {
+    return '<div class="section-head"><div><span class="eyebrow">Manager Dashboard</span><h1>Team Certification Status</h1></div></div>' +
+      '<div class="callout tip"><h4>No reps yet</h4><p class="mb-0">' + (window.NEXIS_BACKEND_READY ? 'Invite your first rep from Admin → Users to see their training here.' : 'No demo team data available.') + '</p></div>';
+  }
   var overallCompletion = Math.round(team.reduce(function (s, m) { return s + (m.solarPct + m.hvacPct) / 2; }, 0) / team.length);
   var quizAvg = Math.round(team.reduce(function (s, m) { return s + m.quizAvg; }, 0) / team.length);
   var examAvg = Math.round(team.reduce(function (s, m) { return s + m.examAvg; }, 0) / team.length);
@@ -56,12 +155,14 @@ function renderManagerDashboardPage() {
 
 // ---------------- Individual rep training detail (admin/manager drill-down) ----------------
 function renderRepDetailPage(memberId) {
-  var m = DEMO_TEAM.find(function (x) { return x.id === memberId; });
+  var team = getTeamData(function () { renderShell('manager', renderRepDetailPage(memberId)); });
+  if (!team) return loadingCard('Loading rep training record…');
+  var m = team.find(function (x) { return x.id === memberId; });
   if (!m) return '<p>Rep not found. <a href="#/manager">Back to team</a></p>';
 
   function courseSection(courseDef, pct, certified) {
-    var mods = synthModuleProgress(m, courseDef, pct);
-    var attempts = synthExamAttempts(m, courseDef.id);
+    var mods = moduleListFor(m, courseDef, pct);
+    var attempts = examAttemptsFor(m, courseDef.id);
     return '<div class="card mt-16">' +
       '<div class="flex-between"><h3 class="mb-0">' + courseDef.icon + ' ' + escapeHtml(courseDef.title) + '</h3>' +
       '<span class="pill ' + (certified ? 'pill-green' : (pct > 0 ? 'pill-blue' : 'pill-gray')) + '">' + (certified ? 'Certified' : pct + '% complete') + '</span></div>' +
@@ -99,7 +200,9 @@ function skillCellColor(score) {
   return 'rgba(192,57,43,.55)';
 }
 function renderManagerAnalyticsPage() {
-  var team = DEMO_TEAM;
+  var team = getTeamData(function () { renderShell('manager/analytics', renderManagerAnalyticsPage()); });
+  if (!team) return loadingCard('Loading team analytics…');
+  if (!team.length) return '<a class="tiny muted" href="#/manager" style="text-decoration:none;">← Back to Team Dashboard</a><div class="callout tip mt-16"><h4>No reps yet</h4><p class="mb-0">Invite reps to see the skill matrix.</p></div>';
   var matrixHtml = '<div style="overflow-x:auto;"><table class="lesson-table" style="min-width:900px;"><thead><tr><th>Rep</th>' +
     TEAM_SKILL_LIST.map(function (s) { return '<th style="writing-mode:vertical-rl;text-orientation:mixed;font-size:.65rem;">' + escapeHtml(s) + '</th>'; }).join('') + '</tr></thead><tbody>' +
     team.map(function (m) {
@@ -218,16 +321,53 @@ function renderAdminMassSaveOrContentPage(sub) {
 }
 
 function renderAdminUsers() {
-  var team = DEMO_TEAM;
   var me = NexisState.get().user;
-  return (
-    '<div class="section-head"><div><span class="eyebrow">Admin</span><h1>Users</h1><p class="mb-0">Admins can open any rep’s full training record — module progress, quiz/exam history, and flagged weak topics.</p></div></div>' +
-    '<div class="card"><table class="lesson-table"><thead><tr><th>Name</th><th>Role</th><th>Solar</th><th>HVAC</th><th>Advisor</th><th></th></tr></thead><tbody>' +
+  var inviteSection = window.NEXIS_BACKEND_READY ? (
+    '<div class="card mt-16"><h3>Invite a rep</h3><p class="small">Only people invited here can create an account — anyone else who tries to sign up is blocked until you invite them.</p>' +
+      '<form id="invite-form" class="flex gap-10" style="align-items:flex-end;flex-wrap:wrap;">' +
+        '<div class="field mb-0" style="flex:1;min-width:220px;"><label>Work email</label><input type="email" id="inv-email" placeholder="rep@nexispower.com" required></div>' +
+        '<div class="field mb-0"><label>Role</label><select id="inv-role"><option value="rep">Sales Representative</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>' +
+        '<button type="submit" class="btn btn-primary">Send Invite</button>' +
+      '</form>' +
+      '<p id="invite-status" class="small mt-8" style="display:none;"></p>' +
+    '</div>'
+  ) : '<div class="callout tip mt-16"><h4>Connect Supabase to enable real invites</h4><p class="mb-0">Once js/config.js has your project URL and anon key, this becomes a real invite form and the list below shows real reps instead of demo data.</p></div>';
+
+  var team = getTeamData(function () { renderShell('admin/users', renderAdminUsers()); });
+  var tableHtml = !team ? loadingCard('Loading users…') : (
+    '<div class="card mt-16"><table class="lesson-table"><thead><tr><th>Name</th><th>Role</th><th>Solar</th><th>HVAC</th><th>Advisor</th><th></th></tr></thead><tbody>' +
       '<tr><td style="font-weight:700;">' + escapeHtml(me.name) + ' (you)</td><td>' + escapeHtml(me.role) + '</td>' +
       '<td>' + CERT_STATUS_LABEL[NexisState.certStatus(SOLAR_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(HVAC_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(ENERGY_ADVISOR_COURSE)] + '</td><td></td></tr>' +
       team.map(function (m) { return '<tr style="cursor:pointer;" onclick="navigate(\'manager/rep/' + m.id + '\')"><td style="font-weight:700;">' + escapeHtml(m.name) + '</td><td>' + escapeHtml(m.role) + '</td><td>' + certCellForMember(m, 'solar') + '</td><td>' + certCellForMember(m, 'hvac') + '</td><td>' + certCellForMember(m, 'advisor') + '</td><td class="small muted">View training →</td></tr>'; }).join('') +
     '</tbody></table></div>'
   );
+
+  setTimeout(bindInviteForm, 0);
+  return (
+    '<div class="section-head"><div><span class="eyebrow">Admin</span><h1>Users</h1><p class="mb-0">Admins can open any rep’s full training record — module progress, quiz/exam history, and flagged weak topics.</p></div></div>' +
+    inviteSection + tableHtml
+  );
+}
+function bindInviteForm() {
+  var form = qs('#invite-form');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var email = qs('#inv-email').value.trim();
+    var role = qs('#inv-role').value;
+    var statusEl = qs('#invite-status');
+    dbCreateInvite(email, role, null, NexisState.get().user.id).then(function (res) {
+      statusEl.style.display = 'block';
+      if (res.error) {
+        statusEl.style.color = '#C0392B';
+        statusEl.textContent = res.error.message.indexOf('duplicate') !== -1 ? 'That email has already been invited.' : res.error.message;
+      } else {
+        statusEl.style.color = '#2E8A56';
+        statusEl.textContent = '✅ Invited ' + email + '. Tell them to open the Academy and click "Create your account" with this same email.';
+        form.reset();
+      }
+    });
+  });
 }
 
 function renderAdminSettings() {

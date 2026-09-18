@@ -90,16 +90,30 @@ var NexisState = (function () {
     persist();
   }
 
+  // When a real backend is connected, every mutation below also fires an
+  // async, fire-and-forget write to Supabase. Failures are logged, never
+  // thrown — localStorage always stays the source of truth for the current
+  // render, so a flaky connection never breaks the UI.
+  function syncing() { return window.NEXIS_BACKEND_READY && state.user && state.user.id; }
+  function bg(promise, label) {
+    if (promise && promise.then) promise.then(function (r) { if (r && r.error) console.warn('Nexis sync failed (' + label + ')', r.error); }, function (e) { console.warn('Nexis sync failed (' + label + ')', e); });
+  }
+
   function addXP(amount, reason) {
     state.xp += amount;
     state.xpLog.unshift({ amount: amount, reason: reason, at: nowISO() });
     if (state.xpLog.length > 200) state.xpLog.length = 200;
     persist();
+    if (syncing()) {
+      bg(dbUpdateProfileStats(state.user.id, { xp: state.xp, training_minutes: state.trainingMinutes, streak_count: state.streak.count, last_active: state.streak.lastActive }), 'xp');
+      bg(dbLogXp(state.user.id, amount, reason), 'xpLog');
+    }
   }
 
   function awardBadge(badgeId) {
     if (state.badges[badgeId]) return false;
     state.badges[badgeId] = { earnedAt: nowISO() };
+    if (syncing()) bg(dbAwardBadge(state.user.id, badgeId), 'badge');
     addXP(XP_RULES.badge, 'Badge earned: ' + badgeId);
     return true;
   }
@@ -117,6 +131,7 @@ var NexisState = (function () {
     if (!p.lessonsDone[key]) {
       p.lessonsDone[key] = nowISO();
       state.trainingMinutes += (estMinutes || 6);
+      if (syncing()) bg(dbUpsertLesson(state.user.id, courseId, moduleId, lessonId, estMinutes || 6), 'lesson');
       addXP(XP_RULES.lesson, 'Lesson complete');
       touchStreak();
       persist();
@@ -133,7 +148,9 @@ var NexisState = (function () {
   function recordModuleCheck(courseId, moduleId, scorePct, passed) {
     var p = courseProgress(courseId);
     var prev = p.moduleChecks[moduleId];
-    p.moduleChecks[moduleId] = { scorePct: scorePct, passed: passed, attempts: (prev ? prev.attempts : 0) + 1, lastAt: nowISO() };
+    var attempts = (prev ? prev.attempts : 0) + 1;
+    p.moduleChecks[moduleId] = { scorePct: scorePct, passed: passed, attempts: attempts, lastAt: nowISO() };
+    if (syncing()) bg(dbUpsertModuleCheck(state.user.id, courseId, moduleId, scorePct, passed, attempts), 'moduleCheck');
     if (passed) addXP(XP_RULES.knowledgeCheck, 'Knowledge check passed');
     touchStreak();
     persist();
@@ -143,6 +160,7 @@ var NexisState = (function () {
     var p = courseProgress(courseId);
     if (!p.labsDone[labId]) {
       p.labsDone[labId] = nowISO();
+      if (syncing()) bg(dbUpsertLab(state.user.id, courseId, labId), 'lab');
       addXP(XP_RULES.labComplete, 'Lab complete: ' + labId);
       persist();
       return true;
@@ -199,6 +217,7 @@ var NexisState = (function () {
     attempt.id = uid('attempt');
     state.examAttempts[courseId] = state.examAttempts[courseId] || [];
     state.examAttempts[courseId].unshift(attempt);
+    if (syncing()) bg(dbInsertExamAttempt(state.user.id, courseId, attempt), 'examAttempt');
     if (attempt.passed) addXP(XP_RULES.examPass, 'Certification exam passed');
     touchStreak();
     persist();
@@ -210,6 +229,7 @@ var NexisState = (function () {
     attempt.id = uid('practical');
     state.practicalAttempts[courseId] = state.practicalAttempts[courseId] || [];
     state.practicalAttempts[courseId].unshift(attempt);
+    if (syncing()) bg(dbInsertPracticalAttempt(state.user.id, courseId, attempt), 'practicalAttempt');
     if (attempt.passed) addXP(XP_RULES.examPass, 'Practical evaluation passed');
     persist();
     return attempt;
@@ -253,10 +273,45 @@ var NexisState = (function () {
     return prefix + '-' + (10000 + (hash % 89999));
   }
 
+  // Pull this user's real progress out of Supabase into the in-memory shape
+  // the rest of the app already reads synchronously. Called once at boot,
+  // right after a session + profile are confirmed.
+  function hydrateFromSupabase(userId) {
+    return dbFetchUserFullProgress(userId).then(function (rows) {
+      COURSES.forEach(function (c) { state.progress[c.id] = { lessonsDone: {}, moduleChecks: {}, labsDone: {} }; });
+      rows.lessons.forEach(function (r) {
+        var p = courseProgress(r.course_id);
+        p.lessonsDone[r.module_id + '::' + r.lesson_id] = r.completed_at;
+      });
+      rows.checks.forEach(function (r) {
+        var p = courseProgress(r.course_id);
+        p.moduleChecks[r.module_id] = { scorePct: r.score_pct, passed: r.passed, attempts: r.attempts, lastAt: r.last_at };
+      });
+      rows.labs.forEach(function (r) {
+        var p = courseProgress(r.course_id);
+        p.labsDone[r.lab_id] = r.completed_at;
+      });
+      state.examAttempts = { solar: [], hvac: [], 'energy-advisor': [] };
+      rows.exams.forEach(function (r) {
+        state.examAttempts[r.course_id] = state.examAttempts[r.course_id] || [];
+        state.examAttempts[r.course_id].push({ id: r.id, scorePct: r.score_pct, compliancePct: r.compliance_pct, passed: r.passed, totalQuestions: r.total_questions, correct: r.correct, categoryBreakdown: r.category_breakdown, at: r.at });
+      });
+      state.practicalAttempts = { 'energy-advisor': [] };
+      rows.practicals.forEach(function (r) {
+        state.practicalAttempts[r.course_id] = state.practicalAttempts[r.course_id] || [];
+        state.practicalAttempts[r.course_id].push({ id: r.id, scorePct: r.score_pct, passed: r.passed, breakdown: r.breakdown, nextStepText: r.next_step_text, at: r.at });
+      });
+      state.badges = {};
+      rows.badges.forEach(function (r) { state.badges[r.badge_id] = { earnedAt: r.earned_at }; });
+      persist();
+    });
+  }
+
   return {
     get: get,
     reset: reset,
     setUser: setUser,
+    hydrateFromSupabase: hydrateFromSupabase,
     isLoggedIn: isLoggedIn,
     touchStreak: touchStreak,
     addXP: addXP,

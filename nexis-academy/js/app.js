@@ -191,7 +191,55 @@ function router() {
   return renderShell('dashboard', renderDashboardPage());
 }
 
-window.addEventListener('hashchange', router);
-window.addEventListener('DOMContentLoaded', function () {
+window.addEventListener('hashchange', function () {
+  // Real-backend mode: if the hash changes while we're signed out (e.g. a
+  // stale bookmark), just re-run boot() instead of letting router() render
+  // an inconsistent page.
+  if (window.NEXIS_BACKEND_READY && !NexisState.isLoggedIn()) { boot(); return; }
   router();
+});
+
+// ---------- Boot sequence ----------
+// Local demo mode (js/config.js empty): unchanged behavior — router() shows
+// the existing fake login form the first time, exactly as before.
+// Real backend mode (config.js filled in): resolve the Supabase session and
+// profile BEFORE ever calling router(), so every page always has real user
+// data to read synchronously.
+function boot() {
+  var backendOn = initSupabase();
+  window.NEXIS_BACKEND_READY = backendOn;
+  if (!backendOn) { router(); return; }
+
+  var root = qs('#app-root');
+  root.innerHTML = '<div class="flex-center" style="min-height:100vh;"><p class="muted">Loading Nexis Power Academy…</p></div>';
+
+  authGetSession().then(function (res) {
+    var session = res.data && res.data.session;
+    if (!session) { showAuthGate('signin'); return; }
+    proceedPostAuth(session);
+  });
+}
+
+function proceedPostAuth(session) {
+  dbFetchMyProfile(session.user.id).then(function (r) {
+    if (!r.data) { showNotInvitedGate(session); return; }
+    var p = r.data;
+    NexisState.setUser({ id: p.id, name: p.name, email: p.email, role: p.role, initials: initialsOf(p.name) });
+    NexisState.hydrateFromSupabase(p.id).then(router, router);
+  }, function () { showAuthGate('signin'); });
+}
+
+function showAuthGate(mode) {
+  var root = qs('#app-root');
+  root.innerHTML = renderAuthGatePage(mode || 'signin');
+  bindAuthGatePage(mode || 'signin');
+}
+function showNotInvitedGate(session) {
+  var root = qs('#app-root');
+  root.innerHTML = renderNotInvitedPage(session.user.email);
+  bindNotInvitedPage();
+}
+
+window.addEventListener('DOMContentLoaded', function () {
+  boot();
 });

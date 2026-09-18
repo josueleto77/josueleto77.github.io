@@ -52,6 +52,107 @@ function bindLoginPage() {
   });
 }
 
+// ---------------- Real auth (Supabase-backed sign in / accept-invite) ----------------
+function renderAuthGatePage(mode) {
+  var isSignup = mode === 'signup';
+  return (
+    '<div class="login-wrap">' +
+      '<div class="login-visual">' +
+        '<div style="margin-bottom:34px;">' + nexisLogoSVG({ light: true, height: 30 }) + '</div>' +
+        '<div class="pill pill-orange" style="margin-bottom:18px;width:fit-content;">Nexis Power Academy</div>' +
+        '<h1 style="color:#fff;font-size:2.2rem;max-width:480px;">BUILD YOUR ENERGY EXPERTISE.</h1>' +
+        '<p style="max-width:440px;font-size:1.02rem;">Train. Practice. Certify. Grow.</p>' +
+        '<p class="tiny" style="margin-top:48px;color:#9AAAB6;">Knowledge builds confidence. Confidence builds trust.</p>' +
+      '</div>' +
+      '<div class="login-form-side">' +
+        '<div class="login-card">' +
+          (isSignup ? (
+            '<h2>Create your account</h2>' +
+            '<p class="small muted" style="margin-bottom:24px;">Only works if a Nexis Power admin has already invited this email.</p>' +
+            '<form id="auth-form">' +
+              '<div class="field"><label>Full name</label><input type="text" id="au-name" required></div>' +
+              '<div class="field"><label>Work email</label><input type="email" id="au-email" placeholder="you@nexispower.com" required></div>' +
+              '<div class="field"><label>Password</label><input type="password" id="au-pass" minlength="8" required></div>' +
+              '<div class="field"><label>Confirm password</label><input type="password" id="au-pass2" minlength="8" required></div>' +
+              '<div id="auth-error" class="callout compliance" style="display:none;margin-bottom:16px;"></div>' +
+              '<button type="submit" class="btn btn-primary btn-block">Create Account</button>' +
+            '</form>' +
+            '<p class="tiny muted mt-16">Already have an account? <a href="#" onclick="showAuthGate(\'signin\');return false;">Sign in</a></p>'
+          ) : (
+            '<h2>Sign in</h2>' +
+            '<p class="small muted" style="margin-bottom:24px;">Access your Nexis Power Academy training.</p>' +
+            '<form id="auth-form">' +
+              '<div class="field"><label>Email</label><input type="email" id="au-email" placeholder="you@nexispower.com" required></div>' +
+              '<div class="field"><label>Password</label><input type="password" id="au-pass" required></div>' +
+              '<div id="auth-error" class="callout compliance" style="display:none;margin-bottom:16px;"></div>' +
+              '<button type="submit" class="btn btn-primary btn-block">Sign In</button>' +
+            '</form>' +
+            '<p class="tiny muted mt-16">Were you invited by your admin? <a href="#" onclick="showAuthGate(\'signup\');return false;">Create your account</a></p>'
+          )) +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+function authError(msg) { var el = qs('#auth-error'); if (el) { el.style.display = 'block'; el.textContent = msg; } }
+function bindAuthGatePage(mode) {
+  var form = qs('#auth-form');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var submitBtn = form.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    var email = qs('#au-email').value.trim();
+    var pass = qs('#au-pass').value;
+
+    if (mode === 'signup') {
+      var name = qs('#au-name').value.trim();
+      var pass2 = qs('#au-pass2').value;
+      if (pass !== pass2) { authError('Passwords do not match.'); submitBtn.disabled = false; return; }
+      authSignUp(email, pass, name).then(function (res) {
+        if (res.error) { authError(res.error.message); submitBtn.disabled = false; return; }
+        if (!res.data.session) {
+          authError('Account created. Check your email to confirm it, then sign in.');
+          submitBtn.disabled = false;
+          return;
+        }
+        dbFetchMyProfile(res.data.user.id).then(function (r) {
+          if (!r.data) {
+            authError('This email hasn’t been invited yet. Ask your Nexis Power admin to invite ' + email + ', then try again.');
+            authSignOut();
+            submitBtn.disabled = false;
+            return;
+          }
+          proceedPostAuth({ user: res.data.user });
+        });
+      });
+    } else {
+      authSignIn(email, pass).then(function (res) {
+        if (res.error) { authError(res.error.message); submitBtn.disabled = false; return; }
+        proceedPostAuth({ user: res.data.user });
+      });
+    }
+  });
+}
+
+function renderNotInvitedPage(email) {
+  return (
+    '<div class="flex-center" style="min-height:100vh;padding:20px;">' +
+      '<div class="card text-center" style="max-width:480px;">' +
+        '<div style="margin-bottom:18px;">' + nexisLogoSVG({ height: 26 }) + '</div>' +
+        '<h2>Your email isn’t invited yet</h2>' +
+        '<p class="small">Signed in as <strong>' + escapeHtml(email) + '</strong>, but no Nexis Power admin has invited this address to the Academy.</p>' +
+        '<p class="small muted">Ask your admin to invite you from Admin → Users, then sign out and back in.</p>' +
+        '<button class="btn btn-outline mt-16" id="not-invited-signout">Sign Out</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+function bindNotInvitedPage() {
+  var btn = qs('#not-invited-signout');
+  if (btn) btn.addEventListener('click', function () { authSignOut().then(function () { location.reload(); }); });
+}
+
 // ---------------- Dashboard ----------------
 function metricsSummary() {
   var st = NexisState.get();
@@ -288,7 +389,9 @@ function renderProfilePage() {
     '<div class="section-head"><div><span class="eyebrow">Profile</span><h1>' + escapeHtml(user.name) + '</h1></div></div>' +
     '<div class="grid grid-3">' +
       '<div class="card"><h3>Account</h3><p class="small">Email: ' + escapeHtml(user.email) + '</p><p class="small">Role: ' + escapeHtml(user.role) + '</p>' +
-        '<button class="btn btn-outline btn-sm mt-16" onclick="if(confirm(\'Reset all local training progress? This cannot be undone.\')){NexisState.reset();location.reload();}">Reset Demo Progress</button></div>' +
+        (window.NEXIS_BACKEND_READY ?
+          '<button class="btn btn-outline btn-sm mt-16" onclick="authSignOut().then(function(){location.reload();})">Sign Out</button>' :
+          '<button class="btn btn-outline btn-sm mt-16" onclick="if(confirm(\'Reset all local training progress? This cannot be undone.\')){NexisState.reset();location.reload();}">Reset Demo Progress</button>') + '</div>' +
       '<div class="card"><h3>Performance</h3><p class="small">Training hours: ' + m.trainingHours + 'h</p><p class="small">XP: ' + m.xp + '</p><p class="small">Streak: ' + m.streak + ' days</p></div>' +
       '<div class="card"><h3>Certifications</h3>' + COURSES.map(function (c) {
         var s = NexisState.certStatus(c);
