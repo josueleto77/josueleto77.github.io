@@ -323,7 +323,7 @@ function renderAdminMassSaveOrContentPage(sub) {
 function renderAdminUsers() {
   var me = NexisState.get().user;
   var inviteSection = window.NEXIS_BACKEND_READY ? (
-    '<div class="card mt-16"><h3>Invite a rep</h3><p class="small">Only people invited here can create an account — anyone else who tries to sign up is blocked until you invite them.</p>' +
+    '<div class="card mt-16"><h3>Invite someone</h3><p class="small">Only people invited here can create an account — anyone else who tries to sign up is blocked until you invite them. Choose their role below: Sales Representative, Manager, or Admin (admins can see everyone’s training and invite other admins).</p>' +
       '<form id="invite-form" class="flex gap-10" style="align-items:flex-end;flex-wrap:wrap;">' +
         '<div class="field mb-0" style="flex:1;min-width:220px;"><label>Work email</label><input type="email" id="inv-email" placeholder="rep@nexispower.com" required></div>' +
         '<div class="field mb-0"><label>Role</label><select id="inv-role"><option value="rep">Sales Representative</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>' +
@@ -356,6 +356,7 @@ function bindInviteForm() {
     var email = qs('#inv-email').value.trim();
     var role = qs('#inv-role').value;
     var statusEl = qs('#invite-status');
+    if (role === 'admin' && !confirm('Invite ' + email + ' as an ADMIN? They will have full access to every rep’s training data, the content manager, and the ability to invite other admins. Continue?')) return;
     dbCreateInvite(email, role, null, NexisState.get().user.id).then(function (res) {
       statusEl.style.display = 'block';
       if (res.error) {
