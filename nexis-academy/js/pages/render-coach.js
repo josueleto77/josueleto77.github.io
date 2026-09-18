@@ -8,9 +8,19 @@ var STOPWORDS = ['the', 'a', 'an', 'is', 'are', 'to', 'of', 'and', 'or', 'in', '
 var TIME_SENSITIVE_TRIGGERS = ['rebate', 'tax credit', 'warranty', 'guarantee', 'price', 'cost', 'apr', 'interest rate', 'smart program', 'net metering rate', 'incentive amount'];
 
 var COACH_INDEX = null;
+function pushChunk(chunks, source, text) {
+  if (!text || !text.trim()) return;
+  chunks.push({ source: source, text: text, textLower: text.toLowerCase() });
+}
+// Full knowledge base for Ask Nexis Coach: every lesson, every knowledge-check
+// and final-exam question (with its explanation), every Practice Center lab,
+// roleplay scenario, and the Mass Save program database. This is deliberately
+// exhaustive for Solar and HVAC (per Nexis Power's requirement that the coach
+// be able to answer any solar/HVAC question) and also covers Energy Advisor.
 function buildCoachIndex() {
   if (COACH_INDEX) return COACH_INDEX;
   var chunks = [];
+
   COURSES.forEach(function (course) {
     course.modules.forEach(function (mod) {
       mod.lessons.forEach(function (lesson) {
@@ -21,13 +31,34 @@ function buildCoachIndex() {
           if (b.type === 'table') return (b.title || '') + ' ' + b.rows.map(function (r) { return r.join(' '); }).join(' ');
           return '';
         }).join(' ');
-        chunks.push({
-          courseTitle: course.short, courseId: course.id, moduleNumber: mod.number, moduleTitle: mod.title,
-          lessonTitle: lesson.title, text: text, textLower: text.toLowerCase()
-        });
+        pushChunk(chunks, course.short + ' Certification — Module ' + mod.number + ': ' + mod.title + ' → ' + lesson.title, text);
+      });
+      (mod.knowledgeCheck || []).forEach(function (q) {
+        pushChunk(chunks, course.short + ' Certification — Module ' + mod.number + ' Knowledge Check', q.q + ' ' + q.choices.join(' ') + ' ' + q.explain);
       });
     });
+    (examBankFor(course) || []).forEach(function (q) {
+      pushChunk(chunks, course.short + ' Certification Exam — ' + q.category, q.question + ' ' + q.choices.join(' ') + ' ' + q.explain);
+    });
   });
+
+  // Practice Center labs
+  ['nationalGrid', 'eversource'].forEach(function (key) {
+    var d = UTILITY_BILL_LAB[key];
+    pushChunk(chunks, 'Utility Bill Lab — ' + d.name, d.summary + ' ' + d.lineItems.map(function (li) { return li.label + ' (' + li.kind + '): ' + li.note; }).join(' ') + ' ' + d.usageChartNote);
+    d.questions.forEach(function (q) { pushChunk(chunks, 'Utility Bill Lab — ' + d.name, q.q + ' ' + q.explain); });
+  });
+  pushChunk(chunks, 'HVAC Practice Center — Preliminary BTU Estimator', 'FOR SALES PRE-QUALIFICATION ONLY, NOT FINAL HVAC DESIGN. ' + BTU_FACTORS.map(function (f) { return f.label + ': ' + f.low + '–' + f.high + ' BTU per sq ft.'; }).join(' '));
+  ZONE_LAB_LAYOUTS.forEach(function (l) { pushChunk(chunks, 'HVAC Practice Center — Zone Planning Lab (' + l.name + ')', l.description + ' ' + l.prompt + ' ' + l.guidance); });
+  ZONE_LAB_QUESTIONS.forEach(function (q) { pushChunk(chunks, 'HVAC Practice Center — Zone Planning Lab', q.q + ' ' + q.explain); });
+  SOLAR_OBJECTION_SCENARIOS.forEach(function (s) { pushChunk(chunks, 'Solar Objection Simulator (LAER)', '"' + s.objection + '" Best response: ' + s.bestResponse + ' Why it works: ' + s.whyItWorks + ' Follow-up: ' + s.followUp); });
+  HVAC_ROLEPLAY_SCENARIOS.forEach(function (s) { pushChunk(chunks, 'HVAC Roleplay Center — ' + s.title, s.setup + ' ' + s.task + ' ' + s.modelApproach); });
+
+  // Mass Save program database (admin-editable, so the coach always reflects current entries)
+  getMassSavePrograms().forEach(function (p) {
+    pushChunk(chunks, 'Mass Save Program Database — ' + p.programName, [p.programType, 'Current incentive: ' + p.currentIncentive, 'Maximum: ' + p.maximumIncentive, 'Eligibility: ' + p.eligibilityRequirements, 'Utility requirements: ' + p.utilityRequirements, 'Weatherization: ' + p.weatherizationRequirements, 'Status: ' + p.status].join('. '));
+  });
+
   COACH_INDEX = chunks;
   return chunks;
 }
@@ -80,7 +111,7 @@ function askCoach() {
   if (!results.length) {
     turn.note = 'I couldn’t find approved training content that directly answers this. I don’t invent rebate values, tax rules, finance terms, warranty terms, equipment specs, or program details — please check the Mass Save Programs page or ask your manager for current, verified information.';
   } else {
-    turn.results = results.map(function (r) { return { source: r.chunk.courseTitle + ' Certification — Module ' + r.chunk.moduleNumber + ': ' + r.chunk.moduleTitle + ' → ' + r.chunk.lessonTitle, snippet: snippetFor(r.chunk, terms) }; });
+    turn.results = results.map(function (r) { return { source: r.chunk.source, snippet: snippetFor(r.chunk, terms) }; });
     if (isTimeSensitive) turn.note = 'This topic involves figures that change over time (rebates, incentives, tax rules, or pricing). The excerpt above reflects the most recently approved training content — always verify current numbers in the Mass Save Programs page before quoting a customer.';
   }
   window._coachHistory.unshift(turn);

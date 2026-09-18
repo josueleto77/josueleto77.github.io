@@ -36,13 +36,14 @@ function renderManagerDashboardPage() {
       statTile('⏱️', hoursTotal + 'h', 'Training Hours') +
     '</div>' +
     '<div class="card mt-24" style="overflow-x:auto;">' +
-      '<table class="lesson-table"><thead><tr><th>Rep</th><th>Solar</th><th>HVAC</th><th>Energy Advisor</th><th>Last Activity</th></tr></thead><tbody>' +
+      '<table class="lesson-table"><thead><tr><th>Rep</th><th>Solar</th><th>HVAC</th><th>Energy Advisor</th><th>Last Activity</th><th></th></tr></thead><tbody>' +
       team.map(function (m) {
-        return '<tr><td style="font-weight:700;">' + escapeHtml(m.name) + '<div class="tiny muted">' + escapeHtml(m.role) + '</div></td>' +
+        return '<tr style="cursor:pointer;" onclick="navigate(\'manager/rep/' + m.id + '\')"><td style="font-weight:700;">' + escapeHtml(m.name) + '<div class="tiny muted">' + escapeHtml(m.role) + '</div></td>' +
           '<td>' + certCellForMember(m, 'solar') + '</td>' +
           '<td>' + certCellForMember(m, 'hvac') + '</td>' +
           '<td>' + certCellForMember(m, 'advisor') + '</td>' +
-          '<td class="small">' + fmtDate(m.lastActivity) + '</td></tr>';
+          '<td class="small">' + fmtDate(m.lastActivity) + '</td>' +
+          '<td class="small muted">View training →</td></tr>';
       }).join('') +
       '</tbody></table>' +
     '</div>' +
@@ -50,6 +51,44 @@ function renderManagerDashboardPage() {
       '<div class="card"><h3>Weakest Training Topics (team-wide)</h3>' + (weakest.length ? weakest.map(function (t) { return '<div class="flex-between small" style="padding:6px 0;"><span>' + escapeHtml(t) + '</span><span class="pill pill-orange">' + weakTopicCounts[t] + ' reps</span></div>'; }).join('') : '<p class="small muted">No weak topics flagged.</p>') + '</div>' +
       '<div class="card"><h3>Team Skill Matrix</h3><p class="small">Visual heat-map across 15 skill areas.</p><button class="btn btn-dark btn-sm" onclick="navigate(\'manager/analytics\')">Open Skill Matrix</button></div>' +
     '</div>'
+  );
+}
+
+// ---------------- Individual rep training detail (admin/manager drill-down) ----------------
+function renderRepDetailPage(memberId) {
+  var m = DEMO_TEAM.find(function (x) { return x.id === memberId; });
+  if (!m) return '<p>Rep not found. <a href="#/manager">Back to team</a></p>';
+
+  function courseSection(courseDef, pct, certified) {
+    var mods = synthModuleProgress(m, courseDef, pct);
+    var attempts = synthExamAttempts(m, courseDef.id);
+    return '<div class="card mt-16">' +
+      '<div class="flex-between"><h3 class="mb-0">' + courseDef.icon + ' ' + escapeHtml(courseDef.title) + '</h3>' +
+      '<span class="pill ' + (certified ? 'pill-green' : (pct > 0 ? 'pill-blue' : 'pill-gray')) + '">' + (certified ? 'Certified' : pct + '% complete') + '</span></div>' +
+      '<div class="progress-track mt-8"><div class="progress-fill" style="width:' + pct + '%;"></div></div>' +
+      '<div class="grid grid-2 mt-16" style="max-height:260px;overflow-y:auto;">' +
+        mods.map(function (mod) {
+          return '<div class="small flex-between" style="padding:5px 0;border-bottom:1px solid var(--border);">' +
+            '<span>' + (mod.complete ? '✅' : mod.lessonsDone > 0 ? '🟡' : '⚪') + ' Module ' + mod.number + ': ' + escapeHtml(mod.title) + '</span>' +
+            '<span class="tiny muted">' + mod.lessonsDone + '/' + mod.lessonsTotal + '</span></div>';
+        }).join('') +
+      '</div>' +
+      (attempts.length ? '<p class="small mt-16 mb-0"><strong>Exam attempts:</strong> ' + attempts.map(function (a) { return (a.passed ? '✅' : '❌') + ' ' + a.scorePct + '% (' + fmtDate(a.at) + ')'; }).join(' · ') + '</p>' : '<p class="small mt-16 mb-0 muted">No exam attempts yet.</p>');
+  }
+
+  return (
+    '<a class="tiny muted" href="#/manager" style="text-decoration:none;">← Back to Team Dashboard</a>' +
+    '<div class="section-head mt-8"><div><span class="eyebrow">Rep Training Detail</span><h1>' + escapeHtml(m.name) + '</h1><p class="mb-0">' + escapeHtml(m.role) + ' · Last activity ' + fmtDate(m.lastActivity) + '</p></div>' +
+      '<span class="pill ' + CERT_STATUS_PILL[m.advisorStatus === 'certified' ? 'certified' : m.advisorStatus === 'ready' ? 'ready_for_exam' : 'locked'] + '">Energy Advisor: ' + (m.advisorStatus === 'certified' ? 'Certified' : m.advisorStatus === 'ready' ? 'Ready for Exam' : 'Locked') + '</span></div>' +
+    '<div class="grid grid-4 mt-8">' +
+      statTile('📝', m.quizAvg + '%', 'Quiz Average') +
+      statTile('🎓', m.examAvg ? m.examAvg + '%' : '—', 'Best Exam Score') +
+      statTile('⏱️', m.trainingHours + 'h', 'Training Hours') +
+      statTile('⚠️', m.weakTopics.length, 'Weak Topics Flagged') +
+    '</div>' +
+    courseSection(SOLAR_COURSE, m.solarPct, m.solarCert) +
+    courseSection(HVAC_COURSE, m.hvacPct, m.hvacCert) +
+    (m.weakTopics.length ? '<div class="callout compliance mt-16"><h4>Weak Topics</h4><p class="mb-0">' + m.weakTopics.map(escapeHtml).join(', ') + ' — recommend revisiting the related modules or assigning a coaching session.</p></div>' : '')
   );
 }
 
@@ -182,11 +221,11 @@ function renderAdminUsers() {
   var team = DEMO_TEAM;
   var me = NexisState.get().user;
   return (
-    '<div class="section-head"><div><span class="eyebrow">Admin</span><h1>Users</h1></div></div>' +
-    '<div class="card"><table class="lesson-table"><thead><tr><th>Name</th><th>Role</th><th>Solar</th><th>HVAC</th><th>Advisor</th></tr></thead><tbody>' +
+    '<div class="section-head"><div><span class="eyebrow">Admin</span><h1>Users</h1><p class="mb-0">Admins can open any rep’s full training record — module progress, quiz/exam history, and flagged weak topics.</p></div></div>' +
+    '<div class="card"><table class="lesson-table"><thead><tr><th>Name</th><th>Role</th><th>Solar</th><th>HVAC</th><th>Advisor</th><th></th></tr></thead><tbody>' +
       '<tr><td style="font-weight:700;">' + escapeHtml(me.name) + ' (you)</td><td>' + escapeHtml(me.role) + '</td>' +
-      '<td>' + CERT_STATUS_LABEL[NexisState.certStatus(SOLAR_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(HVAC_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(ENERGY_ADVISOR_COURSE)] + '</td></tr>' +
-      team.map(function (m) { return '<tr><td style="font-weight:700;">' + escapeHtml(m.name) + '</td><td>' + escapeHtml(m.role) + '</td><td>' + certCellForMember(m, 'solar') + '</td><td>' + certCellForMember(m, 'hvac') + '</td><td>' + certCellForMember(m, 'advisor') + '</td></tr>'; }).join('') +
+      '<td>' + CERT_STATUS_LABEL[NexisState.certStatus(SOLAR_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(HVAC_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(ENERGY_ADVISOR_COURSE)] + '</td><td></td></tr>' +
+      team.map(function (m) { return '<tr style="cursor:pointer;" onclick="navigate(\'manager/rep/' + m.id + '\')"><td style="font-weight:700;">' + escapeHtml(m.name) + '</td><td>' + escapeHtml(m.role) + '</td><td>' + certCellForMember(m, 'solar') + '</td><td>' + certCellForMember(m, 'hvac') + '</td><td>' + certCellForMember(m, 'advisor') + '</td><td class="small muted">View training →</td></tr>'; }).join('') +
     '</tbody></table></div>'
   );
 }

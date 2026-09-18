@@ -34,6 +34,33 @@ function teamSkillScore(member, skill) {
   return Math.round(v * 100);
 }
 
+// Admin/manager drill-down support: synthesize a plausible module-by-module
+// breakdown for a demo rep from their overall course percentage, so the
+// "view this rep's training" detail page has something real to show per
+// module rather than just a single aggregate number.
+function synthModuleProgress(member, courseDef, pct) {
+  var total = courseDef.modules.length;
+  var doneWhole = Math.floor(total * pct / 100);
+  var partialLessonFrac = (total * pct / 100) - doneWhole;
+  return courseDef.modules.map(function (m, i) {
+    var lessonsTotal = m.lessons.length;
+    var lessonsDone = i < doneWhole ? lessonsTotal : (i === doneWhole ? Math.round(lessonsTotal * partialLessonFrac) : 0);
+    return { number: m.number, title: m.title, lessonsDone: lessonsDone, lessonsTotal: lessonsTotal, complete: lessonsDone >= lessonsTotal && lessonsTotal > 0 };
+  });
+}
+
+function synthExamAttempts(member, courseId) {
+  var pct = courseId === 'solar' ? member.solarPct : member.hvacPct;
+  var passed = courseId === 'solar' ? member.solarCert : member.hvacCert;
+  if (pct === 0) return [];
+  var attempts = [];
+  if (!passed && pct >= 100) attempts.push({ scorePct: Math.max(40, member.examAvg - 15), passed: false, at: member.lastActivity });
+  attempts.push({ scorePct: passed ? member.examAvg : Math.round(member.examAvg * 0.7), passed: passed, at: member.lastActivity });
+  return attempts;
+}
+
 window.DEMO_TEAM = DEMO_TEAM;
 window.TEAM_SKILL_LIST = TEAM_SKILL_LIST;
 window.teamSkillScore = teamSkillScore;
+window.synthModuleProgress = synthModuleProgress;
+window.synthExamAttempts = synthExamAttempts;

@@ -1,22 +1,12 @@
-// NEXIS wordmark, recreated as inline SVG to match the brand manual (black "NEXIS" wordmark
-// with an orange circle accent behind the "I"). Used everywhere instead of a raster asset.
+// Official NEXIS wordmark, cropped from the Nexis Power brand kit (brand-kit.png / brand-kit-white.png).
+// `light: true` selects the white-on-transparent variant for dark surfaces (top nav, dark hero panels).
 function nexisLogoSVG(opts) {
   opts = opts || {};
-  var light = !!opts.light; // white wordmark for dark backgrounds
+  var light = !!opts.light;
   var h = opts.height || 26;
-  var fill = light ? '#FFFFFF' : '#161616';
-  return (
-    '<svg class="nexis-logo-svg" height="' + h + '" viewBox="0 0 172 40" xmlns="http://www.w3.org/2000/svg" aria-label="Nexis Power">' +
-      '<defs><radialGradient id="nexisGlow" cx="35%" cy="30%" r="75%">' +
-        '<stop offset="0%" stop-color="#FFD37A"/><stop offset="55%" stop-color="#FFA501"/><stop offset="100%" stop-color="#FF8501"/>' +
-      '</radialGradient></defs>' +
-      '<text x="4" y="29" font-family="Sora, Arial, sans-serif" font-weight="800" font-size="28" letter-spacing="-0.5" fill="' + fill + '">N</text>' +
-      '<text x="29" y="29" font-family="Sora, Arial, sans-serif" font-weight="800" font-size="28" letter-spacing="-0.5" fill="' + fill + '">E</text>' +
-      '<circle cx="76" cy="20" r="17" fill="url(#nexisGlow)"/>' +
-      '<text x="98" y="29" font-family="Sora, Arial, sans-serif" font-weight="800" font-size="28" letter-spacing="-0.5" fill="' + fill + '">I</text>' +
-      '<text x="107" y="29" font-family="Sora, Arial, sans-serif" font-weight="800" font-size="28" letter-spacing="-0.5" fill="' + fill + '">S</text>' +
-    '</svg>'
-  );
+  var src = 'assets/' + (light ? 'nexis-logo-white.png' : 'nexis-logo.png');
+  var w = Math.round(h * (626 / 272));
+  return '<img src="' + src + '" alt="Nexis Power" height="' + h + '" width="' + w + '" style="height:' + h + 'px;width:auto;display:block;">';
 }
 
 // Small sun/energy mark used as favicon-ish accent and loading states

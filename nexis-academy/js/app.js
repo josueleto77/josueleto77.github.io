@@ -178,6 +178,7 @@ function router() {
 
   if (page === 'manager') {
     if (parts[1] === 'analytics') return renderShell('manager/analytics', renderManagerAnalyticsPage());
+    if (parts[1] === 'rep') return renderShell('manager', renderRepDetailPage(parts[2]));
     return renderShell('manager', renderManagerDashboardPage());
   }
 
