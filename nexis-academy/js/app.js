@@ -213,11 +213,24 @@ function boot() {
   var root = qs('#app-root');
   root.innerHTML = '<div class="flex-center" style="min-height:100vh;"><p class="muted">Loading Nexis Power Academy…</p></div>';
 
+  // supabase-js resolves any access_token/refresh_token (or PKCE `code`) it
+  // finds in the current URL — left over from an email confirmation or
+  // password-recovery link — as part of getSession() below. Once that's
+  // done we scrub those params from the address bar so they never leak
+  // into the app's own hash-based router.
   authGetSession().then(function (res) {
+    cleanAuthParamsFromUrl();
     var session = res.data && res.data.session;
     if (!session) { showAuthGate('signin'); return; }
     proceedPostAuth(session);
   });
+}
+function cleanAuthParamsFromUrl() {
+  var hasAuthHash = /access_token=|refresh_token=|type=signup|type=recovery|type=invite/.test(window.location.hash);
+  var hasAuthQuery = /[?&]code=/.test(window.location.search);
+  if (hasAuthHash || hasAuthQuery) {
+    window.history.replaceState(null, '', window.location.pathname);
+  }
 }
 
 function proceedPostAuth(session) {

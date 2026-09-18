@@ -24,8 +24,16 @@ function initSupabase() {
 }
 
 // ---------------- Auth ----------------
+// emailRedirectTo: without this, Supabase sends the confirmation link to
+// whatever "Site URL" is set in the project's Auth settings (often blank
+// or a placeholder), not back to this actual app. Add this exact origin +
+// path to Supabase → Authentication → URL Configuration → Redirect URLs,
+// or Supabase silently falls back to the default Site URL instead.
+function academyBaseUrl() {
+  return window.location.origin + window.location.pathname;
+}
 function authSignUp(email, password, name) {
-  return sb.auth.signUp({ email: email, password: password, options: { data: { name: name } } });
+  return sb.auth.signUp({ email: email, password: password, options: { data: { name: name }, emailRedirectTo: academyBaseUrl() } });
 }
 function authSignIn(email, password) {
   return sb.auth.signInWithPassword({ email: email, password: password });
