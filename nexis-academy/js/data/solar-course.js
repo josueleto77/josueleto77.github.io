@@ -67,6 +67,7 @@ var SOLAR_COURSE = {
             'At night or when solar production is low, the home uses electricity from the grid.',
             'Bill credits reduce what the customer pays for that electricity.'
           ]},
+          { type: 'diagram', id: 'sol-diagram-solar-works', caption: 'Sunlight to savings: how a residential system flows into the home and the grid.' },
           { type: 'say', text: '"Save today. Use tomorrow. That’s the power of Net Metering."' }
         ]
       }],
@@ -90,7 +91,8 @@ var SOLAR_COURSE = {
             'Battery storage (optional) — stores extra solar energy for use at night or during outages.',
             'Monitoring system — lets homeowners track solar production and system performance.',
             'Grid connection — provides backup power when needed and receives excess solar energy.'
-          ]}
+          ]},
+          { type: 'diagram', id: 'sol-diagram-components', caption: 'Where each component physically lives on a residential system.' }
         ]
       }],
       knowledgeCheck: [
@@ -113,6 +115,7 @@ var SOLAR_COURSE = {
             'Energy usage — homes with higher electricity usage often benefit most from going solar.',
             'Ownership & utility access — the homeowner should own the property and have utility service suitable for interconnection.'
           ]},
+          { type: 'diagram', id: 'sol-diagram-site-compass', caption: 'South, southeast, and southwest-facing roofs typically produce the best output in Massachusetts.' },
           { type: 'callout', kind: 'tip', title: 'Rep rule', text: 'When all 8 factors align, you have a strong candidate for solar. A thorough site qualification ensures a safe, efficient, and high-performing system that delivers long-term value.' }
         ]
       }],

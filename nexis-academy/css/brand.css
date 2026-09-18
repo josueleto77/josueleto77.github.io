@@ -193,6 +193,8 @@ img, svg { display: block; max-width: 100%; }
 .lesson-table th { background: var(--surface-sunk); font-family: var(--font-display); font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; }
 .lesson-list li { padding-left: 22px; position: relative; margin-bottom: 8px; color: var(--ink-soft); }
 .lesson-list li::before { content: '●'; position: absolute; left: 0; color: var(--nexis-orange); font-size: .6rem; top: 6px; }
+.diagram-frame { background: #fff; border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px 16px 12px; box-shadow: var(--shadow-sm); }
+.diagram-frame svg { width: 100%; height: auto; display: block; }
 
 /* ---------- Quiz ---------- */
 .quiz-option { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: var(--radius-md); border: 1.5px solid var(--border); cursor: pointer; margin-bottom: 10px; transition: border-color .12s, background .12s; }

@@ -16,6 +16,11 @@ function renderBlock(block) {
       '<tbody>' + block.rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + escapeHtml(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
   }
   if (block.type === 'say') return '<div class="lesson-block callout say-it"><h4>How to say it</h4><p class="mb-0">' + escapeHtml(block.text) + '</p></div>';
+  if (block.type === 'diagram') {
+    var fn = window.DIAGRAMS && window.DIAGRAMS[block.id];
+    return '<div class="lesson-block diagram-frame">' + (fn ? fn() : '<p class="tiny muted">Diagram unavailable.</p>') +
+      (block.caption ? '<p class="tiny muted text-center mt-8 mb-0">' + escapeHtml(block.caption) + '</p>' : '') + '</div>';
+  }
   if (block.type === 'callout') {
     var kind = block.kind || 'tip';
     return '<div class="lesson-block callout ' + kind + '"><h4>' + escapeHtml(block.title || '') + '</h4><p class="mb-0">' + escapeHtml(block.text) + '</p></div>';

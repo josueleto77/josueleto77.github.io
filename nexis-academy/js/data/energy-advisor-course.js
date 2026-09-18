@@ -62,6 +62,7 @@ var ENERGY_ADVISOR_COURSE = {
             'Electrical Capacity Problem — the panel or service can’t support planned upgrades.',
             'Energy Cost Problem — the bill is high, but for a different root cause than the customer assumes.'
           ]},
+          { type: 'diagram', id: 'ea-diagram-problem-map', caption: 'The same customer can present six different underlying problems — diagnose before you recommend.' },
           { type: 'callout', kind: 'compliance', title: 'The core discipline', text: 'The advisor must diagnose before recommending. Jumping straight to a product pitch — solar, a heat pump, or anything else — before understanding the real problem is the single most common mistake at this level.' }
         ]
       }]
@@ -217,6 +218,7 @@ var ENERGY_ADVISOR_COURSE = {
             'Phase 3 — Solar.',
             'Phase 4 — Battery / EV Charger.'
           ]},
+          { type: 'diagram', id: 'ea-diagram-roadmap', caption: 'One example sequence — the right order depends on the customer’s specific diagnosis.' },
           { type: 'callout', kind: 'tip', title: 'The sequence is not one-size-fits-all', text: 'A customer with poor insulation should weatherize before finalizing HVAC sizing. A customer with an old roof should inspect/address the roof before solar. A customer with no near-term EV plans doesn’t need an EV-ready panel upgrade prioritized first. Build the roadmap around the specific diagnosis.' },
           { type: 'p', text: 'You are ready for the practical evaluation once you can build a roadmap like this live, for a real customer profile, while explaining your reasoning.' }
         ]

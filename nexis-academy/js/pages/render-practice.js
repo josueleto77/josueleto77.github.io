@@ -141,6 +141,7 @@ function renderZoneLabPage() {
   return (
     '<a class="tiny muted" href="#/practice" style="text-decoration:none;">← Back to Practice Center</a>' +
     '<div class="section-head mt-8"><div><span class="eyebrow">HVAC Practice Center</span><h1>Zone Planning Lab</h1><p class="mb-0">Estimate preliminary zones from sample floor plans — conversation examples, not final engineering.</p></div></div>' +
+    '<div class="diagram-frame">' + DIAGRAMS['hv-diagram-zoning']() + '<p class="tiny muted text-center mt-8 mb-0">Same rough square footage, very different zoning.</p></div>' +
     layoutsHtml +
     '<h3 class="mt-24">Check your understanding</h3>' +
     ZONE_LAB_QUESTIONS.map(function (q, i) { return renderInlineQuizCard('zone', i, q); }).join('') +

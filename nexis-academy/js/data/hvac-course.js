@@ -48,6 +48,7 @@ var HVAC_COURSE = {
             '2. Compressor moves the energy — the compressor is the "engine" that moves heat between outdoor and indoor coils.',
             '3. Indoor unit distributes comfort — the indoor fan delivers warm or cool air directly into the room or zone.'
           ]},
+          { type: 'diagram', id: 'hv-diagram-cycle', caption: 'The refrigeration cycle: how a heat pump moves heat between the outdoor and indoor coils.' },
           { type: 'callout', kind: 'tip', title: 'Key idea', text: 'A heat pump does not create heat — it transfers heat from outside to inside using refrigerant, pressure changes, and heat exchange.' },
           { type: 'callout', kind: 'tip', title: 'Sales takeaway', text: 'Homeowners buy comfort, not refrigerant cycles. Keep the explanation simple.' }
         ]
@@ -67,7 +68,8 @@ var HVAC_COURSE = {
             'Indoor air handler — wall head, floor mount, cassette, or concealed ducted unit.',
             'Line set + drain — copper refrigerant lines, insulation, condensate drain, and line-hide.',
             'Electrical + controls — disconnect, wiring, remote, smart controls, integrated controls if needed.'
-          ]}
+          ]},
+          { type: 'diagram', id: 'hv-diagram-anatomy', caption: 'The four component groups of a mini-split installation.' }
         ]
       }],
       knowledgeCheck: [
@@ -143,6 +145,7 @@ var HVAC_COURSE = {
             ['Open ranch', 'Often fewer heads if the layout is open and doors stay open.'],
             ['Colonial', 'Often more heads because stairs and bedrooms are separated.']
           ]},
+          { type: 'diagram', id: 'hv-diagram-zoning', caption: 'Same rough square footage, very different zoning — layout drives the head count, not size alone.' },
           { type: 'callout', kind: 'compliance', title: 'Sales takeaway', text: 'Do not promise "one unit for the whole house" unless the airflow path and load support it.' }
         ]
       }],
