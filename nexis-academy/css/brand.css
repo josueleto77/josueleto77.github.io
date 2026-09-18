@@ -94,7 +94,7 @@ img, svg { display: block; max-width: 100%; }
   background: var(--nexis-charcoal); color: var(--nexis-white);
   display: flex; align-items: center; box-shadow: 0 2px 12px rgba(0,0,0,.18);
 }
-.topnav-inner { width: 100%; max-width: var(--container); margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 22px; }
+.topnav-inner { width: 100%; max-width: 1900px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 22px; }
 .topnav-logo { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; letter-spacing: -.01em; flex-shrink: 0; cursor: pointer; }
 .topnav-logo small { display: block; font-family: var(--font-body); font-weight: 500; font-size: .62rem; letter-spacing: .11em; color: #C9D3DA; text-transform: uppercase; }
 .topnav-links { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -246,8 +246,10 @@ img, svg { display: block; max-width: 100%; }
 
 /* Switches to the hamburger menu well before the horizontal nav would
    need its own (invisible, undiscoverable) internal scrollbar to show
-   every item — a full admin nav needs real width to lay out inline. */
-@media (max-width: 1180px) {
+   every item. Measured: logo + full admin link set + XP/avatar needs
+   ~1700px to lay out inline with no clipping, so the breakpoint sits
+   well above that with margin for font/zoom differences across browsers. */
+@media (max-width: 1800px) {
   .topnav-links { display: none; }
   .topnav-burger { display: flex; }
 }
