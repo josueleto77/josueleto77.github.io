@@ -30,6 +30,7 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+alter table public.teams drop constraint if exists teams_manager_fk;
 alter table public.teams
   add constraint teams_manager_fk foreign key (manager_id) references public.profiles(id) on delete set null;
 
