@@ -236,6 +236,13 @@ img, svg { display: block; max-width: 100%; }
 .mobile-menu-link { display: block; width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,.08); color: #D7E0E6; padding: 14px 20px; font-size: .95rem; font-weight: 600; cursor: pointer; }
 .mobile-menu-link.active { color: var(--nexis-orange); }
 
+.nav-dropdown-wrap { position: relative; flex-shrink: 0; }
+.nav-dropdown-panel { display: none; position: absolute; top: calc(100% + 8px); left: 0; min-width: 190px; background: var(--nexis-charcoal); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); overflow: hidden; z-index: 50; flex-direction: column; }
+.nav-dropdown-panel.open { display: flex; }
+.nav-dropdown-item { display: block; width: 100%; text-align: left; background: transparent; border: none; color: #D7E0E6; padding: 12px 16px; font-size: .86rem; font-weight: 600; cursor: pointer; }
+.nav-dropdown-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+.nav-dropdown-item.active { color: var(--nexis-orange); }
+
 @media (max-width: 760px) {
   .topnav-links { display: none; }
   .topnav-burger { display: flex; }

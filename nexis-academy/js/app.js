@@ -59,7 +59,7 @@ var NAV_ITEMS_REP = [
   ['resources', 'Resources'], ['profile', 'Profile']
 ];
 var NAV_ITEMS_MANAGER_EXTRA = [
-  ['manager', 'Team'], ['manager/analytics', 'Analytics']
+  ['manager', 'Team']
 ];
 var NAV_ITEMS_ADMIN_EXTRA = [
   ['admin/courses', 'Course Manager'], ['admin/questions', 'Question Bank'], ['admin/certifications', 'Certifications'],
@@ -72,7 +72,7 @@ function renderNav(activeKey) {
   var role = user.role || 'rep';
   var items = NAV_ITEMS_REP.slice();
   if (role === 'manager' || role === 'admin') items = items.concat(NAV_ITEMS_MANAGER_EXTRA);
-  if (role === 'admin') items = items.concat(NAV_ITEMS_ADMIN_EXTRA);
+  var showAdminMenu = role === 'admin';
 
   var linksHtml = items.map(function (it) {
     var key = it[0], label = it[1];
@@ -80,7 +80,20 @@ function renderNav(activeKey) {
     return '<button class="topnav-link' + (isActive ? ' active' : '') + '" onclick="navigate(\'' + key + '\')">' + escapeHtml(label) + '</button>';
   }).join('');
 
-  var mobileLinksHtml = items.map(function (it) {
+  if (showAdminMenu) {
+    var adminActive = (activeKey || '').indexOf('admin') === 0;
+    var adminItemsHtml = NAV_ITEMS_ADMIN_EXTRA.map(function (it) {
+      var isActive = activeKey === it[0];
+      return '<button class="nav-dropdown-item' + (isActive ? ' active' : '') + '" onclick="closeAdminMenu();navigate(\'' + it[0] + '\')">' + escapeHtml(it[1]) + '</button>';
+    }).join('');
+    linksHtml += '<div class="nav-dropdown-wrap">' +
+      '<button class="topnav-link' + (adminActive ? ' active' : '') + '" onclick="toggleAdminMenu(event)">Admin ▾</button>' +
+      '<div class="nav-dropdown-panel" id="admin-nav-dropdown">' + adminItemsHtml + '</div>' +
+    '</div>';
+  }
+
+  var items2 = showAdminMenu ? items.concat(NAV_ITEMS_ADMIN_EXTRA) : items;
+  var mobileLinksHtml = items2.map(function (it) {
     var key = it[0], label = it[1];
     var isActive = activeKey === key || (activeKey || '').indexOf(key) === 0;
     return '<button class="mobile-menu-link' + (isActive ? ' active' : '') + '" onclick="closeMobileNav();navigate(\'' + key + '\')">' + escapeHtml(label) + '</button>';
@@ -102,6 +115,12 @@ function renderNav(activeKey) {
 }
 function toggleMobileNav() { var m = qs('#mobile-menu'); if (m) m.classList.toggle('open'); }
 function closeMobileNav() { var m = qs('#mobile-menu'); if (m) m.classList.remove('open'); }
+function toggleAdminMenu(e) { if (e) e.stopPropagation(); var m = qs('#admin-nav-dropdown'); if (m) m.classList.toggle('open'); }
+function closeAdminMenu() { var m = qs('#admin-nav-dropdown'); if (m) m.classList.remove('open'); }
+document.addEventListener('click', function (e) {
+  var panel = qs('#admin-nav-dropdown');
+  if (panel && panel.classList.contains('open') && !panel.parentElement.contains(e.target)) closeAdminMenu();
+});
 
 function renderShell(activeKey, bodyHtml) {
   var root = qs('#app-root');
