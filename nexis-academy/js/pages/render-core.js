@@ -343,20 +343,60 @@ function renderBadgesPage() {
 }
 
 // ---------------- Leaderboard ----------------
-function renderLeaderboardPage() {
+var LEADERBOARD_CACHE = {}; // scope -> rows | 'loading'
+function getLeaderboardData(scope, onReadyRerender) {
+  if (!window.NEXIS_BACKEND_READY) return null; // caller falls back to demo data
+  var cached = LEADERBOARD_CACHE[scope];
+  if (cached && cached !== 'loading') return cached;
+  if (cached !== 'loading') {
+    LEADERBOARD_CACHE[scope] = 'loading';
+    dbLeaderboard(scope).then(function (res) {
+      LEADERBOARD_CACHE[scope] = res.data || [];
+      if (onReadyRerender) onReadyRerender();
+    }).catch(function (e) {
+      console.error('Loading leaderboard failed', e);
+      LEADERBOARD_CACHE[scope] = [];
+      if (onReadyRerender) onReadyRerender();
+    });
+  }
+  return null;
+}
+function renderLeaderboardPage(scope) {
+  scope = scope === 'alltime' ? 'alltime' : 'week';
   var user = NexisState.get().user;
-  var me = { name: user.name + ' (You)', xp: NexisState.get().xp, isMe: true };
-  var demo = DEMO_TEAM.map(function (t) { return { name: t.name, xp: 400 + Math.round(t.quizAvg * 9 + t.trainingHours * 12) }; });
-  var rows = demo.concat([me]).sort(function (a, b) { return b.xp - a.xp; });
+  var tabsHtml = '<div class="flex gap-10 mb-16">' +
+    '<button class="btn btn-sm ' + (scope === 'week' ? 'btn-dark' : 'btn-outline') + '" onclick="navigate(\'leaderboard/week\')">This week</button>' +
+    '<button class="btn btn-sm ' + (scope === 'alltime' ? 'btn-dark' : 'btn-outline') + '" onclick="navigate(\'leaderboard/alltime\')">All-time XP</button>' +
+  '</div>';
+  var title = scope === 'week' ? 'Top training XP this week' : 'Top training XP all-time';
+
+  var rows, isDemo = false;
+  if (window.NEXIS_BACKEND_READY) {
+    var real = getLeaderboardData(scope, function () { renderShell('leaderboard', renderLeaderboardPage(scope)); });
+    if (!real) {
+      return '<div class="section-head"><div><span class="eyebrow">Leaderboard</span><h1>' + title + '</h1></div></div>' + tabsHtml + loadingCard('Loading leaderboard…');
+    }
+    rows = real.map(function (r) { return { name: r.id === user.id ? r.name + ' (You)' : r.name, xp: r.xp, isMe: r.id === user.id }; });
+    if (!rows.some(function (r) { return r.isMe; })) rows.push({ name: user.name + ' (You)', xp: scope === 'week' ? 0 : NexisState.get().xp, isMe: true });
+  } else {
+    isDemo = true;
+    var me = { name: user.name + ' (You)', xp: NexisState.get().xp, isMe: true };
+    var demo = DEMO_TEAM.map(function (t) { return { name: t.name, xp: 400 + Math.round(t.quizAvg * 9 + t.trainingHours * 12) }; });
+    rows = demo.concat([me]);
+  }
+  rows.sort(function (a, b) { return b.xp - a.xp; });
+
   return (
-    '<div class="section-head"><div><span class="eyebrow">Leaderboard</span><h1>Top training XP this season</h1></div></div>' +
+    '<div class="section-head"><div><span class="eyebrow">Leaderboard</span><h1>' + title + '</h1></div></div>' +
+    (isDemo ? '<div class="callout tip mb-16"><h4>Demo data</h4><p class="mb-0">Connect Supabase to rank real reps by real training XP.</p></div>' : '') +
+    tabsHtml +
     '<div class="card">' +
-      rows.map(function (r, i) {
+      (rows.length ? rows.map(function (r, i) {
         return '<div class="flex-between" style="padding:12px 4px;border-bottom:1px solid var(--border);' + (r.isMe ? 'background:rgba(255,165,1,.06);border-radius:10px;' : '') + '">' +
           '<div class="flex" style="align-items:center;gap:12px;"><span class="pill pill-dark" style="min-width:28px;justify-content:center;">' + (i + 1) + '</span><span style="font-weight:' + (r.isMe ? '800' : '600') + ';">' + escapeHtml(r.name) + '</span></div>' +
           '<span class="pill pill-orange">' + r.xp + ' XP</span>' +
         '</div>';
-      }).join('') +
+      }).join('') : '<p class="muted mb-0">No training activity yet.</p>') +
     '</div>'
   );
 }

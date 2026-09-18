@@ -107,6 +107,11 @@ function dbFetchUserFullProgress(userId) {
   });
 }
 
+// ---------------- Leaderboard (every signed-in user can read this) ----------------
+function dbLeaderboard(scope) {
+  return sb.rpc('leaderboard', { p_scope: scope || 'week' });
+}
+
 // ---------------- Mass Save program DB (shared, admin-editable) ----------------
 function dbListMassSavePrograms() {
   return sb.from('mass_save_programs').select('*').order('program_name');

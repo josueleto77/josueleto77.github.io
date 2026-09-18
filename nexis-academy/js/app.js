@@ -2,7 +2,7 @@
    NEXIS POWER ACADEMY — App shell, router, and shared helpers
    ============================================================ */
 
-window.NEXIS_BUILD = '20260918c';
+window.NEXIS_BUILD = '20260918d';
 console.log('[Nexis Academy] build ' + window.NEXIS_BUILD);
 
 var COURSES = [window.SOLAR_COURSE, window.HVAC_COURSE, window.ENERGY_ADVISOR_COURSE];
@@ -152,7 +152,7 @@ function router() {
   if (page === 'my-training') return renderShell('my-training', renderMyTrainingPage());
   if (page === 'certifications') return renderShell('certifications', renderCertificationsPage());
   if (page === 'badges') return renderShell('badges', renderBadgesPage());
-  if (page === 'leaderboard') return renderShell('leaderboard', renderLeaderboardPage());
+  if (page === 'leaderboard') return renderShell('leaderboard', renderLeaderboardPage(parts[1]));
   if (page === 'resources') return renderShell('resources', renderResourcesPage());
   if (page === 'profile') return renderShell('profile', renderProfilePage());
 

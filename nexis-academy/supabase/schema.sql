@@ -245,6 +245,34 @@ create policy "drafts_admin_all" on public.content_drafts for all
   using (public.is_admin()) with check (public.is_admin());
 
 -- ============================================================
+-- Leaderboard
+-- A company-wide leaderboard needs every rep to see everyone's name +
+-- XP, but the RLS policies above deliberately keep profiles/xp_log
+-- scoped to self / admin / your own manager's team — a rep should not
+-- be able to read a teammate's email, role, or raw progress rows. This
+-- function runs as SECURITY DEFINER (bypassing RLS) but only ever
+-- returns the two non-sensitive columns a leaderboard needs.
+-- 'week' sums xp_log since the start of the current week (Mon 00:00);
+-- anything else returns each profile's all-time xp total.
+-- ============================================================
+create or replace function public.leaderboard(p_scope text default 'week')
+returns table(id uuid, name text, xp integer)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.name,
+    (case when p_scope = 'week'
+      then coalesce((
+        select sum(x.amount) from public.xp_log x
+        where x.user_id = p.id and x.at >= date_trunc('week', now())
+      ), 0)
+      else p.xp
+    end)::integer as xp
+  from public.profiles p
+  order by xp desc, p.name asc;
+$$;
+
+grant execute on function public.leaderboard(text) to authenticated;
+
+-- ============================================================
 -- Invite-gated signup trigger
 -- New auth.users row → only becomes a usable profile if the email
 -- matches an unused row in `invites`. Otherwise no profile is created
