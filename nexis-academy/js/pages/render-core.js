@@ -184,6 +184,7 @@ function renderDashboardPage() {
   var advisorUnlocked = NexisState.isEnergyAdvisorUnlocked();
 
   return (
+    onbDashboardReminderBanner() +
     '<div class="hero-dark">' +
       '<span class="eyebrow" style="color:#FFCB70;">Nexis Power Academy</span>' +
       '<h1 style="color:#fff;">Welcome back, ' + escapeHtml(firstName) + '</h1>' +

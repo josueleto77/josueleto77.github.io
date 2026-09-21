@@ -30,7 +30,8 @@ var ONB_I18N = {
     askPlaceholder: 'Ask about onboarding, compliance, or company policy…',
     askBtn: 'Ask',
     readyBanner: 'READY TO SELL — APPROVED',
-    waitingClassification: 'Waiting on HR to confirm your employment classification (W-2 vs. 1099). A Classification Review task has already been opened for HR — no action needed from you right now. I never decide this myself, and you’re never asked to choose it.'
+    waitingClassification: 'Waiting on HR to confirm your employment classification (W-2 vs. 1099). A Classification Review task has already been opened for HR — no action needed from you right now. I never decide this myself, and you’re never asked to choose it.',
+    completeNowBtn: 'Complete now'
   },
   es: {
     welcomeEyebrow: 'Incorporación de Nexis Power',
@@ -48,7 +49,8 @@ var ONB_I18N = {
     askPlaceholder: 'Pregunta sobre incorporación, cumplimiento o políticas de la empresa…',
     askBtn: 'Preguntar',
     readyBanner: 'LISTO PARA VENDER — APROBADO',
-    waitingClassification: 'Esperando que Recursos Humanos confirme tu clasificación laboral (W-2 o 1099). Ya se abrió una tarea de Revisión de Clasificación para RR.HH. — no necesitas hacer nada por ahora. Yo nunca decido esto, y a ti tampoco se te pide elegirlo.'
+    waitingClassification: 'Esperando que Recursos Humanos confirme tu clasificación laboral (W-2 o 1099). Ya se abrió una tarea de Revisión de Clasificación para RR.HH. — no necesitas hacer nada por ahora. Yo nunca decido esto, y a ti tampoco se te pide elegirlo.',
+    completeNowBtn: 'Completar ahora'
   }
 };
 function onbT(key) {
@@ -64,7 +66,7 @@ function onbSetLang(lang) {
 }
 
 // ---------------- Rep: load my own onboarding record ----------------
-var ONB_MY_CACHE = null; // { profile, admin, docs }
+var ONB_MY_CACHE = null; // { profile, admin, docs, taxForms }
 function loadMyOnboarding(onReadyRerender) {
   if (!window.NEXIS_BACKEND_READY) return null;
   if (ONB_MY_CACHE) return ONB_MY_CACHE;
@@ -74,20 +76,55 @@ function loadMyOnboarding(onReadyRerender) {
     Promise.all([
       dbFetchOnboardingProfile(userId),
       dbFetchOnboardingAdmin(userId),
-      dbListOnboardingDocuments(userId)
+      dbListOnboardingDocuments(userId),
+      dbListOnboardingTaxForms(userId)
     ]).then(function (r) {
-      ONB_MY_CACHE = { profile: r[0].data || {}, admin: r[1].data || {}, docs: r[2].data || [] };
+      var taxForms = {};
+      (r[3].data || []).forEach(function (row) { taxForms[row.form_type] = row; });
+      ONB_MY_CACHE = { profile: r[0].data || {}, admin: r[1].data || {}, docs: r[2].data || [], taxForms: taxForms };
       window._onbLang = ONB_MY_CACHE.profile.language || 'en';
       window._onbMyLoading = false;
       if (onReadyRerender) onReadyRerender();
     }).catch(function (e) {
       console.error('Loading onboarding failed', e);
-      ONB_MY_CACHE = { profile: {}, admin: {}, docs: [] };
+      ONB_MY_CACHE = { profile: {}, admin: {}, docs: [], taxForms: {} };
       window._onbMyLoading = false;
       if (onReadyRerender) onReadyRerender();
     });
   }
   return null;
+}
+
+// ---------------- Reminder banner (in-app, no external service) ----------------
+// Escalates purely off real elapsed time since onboarding_profile was
+// created (i.e. since the rep's account was set up) -- no server-side
+// cron is involved, so this only fires when the rep (or, on the
+// Dashboard, the rep specifically) actually opens the app.
+function onbReminderMessage(days) {
+  if ((window._onbLang || 'en') === 'es') {
+    return 'Han pasado ' + days + ' días desde que empezaste tu incorporación y aún no tenemos tu información personal. Complétala para poder seguir avanzando hacia Listo para Vender.';
+  }
+  return 'It’s been ' + days + ' days since you started onboarding and we still don’t have your personal information. Please complete it so we can keep moving toward Ready to Sell.';
+}
+function onbReminderBannerHtml(my, showCta) {
+  if (!my || !my.profile || my.profile.intake_submitted_at) return '';
+  if (my.admin && my.admin.ready_to_sell) return '';
+  var created = my.profile.created_at;
+  var days = created ? Math.floor((Date.now() - new Date(created).getTime()) / 86400000) : 0;
+  if (days < 2) return '';
+  var tier = days >= 6 ? 'compliance' : 'tip';
+  return '<div class="callout ' + tier + ' mb-16"><div class="flex-between" style="flex-wrap:wrap;gap:10px;">' +
+    '<p class="mb-0">' + escapeHtml(onbReminderMessage(days)) + '</p>' +
+    (showCta ? '<button class="btn btn-sm btn-dark" onclick="navigate(\'onboarding\')">' + escapeHtml(onbT('completeNowBtn')) + '</button>' : '') +
+  '</div></div>';
+}
+function onbDashboardReminderBanner() {
+  var user = NexisState.get().user;
+  if (!window.NEXIS_BACKEND_READY || !user || user.role !== 'rep') return '';
+  var my = loadMyOnboarding(router);
+  if (!my) return '';
+  window._onbLang = window._onbLang || (my.profile && my.profile.language) || 'en';
+  return onbReminderBannerHtml(my, true);
 }
 
 function onboardingTrainingComplete(track) {
@@ -133,9 +170,11 @@ function renderOnboardingPage() {
   var admin = my.admin || {};
 
   setTimeout(bindOnbPersonalForm, 0);
+  setTimeout(bindOnbTaxForms, 0);
 
   return (
     (admin.ready_to_sell ? renderOnboardingReadyBanner(firstName) : (onbLangToggleHtml() + onbWelcomeHero(firstName))) +
+    onbReminderBannerHtml(my, false) +
     onbProgressBarHtml(steps, pct) +
     onbPersonalInfoCard(my) +
     onbClassificationCard(my) +
@@ -274,19 +313,28 @@ function onbDocumentsCard(my) {
       var row = my.docs.filter(function (x) { return x.doc_key === d.key; })[0];
       var status = row ? row.status : 'missing';
       var pill = status === 'verified' ? 'pill-green' : status === 'rejected' ? 'pill-gray' : 'pill-orange';
-      return '<div class="flex-between small" style="padding:8px 0;border-bottom:1px solid var(--border);">' +
-        '<span>' + escapeHtml(d.label) + '</span>' +
-        (status === 'missing' || status === 'rejected'
-          ? '<button class="btn btn-outline btn-sm" onclick="onbMarkDocSubmitted(\'' + d.key + '\')">' + escapeHtml(onbT('markSubmitted')) + '</button>'
-          : '<span class="pill ' + pill + '">' + status.charAt(0).toUpperCase() + status.slice(1) + '</span>') +
+      var fillable = ONBOARDING_TAX_FORMS[d.key];
+      var savedForm = fillable && my.taxForms ? my.taxForms[d.key] : null;
+      var statusPillHtml = (status !== 'missing' && status !== 'rejected') ? '<span class="pill ' + pill + '" style="margin-left:8px;">' + status.charAt(0).toUpperCase() + status.slice(1) + '</span>' : '';
+      var actionHtml;
+      if (fillable) {
+        actionHtml = '<button class="btn btn-outline btn-sm" onclick="onbToggleTaxForm(\'' + d.key + '\')">' + (window._onbOpenTaxForm === d.key ? 'Close Form' : (savedForm && savedForm.signed ? 'Edit Form' : 'Fill Out Form')) + '</button>' + statusPillHtml;
+      } else if (status === 'missing' || status === 'rejected') {
+        actionHtml = '<button class="btn btn-outline btn-sm" onclick="onbMarkDocSubmitted(\'' + d.key + '\')">' + escapeHtml(onbT('markSubmitted')) + '</button>';
+      } else {
+        actionHtml = '<span class="pill ' + pill + '">' + status.charAt(0).toUpperCase() + status.slice(1) + '</span>';
+      }
+      return '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+        '<div class="flex-between small"><span>' + escapeHtml(d.label) + '</span>' + actionHtml + '</div>' +
+        (fillable && window._onbOpenTaxForm === d.key ? onbTaxFormPanel(d.key, savedForm) : '') +
       '</div>';
     }).join('');
   }).join('');
   return '<div class="card mt-16"><h3>' + escapeHtml(onbT('stepDocuments')) + '</h3>' +
-    '<div class="callout compliance"><p class="mb-0">Your Social Security number, bank/routing numbers, and copies of ID documents are never collected here. Those go directly through the secure payroll/QuickBooks setup process with HR. "Mark as Submitted" only confirms you’ve sent the document through that secure channel.</p></div>' +
+    '<div class="callout compliance"><p class="mb-0">Your Social Security number, bank/routing numbers, and copies of ID documents are never collected here. Those go directly through the secure payroll/QuickBooks setup process with HR. The W-4, M-4, and W-9 can be filled out and signed right here (everything except the SSN/EIN); other items use "Mark as Submitted" to confirm you’ve sent them through that secure channel.</p></div>' +
     rowsHtml + '</div>';
 }
-function onbMarkDocSubmitted(docKey) {
+function onbMarkDocSubmittedData(docKey) {
   var user = NexisState.get().user;
   var existing = ONB_MY_CACHE.docs.filter(function (x) { return x.doc_key === docKey; })[0];
   if (existing) { existing.status = 'received'; existing.received_at = nowISO(); }
@@ -294,7 +342,72 @@ function onbMarkDocSubmitted(docKey) {
   dbMarkOnboardingDocSubmitted(user.id, docKey).then(function (res) {
     if (!res.error) dbLogOnboardingAudit(user.id, 'Document marked submitted: ' + docKey, user.id, 'RECEIVED').catch(function () {});
   }).catch(function () {});
+}
+function onbMarkDocSubmitted(docKey) {
+  onbMarkDocSubmittedData(docKey);
   router();
+}
+function onbToggleTaxForm(docKey) {
+  window._onbOpenTaxForm = (window._onbOpenTaxForm === docKey) ? null : docKey;
+  router();
+}
+function onbTaxFormFieldHtml(formType, f, val) {
+  var id = 'onb-tf-' + formType + '-' + f.key;
+  if (f.type === 'select') {
+    return '<div class="field"><label>' + escapeHtml(f.label) + '</label><select id="' + id + '">' +
+      '<option value="">Select…</option>' +
+      f.options.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === val ? ' selected' : '') + '>' + escapeHtml(o[1]) + '</option>'; }).join('') +
+    '</select></div>';
+  }
+  if (f.type === 'checkbox') {
+    return '<div class="field"><label style="display:flex;gap:8px;align-items:center;font-weight:400;"><input type="checkbox" id="' + id + '"' + (val ? ' checked' : '') + '> ' + escapeHtml(f.label) + '</label></div>';
+  }
+  if (f.type === 'number') {
+    return '<div class="field"><label>' + escapeHtml(f.label) + '</label><input type="number" min="' + (f.min != null ? f.min : 0) + '" id="' + id + '" value="' + (val != null ? escapeHtml(val) : '') + '"></div>';
+  }
+  return '<div class="field"><label>' + escapeHtml(f.label) + '</label><input type="text" id="' + id + '" value="' + escapeHtml(val || '') + '"></div>';
+}
+function onbTaxFormPanel(formType, savedRow) {
+  var def = ONBOARDING_TAX_FORMS[formType];
+  var data = (savedRow && savedRow.data) || {};
+  return '<div class="card mt-8" style="border-color:var(--nexis-orange);">' +
+    '<h4 class="mb-0">' + escapeHtml(def.title) + '</h4>' +
+    '<div class="callout compliance mt-8"><p class="mb-0">' + escapeHtml(def.note) + '</p></div>' +
+    '<form id="onb-tf-form-' + formType + '">' +
+      def.fields.map(function (f) { return onbTaxFormFieldHtml(formType, f, data[f.key]); }).join('') +
+      '<label class="small" style="display:flex;gap:8px;align-items:center;font-weight:400;"><input type="checkbox" id="onb-tf-' + formType + '-signature"' + (savedRow && savedRow.signed ? ' checked' : '') + ' required> I am electronically signing this form and certify the information above is accurate.</label>' +
+      '<button type="submit" class="btn btn-primary btn-sm mt-8">' + (savedRow && savedRow.signed ? 'Update & Re-Sign' : 'Sign & Submit') + '</button>' +
+      (savedRow && savedRow.signed_at ? '<span class="tiny muted" style="margin-left:10px;">Last signed ' + fmtDate(savedRow.signed_at) + '</span>' : '') +
+    '</form></div>';
+}
+function bindOnbTaxForms() {
+  Object.keys(ONBOARDING_TAX_FORMS).forEach(function (formType) {
+    var form = qs('#onb-tf-form-' + formType);
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var def = ONBOARDING_TAX_FORMS[formType];
+      var data = {};
+      def.fields.forEach(function (f) {
+        var el = qs('#onb-tf-' + formType + '-' + f.key);
+        if (!el) return;
+        data[f.key] = f.type === 'checkbox' ? el.checked : (f.type === 'number' ? (el.value === '' ? null : Number(el.value)) : el.value.trim());
+      });
+      var user = NexisState.get().user;
+      var submitBtn = form.querySelector('button[type=submit]');
+      submitBtn.disabled = true;
+      dbUpsertOnboardingTaxForm(user.id, formType, data).then(function (res) {
+        submitBtn.disabled = false;
+        if (res.error) { alert('Could not save: ' + res.error.message); return; }
+        ONB_MY_CACHE.taxForms = ONB_MY_CACHE.taxForms || {};
+        ONB_MY_CACHE.taxForms[formType] = { data: data, signed: true, signed_at: new Date().toISOString() };
+        onbMarkDocSubmittedData(def.docKey);
+        dbLogOnboardingAudit(user.id, 'Signed and submitted ' + def.title, user.id, 'SIGNED').catch(function () {});
+        window._onbOpenTaxForm = null;
+        router();
+      });
+    });
+  });
 }
 
 function onbStatusCard(my) {
@@ -364,7 +477,7 @@ function onbRenderFaqTurn(turn) {
 // ================================================================
 // Admin: Sales Rep Onboarding pipeline dashboard
 // ================================================================
-var ONB_ADMIN_CACHE = null; // { profiles, intake, admin, docs }
+var ONB_ADMIN_CACHE = null; // { intake, admin, docs, taxForms }
 function loadAllOnboarding(onReadyRerender) {
   if (!window.NEXIS_BACKEND_READY) return null;
   if (ONB_ADMIN_CACHE) return ONB_ADMIN_CACHE;
@@ -373,14 +486,15 @@ function loadAllOnboarding(onReadyRerender) {
     Promise.all([
       dbListAllOnboardingProfiles(),
       dbListOnboardingAdmin(),
-      dbListAllOnboardingDocuments()
+      dbListAllOnboardingDocuments(),
+      dbListAllOnboardingTaxForms()
     ]).then(function (r) {
-      ONB_ADMIN_CACHE = { intake: r[0].data || [], admin: r[1].data || [], docs: r[2].data || [] };
+      ONB_ADMIN_CACHE = { intake: r[0].data || [], admin: r[1].data || [], docs: r[2].data || [], taxForms: r[3].data || [] };
       window._onbAdminLoading = false;
       if (onReadyRerender) onReadyRerender();
     }).catch(function (e) {
       console.error('Loading onboarding admin data failed', e);
-      ONB_ADMIN_CACHE = { intake: [], admin: [], docs: [] };
+      ONB_ADMIN_CACHE = { intake: [], admin: [], docs: [], taxForms: [] };
       window._onbAdminLoading = false;
       if (onReadyRerender) onReadyRerender();
     });
@@ -516,7 +630,7 @@ function renderOnboardingRepDetailPage(userId) {
       '</div>' +
     '</div>' +
     '<div class="card mt-16"><h3>Document &amp; Agreement Checklist</h3>' +
-      (required.length ? onbDocAdminChecklist(userId, required, docs) : '<p class="small muted mb-0">Classification not yet assigned — no document checklist yet.</p>') +
+      (required.length ? onbDocAdminChecklist(userId, required, docs, ONB_ADMIN_CACHE.taxForms || []) : '<p class="small muted mb-0">Classification not yet assigned — no document checklist yet.</p>') +
     '</div>' +
     '<div class="card mt-16"><h3>Audit Trail</h3>' +
       (repAudit.length ? '<div class="stack">' + repAudit.map(function (a) {
@@ -525,21 +639,44 @@ function renderOnboardingRepDetailPage(userId) {
     '</div>'
   );
 }
-function onbDocAdminChecklist(userId, required, docs) {
+function onbDocAdminChecklist(userId, required, docs, taxForms) {
   var byCat = {};
   required.forEach(function (d) { (byCat[d.category] = byCat[d.category] || []).push(d); });
   var opts = [['missing', 'Missing'], ['received', 'Received'], ['verified', 'Verified'], ['rejected', 'Rejected']];
   return Object.keys(byCat).map(function (cat) {
     return '<h4 class="mt-16">' + escapeHtml(cat) + '</h4>' + byCat[cat].map(function (d) {
       var row = docs.filter(function (x) { return x.doc_key === d.key; })[0] || { status: 'missing' };
-      return '<div class="flex-between small" style="padding:8px 0;border-bottom:1px solid var(--border);">' +
-        '<span>' + escapeHtml(d.label) + '</span>' +
+      var fillable = ONBOARDING_TAX_FORMS[d.key];
+      var toggleKey = userId + ':' + d.key;
+      var formRow = fillable ? taxForms.filter(function (t) { return t.user_id === userId && t.form_type === d.key; })[0] : null;
+      return '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+        '<div class="flex-between small"><span>' + escapeHtml(d.label) +
+          (fillable ? ' <button class="btn btn-ghost btn-sm" style="padding:2px 8px;" onclick="onbToggleAdminForm(\'' + toggleKey + '\')">' + (window._onbAdminOpenForm === toggleKey ? 'Hide Form' : 'View Form') + '</button>' : '') +
+        '</span>' +
         '<select onchange="onbAdminSetDocStatus(\'' + userId + '\', \'' + d.key + '\', this.value)">' +
           opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === row.status ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
-        '</select>' +
+        '</select></div>' +
+        (fillable && window._onbAdminOpenForm === toggleKey ? '<div class="mt-8" style="background:var(--surface-sunk);border-radius:8px;padding:10px 12px;">' + onbTaxFormReadonlyHtml(d.key, formRow) + '</div>' : '') +
       '</div>';
     }).join('');
   }).join('');
+}
+function onbToggleAdminForm(key) {
+  window._onbAdminOpenForm = (window._onbAdminOpenForm === key) ? null : key;
+  router();
+}
+function onbTaxFormReadonlyHtml(formType, row) {
+  var def = ONBOARDING_TAX_FORMS[formType];
+  if (!row) return '<p class="small muted mb-0">Not yet submitted.</p>';
+  var data = row.data || {};
+  return '<div class="small">' + def.fields.map(function (f) {
+    var v = data[f.key];
+    var display;
+    if (f.type === 'checkbox') display = v ? 'Yes' : 'No';
+    else if (f.type === 'select') { var opt = f.options.filter(function (o) { return o[0] === v; })[0]; display = opt ? opt[1] : (v || '—'); }
+    else display = (v == null || v === '') ? '—' : v;
+    return '<div style="padding:4px 0;"><span class="muted">' + escapeHtml(f.label) + ':</span> ' + escapeHtml(String(display)) + '</div>';
+  }).join('') + (row.signed_at ? '<div class="tiny muted mt-8">Signed ' + fmtDate(row.signed_at) + '</div>' : '') + '</div>';
 }
 function onbAdminSetDocStatus(userId, docKey, status) {
   var me = NexisState.get().user;
@@ -575,8 +712,13 @@ function onbAdminDashboardTable(rows) {
 }
 function onbAdminRowHtml(row) {
   var missingHtml = row.missing.length ? '<div class="tiny muted mt-8">Missing: ' + escapeHtml(row.missing.slice(0, 3).join(', ')) + (row.missing.length > 3 ? ' +' + (row.missing.length - 3) + ' more' : '') + '</div>' : '';
+  var intakePillHtml = '';
+  if (!row.intake.intake_submitted_at) {
+    var days = row.intake.created_at ? Math.floor((Date.now() - new Date(row.intake.created_at).getTime()) / 86400000) : 0;
+    intakePillHtml = '<div class="tiny mt-8" style="color:#C0392B;font-weight:700;">⏳ Intake not submitted' + (days >= 2 ? ' (' + days + 'd — consider a personal nudge)' : '') + '</div>';
+  }
   return '<tr>' +
-    '<td style="font-weight:700;cursor:pointer;" onclick="navigate(\'admin/onboarding/rep/' + row.id + '\')">' + escapeHtml(row.name) + ' →</td>' +
+    '<td style="font-weight:700;cursor:pointer;" onclick="navigate(\'admin/onboarding/rep/' + row.id + '\')">' + escapeHtml(row.name) + ' →' + intakePillHtml + '</td>' +
     '<td class="small">' + (row.intake.start_date ? fmtDate(row.intake.start_date) : '—') + '</td>' +
     '<td>' + onbClassificationSelect(row) + missingHtml + '</td>' +
     '<td><span class="pill ' + (row.docsPct === 100 ? 'pill-green' : row.docsPct > 0 ? 'pill-orange' : 'pill-gray') + '">' + row.docsPct + '%</span></td>' +
