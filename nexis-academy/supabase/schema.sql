@@ -312,6 +312,193 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- ============================================================
+-- Sales Rep Onboarding
+-- Offer Accepted -> Documents Complete -> Compliance Approved ->
+-- Accounts Created -> Training Complete -> Ready to Sell.
+--
+-- Deliberately split in two tables so Row Level Security does the
+-- enforcing, not app code: onboarding_profile holds only the
+-- NON-sensitive fields the rep is trusted to fill in themselves;
+-- onboarding_admin holds classification, pipeline status, and system
+-- provisioning flags, which only an admin/manager may ever write (a
+-- rep can read their own row so they can see their status, never
+-- write it — this is the "never let the bot/rep self-assign W-2 vs
+-- 1099" rule from the onboarding spec, enforced at the database).
+--
+-- What this deliberately does NOT store: SSNs, bank/routing numbers,
+-- copies of ID documents, or any other sensitive identity/financial
+-- data. onboarding_documents tracks only a document TYPE and a
+-- STATUS (missing/received/verified/rejected) — never file contents
+-- — consistent with routing sensitive data through a secure
+-- payroll/HR system rather than through this app.
+-- ============================================================
+
+create table if not exists public.onboarding_profile (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  language text not null default 'en' check (language in ('en', 'es')),
+  legal_first_name text,
+  middle_name text,
+  legal_last_name text,
+  preferred_name text,
+  personal_email text,
+  mobile_phone text,
+  home_address text,
+  city text,
+  state text,
+  zip text,
+  start_date date,
+  position text,
+  territory text,
+  track text check (track in ('solar', 'hvac', 'both')),
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  intake_submitted_at timestamptz,
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.onboarding_admin (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  classification text not null default 'not_assigned' check (classification in ('not_assigned', 'w2_employee', '1099_contractor')),
+  status text not null default 'invited' check (status in (
+    'invited', 'in_progress', 'waiting_on_rep', 'waiting_on_hr', 'compliance_review', 'training', 'final_review', 'ready_to_sell', 'on_hold'
+  )),
+  manager_id uuid references public.profiles(id) on delete set null,
+  email_status text not null default 'not_created' check (email_status in ('not_created', 'pending', 'active')),
+  crm_status text not null default 'not_created' check (crm_status in ('not_created', 'pending', 'active')),
+  quickbooks_status text not null default 'not_created' check (quickbooks_status in ('not_created', 'pending', 'active')),
+  ready_to_sell boolean not null default false,
+  ready_to_sell_at timestamptz,
+  ready_to_sell_by uuid references public.profiles(id),
+  updated_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+-- Document / policy-acknowledgment checklist. One row per (user, doc type).
+-- Status only — never the document's contents.
+create table if not exists public.onboarding_documents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  doc_key text not null,
+  status text not null default 'missing' check (status in ('missing', 'received', 'verified', 'rejected')),
+  received_at timestamptz,
+  verified_by uuid references public.profiles(id),
+  verified_at timestamptz,
+  note text,
+  updated_at timestamptz not null default now(),
+  unique (user_id, doc_key)
+);
+
+-- HR/Admin task queue: classification review, missing docs, legal/compliance
+-- escalations the bot must never guess its way through, new-hire reporting
+-- reminders, etc. A rep may create a task about themselves (e.g. the
+-- classification-review task created automatically while NOT_ASSIGNED);
+-- only admin/manager can see or resolve the queue.
+create table if not exists public.onboarding_tasks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete cascade,
+  task_type text not null check (task_type in ('classification_review', 'legal_compliance_review', 'new_hire_reporting', 'missing_documents', 'other')),
+  title text not null,
+  detail text,
+  status text not null default 'open' check (status in ('open', 'in_progress', 'resolved')),
+  urgency text not null default 'normal' check (urgency in ('normal', 'urgent')),
+  created_by uuid references public.profiles(id),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  resolved_by uuid references public.profiles(id)
+);
+
+-- Only one OPEN classification-review task per rep — lets the app
+-- insert-and-ignore-conflict from client code (which cannot SELECT the
+-- queue to de-duplicate itself) instead of ever showing HR the same
+-- review five times. Other task types (e.g. a distinct legal/compliance
+-- question per row) are intentionally not deduplicated this way.
+create unique index if not exists onboarding_tasks_open_classification_unique
+  on public.onboarding_tasks (user_id)
+  where status = 'open' and task_type = 'classification_review';
+
+-- Full onboarding audit trail. No unnecessary PII — action + type + status only.
+create table if not exists public.onboarding_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.profiles(id) on delete cascade,
+  action text not null,
+  actor uuid references public.profiles(id),
+  result text,
+  at timestamptz not null default now()
+);
+
+alter table public.onboarding_profile enable row level security;
+alter table public.onboarding_admin enable row level security;
+alter table public.onboarding_documents enable row level security;
+alter table public.onboarding_tasks enable row level security;
+alter table public.onboarding_audit_log enable row level security;
+
+-- ---------- onboarding_profile: rep owns their own row; admin can correct it; manager can read scoped ----------
+drop policy if exists "onb_profile_self_rw" on public.onboarding_profile;
+create policy "onb_profile_self_rw" on public.onboarding_profile for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "onb_profile_admin_rw" on public.onboarding_profile;
+create policy "onb_profile_admin_rw" on public.onboarding_profile for all
+  using (public.is_admin()) with check (public.is_admin());
+drop policy if exists "onb_profile_manager_read" on public.onboarding_profile;
+create policy "onb_profile_manager_read" on public.onboarding_profile for select
+  using (public.current_role() = 'manager' and exists (
+    select 1 from public.profiles p where p.id = onboarding_profile.user_id and p.team_id = public.current_team()
+  ));
+
+-- ---------- onboarding_admin: rep may only READ their own row (see their status); only staff may write ----------
+drop policy if exists "onb_admin_self_read" on public.onboarding_admin;
+create policy "onb_admin_self_read" on public.onboarding_admin for select
+  using (user_id = auth.uid());
+drop policy if exists "onb_admin_staff_rw" on public.onboarding_admin;
+create policy "onb_admin_staff_rw" on public.onboarding_admin for all
+  using (public.is_manager_or_admin()) with check (public.is_manager_or_admin());
+
+-- ---------- onboarding_documents: rep manages their own checklist rows; staff can verify/reject any ----------
+drop policy if exists "onb_docs_self_rw" on public.onboarding_documents;
+create policy "onb_docs_self_rw" on public.onboarding_documents for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "onb_docs_staff_rw" on public.onboarding_documents;
+create policy "onb_docs_staff_rw" on public.onboarding_documents for all
+  using (public.is_manager_or_admin()) with check (public.is_manager_or_admin());
+
+-- ---------- onboarding_tasks: anyone signed in may open a task about themselves; only staff sees/works the queue ----------
+drop policy if exists "onb_tasks_insert_any" on public.onboarding_tasks;
+create policy "onb_tasks_insert_any" on public.onboarding_tasks for insert
+  with check (auth.uid() is not null);
+drop policy if exists "onb_tasks_staff_all" on public.onboarding_tasks;
+create policy "onb_tasks_staff_all" on public.onboarding_tasks for all
+  using (public.is_manager_or_admin()) with check (public.is_manager_or_admin());
+
+-- ---------- onboarding_audit_log: anyone signed in may log an action they took; only staff may read the trail ----------
+drop policy if exists "onb_audit_insert_self" on public.onboarding_audit_log;
+create policy "onb_audit_insert_self" on public.onboarding_audit_log for insert
+  with check (actor = auth.uid() or actor is null);
+drop policy if exists "onb_audit_staff_read" on public.onboarding_audit_log;
+create policy "onb_audit_staff_read" on public.onboarding_audit_log for select
+  using (public.is_manager_or_admin());
+
+-- New profile -> give it an onboarding pipeline immediately (status defaults
+-- to 'invited' / classification to 'not_assigned', both admin-only fields --
+-- this is what makes it impossible for a rep to write their own classification
+-- even once, since the row already exists before they can touch it).
+create or replace function public.handle_new_onboarding()
+returns trigger
+language plpgsql
+security definer set search_path = public as $$
+begin
+  insert into public.onboarding_profile (user_id) values (new.id) on conflict (user_id) do nothing;
+  insert into public.onboarding_admin (user_id) values (new.id) on conflict (user_id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_profile_created_onboarding on public.profiles;
+create trigger on_profile_created_onboarding
+  after insert on public.profiles
+  for each row execute function public.handle_new_onboarding();
+
+-- ============================================================
 -- Bootstrap: make YOURSELF the first admin.
 -- Run this manually, once, AFTER you've signed up through the app once
 -- with your own email (that first signup will have no profile yet
