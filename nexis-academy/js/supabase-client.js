@@ -161,6 +161,23 @@ function dbSetOnboardingDocStatus(userId, docKey, status, verifierId, note) {
   return sb.from('onboarding_documents').upsert(patch, { onConflict: 'user_id,doc_key' });
 }
 
+// ---------------- Onboarding: DocuSeal e-signature integration ----------------
+// The DocuSeal API key never touches the browser -- this just invokes the
+// docuseal-send Edge Function (which holds that secret) over the caller's
+// own authenticated Supabase session.
+function dbSendForSignature(userId, docKey) {
+  return sb.functions.invoke('docuseal-send', { body: { userId: userId, docKey: docKey } });
+}
+function dbListDocusealTemplates() {
+  return sb.from('docuseal_templates').select('*');
+}
+function dbUpsertDocusealTemplate(docKey, templateId, label) {
+  return sb.from('docuseal_templates').upsert(
+    { doc_key: docKey, template_id: templateId, label: label || null, updated_at: new Date().toISOString() },
+    { onConflict: 'doc_key' }
+  );
+}
+
 // ---------------- Onboarding: HR/admin task queue ----------------
 // Fire-and-forget insert; a partial unique index (user_id, task_type where
 // status='open') means a duplicate simply fails with a conflict, which the
@@ -227,6 +244,9 @@ window.dbListOnboardingDocuments = dbListOnboardingDocuments;
 window.dbListAllOnboardingDocuments = dbListAllOnboardingDocuments;
 window.dbMarkOnboardingDocSubmitted = dbMarkOnboardingDocSubmitted;
 window.dbSetOnboardingDocStatus = dbSetOnboardingDocStatus;
+window.dbSendForSignature = dbSendForSignature;
+window.dbListDocusealTemplates = dbListDocusealTemplates;
+window.dbUpsertDocusealTemplate = dbUpsertDocusealTemplate;
 window.dbOpenOnboardingTask = dbOpenOnboardingTask;
 window.dbListOpenOnboardingTasks = dbListOpenOnboardingTasks;
 window.dbResolveOnboardingTask = dbResolveOnboardingTask;

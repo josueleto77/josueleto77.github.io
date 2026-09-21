@@ -298,6 +298,11 @@ function onbMaybeOpenClassificationTask() {
   }).catch(function () {});
 }
 
+function onbDocuSealStatusPill(status) {
+  var map = { sent: ['pill-blue', 'Sent — awaiting signature'], received: ['pill-orange', 'Signed'], verified: ['pill-green', 'Verified'], rejected: ['pill-gray', 'Rejected'] };
+  var m = map[status] || ['pill-gray', status];
+  return '<span class="pill ' + m[0] + '">' + m[1] + '</span>';
+}
 function onbDocumentsCard(my) {
   var admin = my.admin || {};
   if (!admin.classification || admin.classification === 'not_assigned') return '';
@@ -308,18 +313,38 @@ function onbDocumentsCard(my) {
     return '<h4 class="mt-16">' + escapeHtml(cat) + '</h4>' + byCat[cat].map(function (d) {
       var row = my.docs.filter(function (x) { return x.doc_key === d.key; })[0];
       var status = row ? row.status : 'missing';
-      var pill = status === 'verified' ? 'pill-green' : status === 'rejected' ? 'pill-gray' : 'pill-orange';
-      return '<div class="flex-between small" style="padding:8px 0;border-bottom:1px solid var(--border);">' +
-        '<span>' + escapeHtml(d.label) + '</span>' +
-        (status === 'missing' || status === 'rejected'
+      var actionHtml;
+      if (d.viaDocuseal) {
+        if (status === 'missing' || status === 'rejected') {
+          actionHtml = '<button class="btn btn-outline btn-sm" onclick="onbSendForSignature(\'' + d.key + '\')">Send for Signature</button>';
+        } else if (status === 'sent') {
+          actionHtml = onbDocuSealStatusPill(status) + ' <button class="btn btn-ghost btn-sm" style="padding:2px 8px;" onclick="onbSendForSignature(\'' + d.key + '\')">Resend</button>';
+        } else {
+          actionHtml = onbDocuSealStatusPill(status);
+        }
+      } else {
+        var pill = status === 'verified' ? 'pill-green' : status === 'rejected' ? 'pill-gray' : 'pill-orange';
+        actionHtml = (status === 'missing' || status === 'rejected')
           ? '<button class="btn btn-outline btn-sm" onclick="onbMarkDocSubmitted(\'' + d.key + '\')">' + escapeHtml(onbT('markSubmitted')) + '</button>'
-          : '<span class="pill ' + pill + '">' + status.charAt(0).toUpperCase() + status.slice(1) + '</span>') +
+          : '<span class="pill ' + pill + '">' + status.charAt(0).toUpperCase() + status.slice(1) + '</span>';
+      }
+      return '<div class="flex-between small" style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+        '<span>' + escapeHtml(d.label) + (d.viaDocuseal ? ' <span class="tiny muted">(e-signature)</span>' : '') + '</span>' + actionHtml +
       '</div>';
     }).join('');
   }).join('');
   return '<div class="card mt-16"><h3>' + escapeHtml(onbT('stepDocuments')) + '</h3>' +
-    '<div class="callout compliance"><p class="mb-0">Your Social Security number, bank/routing numbers, and copies of ID documents are never collected here. These items are sent and signed through Nexis Power’s e-signature platform, not filled out in the Academy — "Mark as Submitted" only confirms you’ve completed them there.</p></div>' +
+    '<div class="callout compliance"><p class="mb-0">Your Social Security number, bank/routing numbers, and copies of ID documents are never collected here. The contract, W-4, M-4, W-9, and banking/direct-deposit setup are sent straight to your email to fill out and sign through Nexis Power’s e-signature platform — nothing about their contents ever passes through this app. Other items use "Mark as Submitted" to confirm you’ve completed them.</p></div>' +
     rowsHtml + '</div>';
+}
+function onbSendForSignature(docKey) {
+  var user = NexisState.get().user;
+  dbSendForSignature(user.id, docKey).then(function (res) {
+    if (res.error) { alert('Could not send for signature: ' + (res.error.message || res.error)); return; }
+    var existing = ONB_MY_CACHE.docs.filter(function (x) { return x.doc_key === docKey; })[0];
+    if (existing) existing.status = 'sent'; else ONB_MY_CACHE.docs.push({ doc_key: docKey, status: 'sent' });
+    router();
+  }).catch(function (e) { alert('Could not send for signature: ' + e.message); });
 }
 function onbMarkDocSubmitted(docKey) {
   var user = NexisState.get().user;
@@ -500,8 +525,57 @@ function renderAdminOnboardingPage() {
     '<div class="grid grid-2 mt-24">' +
       onbTaskInboxCard(tasks) +
       onbAuditCard(audit) +
-    '</div>'
+    '</div>' +
+    '<div class="mt-24">' + onbSignatureTemplatesCard() + '</div>'
   );
+}
+
+// ---------------- Admin: DocuSeal template ID mapping ----------------
+var ONB_DOCUSEAL_DOC_KEYS = ['employment_agreement', 'contractor_agreement', 'w4', 'm4', 'w9', 'direct_deposit', 'payment_setup'];
+var ONB_DOCUSEAL_TEMPLATES_CACHE = null;
+function loadDocusealTemplates(onReadyRerender) {
+  if (!window.NEXIS_BACKEND_READY) return null;
+  if (ONB_DOCUSEAL_TEMPLATES_CACHE) return ONB_DOCUSEAL_TEMPLATES_CACHE;
+  if (!window._onbDsTplLoading) {
+    window._onbDsTplLoading = true;
+    dbListDocusealTemplates().then(function (res) {
+      ONB_DOCUSEAL_TEMPLATES_CACHE = res.data || [];
+      window._onbDsTplLoading = false;
+      if (onReadyRerender) onReadyRerender();
+    }).catch(function (e) { console.error('Loading DocuSeal templates failed', e); ONB_DOCUSEAL_TEMPLATES_CACHE = []; window._onbDsTplLoading = false; if (onReadyRerender) onReadyRerender(); });
+  }
+  return null;
+}
+function allOnboardingDocDefs() {
+  var all = {};
+  Object.keys(window.ONBOARDING_DOCS).forEach(function (cls) { window.ONBOARDING_DOCS[cls].forEach(function (d) { all[d.key] = d; }); });
+  return all;
+}
+function onbSignatureTemplatesCard() {
+  var templates = loadDocusealTemplates(router);
+  if (!templates) return '<div class="card">' + loadingCard('Loading e-signature templates…') + '</div>';
+  var byKey = {}; templates.forEach(function (t) { byKey[t.doc_key] = t; });
+  var defs = allOnboardingDocDefs();
+  return '<div class="card"><h3>E-Signature Templates (DocuSeal)</h3>' +
+    '<p class="small muted">Paste each document’s Template ID from DocuSeal (open the template there — the ID is in the URL / API tab). "Send for Signature" on a rep’s onboarding page will fail with a clear error until a document’s template is set here.</p>' +
+    ONB_DOCUSEAL_DOC_KEYS.map(function (key) {
+      var t = byKey[key];
+      var def = defs[key];
+      return '<div class="flex gap-10 mt-8" style="align-items:center;flex-wrap:wrap;"><span class="small" style="flex:1;min-width:220px;">' + escapeHtml(def ? def.label : key) + '</span>' +
+        '<input type="text" id="onb-ds-tpl-' + key + '" placeholder="Template ID" value="' + escapeHtml(t ? t.template_id : '') + '" style="width:200px;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);">' +
+        '<button class="btn btn-outline btn-sm" onclick="onbSaveDocusealTemplate(\'' + key + '\')">Save</button></div>';
+    }).join('') +
+  '</div>';
+}
+function onbSaveDocusealTemplate(docKey) {
+  var input = qs('#onb-ds-tpl-' + docKey);
+  var value = input.value.trim();
+  if (!value) { alert('Enter a template ID first.'); return; }
+  dbUpsertDocusealTemplate(docKey, value).then(function (res) {
+    if (res.error) { alert('Could not save: ' + res.error.message); return; }
+    ONB_DOCUSEAL_TEMPLATES_CACHE = null;
+    router();
+  });
 }
 
 // ---------------- Admin: full onboarding record for one rep ----------------
@@ -563,15 +637,16 @@ function renderOnboardingRepDetailPage(userId) {
 function onbDocAdminChecklist(userId, required, docs) {
   var byCat = {};
   required.forEach(function (d) { (byCat[d.category] = byCat[d.category] || []).push(d); });
-  var opts = [['missing', 'Missing'], ['received', 'Received'], ['verified', 'Verified'], ['rejected', 'Rejected']];
+  var opts = [['missing', 'Missing'], ['sent', 'Sent (awaiting signature)'], ['received', 'Signed'], ['verified', 'Verified'], ['rejected', 'Rejected']];
   return Object.keys(byCat).map(function (cat) {
     return '<h4 class="mt-16">' + escapeHtml(cat) + '</h4>' + byCat[cat].map(function (d) {
       var row = docs.filter(function (x) { return x.doc_key === d.key; })[0] || { status: 'missing' };
-      return '<div class="flex-between small" style="padding:8px 0;border-bottom:1px solid var(--border);">' +
-        '<span>' + escapeHtml(d.label) + '</span>' +
+      return '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+        '<div class="flex-between small"><span>' + escapeHtml(d.label) + (d.viaDocuseal ? ' <span class="tiny muted">(e-signature)</span>' : '') + '</span>' +
         '<select onchange="onbAdminSetDocStatus(\'' + userId + '\', \'' + d.key + '\', this.value)">' +
           opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === row.status ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
-        '</select>' +
+        '</select></div>' +
+        (row.docuseal_submission_id ? '<div class="tiny muted mt-8">DocuSeal submission: ' + escapeHtml(row.docuseal_submission_id) + '</div>' : '') +
       '</div>';
     }).join('');
   }).join('');

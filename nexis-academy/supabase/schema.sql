@@ -375,19 +375,44 @@ create table if not exists public.onboarding_admin (
 );
 
 -- Document / policy-acknowledgment checklist. One row per (user, doc type).
--- Status only — never the document's contents.
+-- Status only — never the document's contents. 'sent' means it was handed
+-- off to the e-signature platform (DocuSeal) and is awaiting completion
+-- there; docuseal_submission_id is just DocuSeal's own opaque reference id,
+-- never the document itself.
 create table if not exists public.onboarding_documents (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   doc_key text not null,
-  status text not null default 'missing' check (status in ('missing', 'received', 'verified', 'rejected')),
+  status text not null default 'missing' check (status in ('missing', 'sent', 'received', 'verified', 'rejected')),
   received_at timestamptz,
   verified_by uuid references public.profiles(id),
   verified_at timestamptz,
   note text,
+  docuseal_submission_id text,
   updated_at timestamptz not null default now(),
   unique (user_id, doc_key)
 );
+-- Re-run-safe widen for installs that already had the old status set.
+alter table public.onboarding_documents add column if not exists docuseal_submission_id text;
+alter table public.onboarding_documents drop constraint if exists onboarding_documents_status_check;
+alter table public.onboarding_documents add constraint onboarding_documents_status_check
+  check (status in ('missing', 'sent', 'received', 'verified', 'rejected'));
+
+-- ---------- DocuSeal (e-signature) integration ----------
+-- Admin-managed mapping from our internal doc_key to a DocuSeal template
+-- id. Nothing about document content lives here or anywhere in this
+-- database — DocuSeal hosts the template and emails the actual document
+-- directly to the representative to fill out and sign.
+create table if not exists public.docuseal_templates (
+  doc_key text primary key,
+  template_id text not null,
+  label text,
+  updated_at timestamptz not null default now()
+);
+alter table public.docuseal_templates enable row level security;
+drop policy if exists "docuseal_templates_staff_all" on public.docuseal_templates;
+create policy "docuseal_templates_staff_all" on public.docuseal_templates for all
+  using (public.is_manager_or_admin()) with check (public.is_manager_or_admin());
 
 -- HR/Admin task queue: classification review, missing docs, legal/compliance
 -- escalations the bot must never guess its way through, new-hire reporting
