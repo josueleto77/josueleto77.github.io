@@ -208,7 +208,10 @@ function router() {
 
   if (page === 'admin') {
     var sub2 = parts[1] || 'courses';
-    if (sub2 === 'onboarding') return renderShell('admin/onboarding', renderAdminOnboardingPage());
+    if (sub2 === 'onboarding') {
+      if (parts[2] === 'rep' && parts[3]) return renderShell('admin/onboarding', renderOnboardingRepDetailPage(parts[3]));
+      return renderShell('admin/onboarding', renderAdminOnboardingPage());
+    }
     if (sub2 === 'mass-save' || sub2 === 'content') return renderShell('admin/' + sub2, renderAdminMassSaveOrContentPage(sub2));
     return renderShell('admin/' + sub2, renderAdminPlaceholderPage(sub2));
   }

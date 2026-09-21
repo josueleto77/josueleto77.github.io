@@ -121,7 +121,7 @@ function renderOnboardingPage() {
     return '<div class="section-head"><div><span class="eyebrow">Onboarding</span><h1>Nexis Power Onboarding</h1></div></div>' +
       '<div class="callout tip"><h4>Connect Supabase to enable onboarding</h4><p class="mb-0">Once js/config.js has your project URL and anon key, this becomes a real onboarding pipeline with HR-controlled classification, a document checklist, and a Ready-to-Sell gate.</p></div>';
   }
-  var my = loadMyOnboarding(function () { renderShell('onboarding', renderOnboardingPage()); });
+  var my = loadMyOnboarding(router);
   if (!my) return loadingCard('Loading your onboarding…');
   window._onbLang = window._onbLang || my.profile.language || 'en';
 
@@ -234,7 +234,7 @@ function bindOnbPersonalForm() {
       if (res.error) { alert('Could not save: ' + res.error.message); return; }
       Object.assign(ONB_MY_CACHE.profile, patch);
       dbLogOnboardingAudit(user.id, 'Personal information submitted', user.id, 'COMPLETE').catch(function () {});
-      renderShell('onboarding', renderOnboardingPage());
+      router();
     });
   });
 }
@@ -294,7 +294,7 @@ function onbMarkDocSubmitted(docKey) {
   dbMarkOnboardingDocSubmitted(user.id, docKey).then(function (res) {
     if (!res.error) dbLogOnboardingAudit(user.id, 'Document marked submitted: ' + docKey, user.id, 'RECEIVED').catch(function () {});
   }).catch(function () {});
-  renderShell('onboarding', renderOnboardingPage());
+  router();
 }
 
 function onbStatusCard(my) {
@@ -351,7 +351,7 @@ function onbAskFaq() {
     }
   }
   window._onbFaqHistory.unshift(turn);
-  renderShell('onboarding', renderOnboardingPage());
+  router();
 }
 function onbRenderFaqTurn(turn) {
   return '<div class="card card-flat" style="border:1px solid var(--border);">' +
@@ -417,8 +417,8 @@ function loadOnboardingAudit(onReadyRerender) {
 }
 
 function combinedOnboardingRows() {
-  var team = getTeamData(function () { renderShell('admin/onboarding', renderAdminOnboardingPage()); });
-  var all = loadAllOnboarding(function () { renderShell('admin/onboarding', renderAdminOnboardingPage()); });
+  var team = getTeamData(router);
+  var all = loadAllOnboarding(router);
   if (!team || !all) return null;
   var teamById = {}; team.forEach(function (m) { teamById[m.id] = m; });
   var intakeById = {}; all.intake.forEach(function (r) { intakeById[r.user_id] = r; });
@@ -453,8 +453,8 @@ function renderAdminOnboardingPage() {
       '<div class="callout tip"><h4>Connect Supabase to enable onboarding</h4><p class="mb-0">Once configured, this becomes the live onboarding pipeline dashboard for every invited Sales Representative.</p></div>';
   }
   var rows = combinedOnboardingRows();
-  var tasks = loadOnboardingTasks(function () { renderShell('admin/onboarding', renderAdminOnboardingPage()); });
-  var audit = loadOnboardingAudit(function () { renderShell('admin/onboarding', renderAdminOnboardingPage()); });
+  var tasks = loadOnboardingTasks(router);
+  var audit = loadOnboardingAudit(router);
   if (!rows) return loadingCard('Loading onboarding pipeline…');
 
   return (
@@ -467,6 +467,91 @@ function renderAdminOnboardingPage() {
       onbAuditCard(audit) +
     '</div>'
   );
+}
+
+// ---------------- Admin: full onboarding record for one rep ----------------
+function renderOnboardingRepDetailPage(userId) {
+  if (!window.NEXIS_BACKEND_READY) return '<p>Connect Supabase to view onboarding records.</p>';
+  var rows = combinedOnboardingRows();
+  var audit = loadOnboardingAudit(router);
+  if (!rows || !audit) return loadingCard('Loading rep record…');
+  var row = rows.filter(function (r) { return r.id === userId; })[0];
+  if (!row) return '<a class="tiny muted" href="#/admin/onboarding" style="text-decoration:none;">← Back to Onboarding</a><p class="mt-16">Rep not found.</p>';
+
+  var intake = row.intake, adminRow = row.admin;
+  var required = onboardingDocsFor(adminRow.classification);
+  var docs = (ONB_ADMIN_CACHE.docs || []).filter(function (r) { return r.user_id === userId; });
+  var repAudit = audit.filter(function (a) { return a.user_id === userId; });
+
+  function field(label, val) { return '<div class="small" style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="muted">' + escapeHtml(label) + ':</span> ' + escapeHtml(val || '—') + '</div>'; }
+
+  return (
+    '<a class="tiny muted" href="#/admin/onboarding" style="text-decoration:none;">← Back to Onboarding Dashboard</a>' +
+    '<div class="section-head mt-8"><div><span class="eyebrow">Onboarding Record</span><h1>' + escapeHtml(row.name) + '</h1></div>' +
+      (adminRow.ready_to_sell ? '<span class="pill pill-green">🟢 Ready to Sell</span>' :
+        '<button class="btn btn-sm ' + (row.readyEligible ? 'btn-primary' : 'btn-outline') + '" ' + (row.readyEligible ? '' : 'disabled title="All gates must pass first"') + ' onclick="onbApproveReadyToSell(\'' + userId + '\')">Approve Ready to Sell</button>') +
+    '</div>' +
+    '<div class="grid grid-2 mt-8">' +
+      '<div class="card"><h3>Personal Information</h3>' +
+        field('Legal Name', [intake.legal_first_name, intake.middle_name, intake.legal_last_name].filter(Boolean).join(' ')) +
+        field('Preferred Name', intake.preferred_name) +
+        field('Personal Email', intake.personal_email) +
+        field('Mobile Phone', intake.mobile_phone) +
+        field('Address', [intake.home_address, intake.city, intake.state, intake.zip].filter(Boolean).join(', ')) +
+        field('Start Date', intake.start_date ? fmtDate(intake.start_date) : null) +
+        field('Position', intake.position) +
+        field('Territory', intake.territory) +
+        field('Track', intake.track) +
+        field('Emergency Contact', intake.emergency_contact_name ? intake.emergency_contact_name + (intake.emergency_contact_phone ? ' (' + intake.emergency_contact_phone + ')' : '') : null) +
+        field('Preferred Language', intake.language === 'es' ? 'Español' : 'English') +
+        field('Intake Submitted', intake.intake_submitted_at ? fmtDate(intake.intake_submitted_at) : 'Not yet submitted') +
+      '</div>' +
+      '<div class="card"><h3>Classification &amp; Pipeline</h3>' +
+        '<div class="small muted mb-0" style="padding-bottom:6px;">Classification</div>' + onbClassificationSelect(row) +
+        '<div class="mt-16">' +
+          field('Email', (adminRow.email_status || 'not_created').replace(/_/g, ' ')) +
+          field('CRM', (adminRow.crm_status || 'not_created').replace(/_/g, ' ')) +
+          field('QuickBooks', (adminRow.quickbooks_status || 'not_created').replace(/_/g, ' ')) +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card mt-16"><h3>Document &amp; Agreement Checklist</h3>' +
+      (required.length ? onbDocAdminChecklist(userId, required, docs) : '<p class="small muted mb-0">Classification not yet assigned — no document checklist yet.</p>') +
+    '</div>' +
+    '<div class="card mt-16"><h3>Audit Trail</h3>' +
+      (repAudit.length ? '<div class="stack">' + repAudit.map(function (a) {
+        return '<div class="small" style="padding:6px 0;border-bottom:1px solid var(--border);"><span class="tiny muted">' + fmtDate(a.at) + '</span> — ' + escapeHtml(a.action) + (a.result ? ' <span class="pill pill-gray">' + escapeHtml(a.result) + '</span>' : '') + '</div>';
+      }).join('') + '</div>' : '<p class="small muted mb-0">No entries yet for this rep in the loaded audit window.</p>') +
+    '</div>'
+  );
+}
+function onbDocAdminChecklist(userId, required, docs) {
+  var byCat = {};
+  required.forEach(function (d) { (byCat[d.category] = byCat[d.category] || []).push(d); });
+  var opts = [['missing', 'Missing'], ['received', 'Received'], ['verified', 'Verified'], ['rejected', 'Rejected']];
+  return Object.keys(byCat).map(function (cat) {
+    return '<h4 class="mt-16">' + escapeHtml(cat) + '</h4>' + byCat[cat].map(function (d) {
+      var row = docs.filter(function (x) { return x.doc_key === d.key; })[0] || { status: 'missing' };
+      return '<div class="flex-between small" style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+        '<span>' + escapeHtml(d.label) + '</span>' +
+        '<select onchange="onbAdminSetDocStatus(\'' + userId + '\', \'' + d.key + '\', this.value)">' +
+          opts.map(function (o) { return '<option value="' + o[0] + '"' + (o[0] === row.status ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+        '</select>' +
+      '</div>';
+    }).join('');
+  }).join('');
+}
+function onbAdminSetDocStatus(userId, docKey, status) {
+  var me = NexisState.get().user;
+  dbSetOnboardingDocStatus(userId, docKey, status, me.id, null).then(function (res) {
+    if (res.error) { alert('Could not update: ' + res.error.message); return; }
+    if (ONB_ADMIN_CACHE) {
+      var row = ONB_ADMIN_CACHE.docs.filter(function (x) { return x.user_id === userId && x.doc_key === docKey; })[0];
+      if (row) row.status = status; else ONB_ADMIN_CACHE.docs.push({ user_id: userId, doc_key: docKey, status: status });
+    }
+    dbLogOnboardingAudit(userId, 'Document ' + docKey + ' set to ' + status, me.id, status.toUpperCase()).catch(function () {});
+    router();
+  });
 }
 
 function onbClassificationSelect(row) {
@@ -491,7 +576,7 @@ function onbAdminDashboardTable(rows) {
 function onbAdminRowHtml(row) {
   var missingHtml = row.missing.length ? '<div class="tiny muted mt-8">Missing: ' + escapeHtml(row.missing.slice(0, 3).join(', ')) + (row.missing.length > 3 ? ' +' + (row.missing.length - 3) + ' more' : '') + '</div>' : '';
   return '<tr>' +
-    '<td style="font-weight:700;">' + escapeHtml(row.name) + '</td>' +
+    '<td style="font-weight:700;cursor:pointer;" onclick="navigate(\'admin/onboarding/rep/' + row.id + '\')">' + escapeHtml(row.name) + ' →</td>' +
     '<td class="small">' + (row.intake.start_date ? fmtDate(row.intake.start_date) : '—') + '</td>' +
     '<td>' + onbClassificationSelect(row) + missingHtml + '</td>' +
     '<td><span class="pill ' + (row.docsPct === 100 ? 'pill-green' : row.docsPct > 0 ? 'pill-orange' : 'pill-gray') + '">' + row.docsPct + '%</span></td>' +
@@ -519,7 +604,7 @@ function onbSetClassification(userId, value) {
     if (ONB_ADMIN_CACHE) { var r = ONB_ADMIN_CACHE.admin.filter(function (x) { return x.user_id === userId; })[0]; if (r) r.classification = value; }
     dbLogOnboardingAudit(userId, 'Classification set to ' + value, me.id, 'UPDATED').catch(function () {});
     if (value !== 'not_assigned') onbAutoResolveClassificationTasks(userId, me.id);
-    renderShell('admin/onboarding', renderAdminOnboardingPage());
+    router();
   });
 }
 function onbSetAdminField(userId, field, value) {
@@ -529,7 +614,7 @@ function onbSetAdminField(userId, field, value) {
     if (res.error) { alert('Could not update: ' + res.error.message); return; }
     if (ONB_ADMIN_CACHE) { var r = ONB_ADMIN_CACHE.admin.filter(function (x) { return x.user_id === userId; })[0]; if (r) r[field] = value; }
     dbLogOnboardingAudit(userId, field + ' set to ' + value, me.id, 'UPDATED').catch(function () {});
-    renderShell('admin/onboarding', renderAdminOnboardingPage());
+    router();
   });
 }
 function onbApproveReadyToSell(userId) {
@@ -539,7 +624,7 @@ function onbApproveReadyToSell(userId) {
     if (res.error) { alert('Could not approve: ' + res.error.message); return; }
     if (ONB_ADMIN_CACHE) { var r = ONB_ADMIN_CACHE.admin.filter(function (x) { return x.user_id === userId; })[0]; if (r) r.ready_to_sell = true; }
     dbLogOnboardingAudit(userId, 'Approved READY TO SELL', me.id, 'APPROVED').catch(function () {});
-    renderShell('admin/onboarding', renderAdminOnboardingPage());
+    router();
   });
 }
 
@@ -559,7 +644,7 @@ function onbResolveTask(taskId) {
   dbResolveOnboardingTask(taskId, me.id).then(function (res) {
     if (res.error) { alert('Could not resolve: ' + res.error.message); return; }
     if (ONB_TASKS_CACHE) ONB_TASKS_CACHE = ONB_TASKS_CACHE.filter(function (t) { return t.id !== taskId; });
-    renderShell('admin/onboarding', renderAdminOnboardingPage());
+    router();
   });
 }
 function onbAuditCard(audit) {
