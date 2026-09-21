@@ -2,7 +2,7 @@
    NEXIS POWER ACADEMY — App shell, router, and shared helpers
    ============================================================ */
 
-window.NEXIS_BUILD = '20260918d';
+window.NEXIS_BUILD = '20260921b';
 console.log('[Nexis Academy] build ' + window.NEXIS_BUILD);
 
 var COURSES = [window.SOLAR_COURSE, window.HVAC_COURSE, window.ENERGY_ADVISOR_COURSE];
@@ -65,7 +65,7 @@ var NAV_ITEMS_MANAGER_EXTRA = [
   ['manager', 'Team']
 ];
 var NAV_ITEMS_ADMIN_EXTRA = [
-  ['admin/courses', 'Course Manager'], ['admin/questions', 'Question Bank'], ['admin/certifications', 'Certifications'],
+  ['admin/onboarding', 'Onboarding'], ['admin/courses', 'Course Manager'], ['admin/questions', 'Question Bank'], ['admin/certifications', 'Certifications'],
   ['admin/content', 'Content Library'], ['admin/users', 'Users'], ['admin/settings', 'Settings']
 ];
 
@@ -74,6 +74,7 @@ function renderNav(activeKey) {
   if (!user) return '';
   var role = user.role || 'rep';
   var items = NAV_ITEMS_REP.slice();
+  if (role === 'rep') items.splice(1, 0, ['onboarding', 'Onboarding']);
   if (role === 'manager' || role === 'admin') items = items.concat(NAV_ITEMS_MANAGER_EXTRA);
   var showAdminMenu = role === 'admin';
 
@@ -149,6 +150,7 @@ function router() {
   if (page === '' || page === 'login') page = 'dashboard';
 
   if (page === 'dashboard') return renderShell('dashboard', renderDashboardPage());
+  if (page === 'onboarding') return renderShell('onboarding', renderOnboardingPage());
   if (page === 'my-training') return renderShell('my-training', renderMyTrainingPage());
   if (page === 'certifications') return renderShell('certifications', renderCertificationsPage());
   if (page === 'badges') return renderShell('badges', renderBadgesPage());
@@ -206,6 +208,10 @@ function router() {
 
   if (page === 'admin') {
     var sub2 = parts[1] || 'courses';
+    if (sub2 === 'onboarding') {
+      if (parts[2] === 'rep' && parts[3]) return renderShell('admin/onboarding', renderOnboardingRepDetailPage(parts[3]));
+      return renderShell('admin/onboarding', renderAdminOnboardingPage());
+    }
     if (sub2 === 'mass-save' || sub2 === 'content') return renderShell('admin/' + sub2, renderAdminMassSaveOrContentPage(sub2));
     return renderShell('admin/' + sub2, renderAdminPlaceholderPage(sub2));
   }

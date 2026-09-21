@@ -112,6 +112,96 @@ function dbLeaderboard(scope) {
   return sb.rpc('leaderboard', { p_scope: scope || 'week' });
 }
 
+// ---------------- Onboarding: rep-editable intake ----------------
+// onboarding_profile always exists by the time a rep can sign in (created by
+// the on_profile_created_onboarding trigger), so this is always an UPDATE,
+// never an upsert -- avoids ever depending on an INSERT policy for it.
+function dbFetchOnboardingProfile(userId) {
+  return sb.from('onboarding_profile').select('*').eq('user_id', userId).maybeSingle();
+}
+function dbUpdateOnboardingProfile(userId, patch) {
+  patch.updated_at = new Date().toISOString();
+  return sb.from('onboarding_profile').update(patch).eq('user_id', userId);
+}
+
+// ---------------- Onboarding: admin/manager-only classification + pipeline status ----------------
+// A rep can SELECT their own row (to see their status) but RLS blocks any
+// write from a non-staff account, so this is the one place classification
+// and "ready to sell" can be set -- never from the rep-facing UI.
+function dbFetchOnboardingAdmin(userId) {
+  return sb.from('onboarding_admin').select('*').eq('user_id', userId).maybeSingle();
+}
+function dbListOnboardingAdmin() {
+  return sb.from('onboarding_admin').select('*');
+}
+function dbListAllOnboardingProfiles() {
+  return sb.from('onboarding_profile').select('*');
+}
+function dbUpdateOnboardingAdmin(userId, patch) {
+  patch.updated_at = new Date().toISOString();
+  return sb.from('onboarding_admin').update(patch).eq('user_id', userId);
+}
+
+// ---------------- Onboarding: document / policy-acknowledgment checklist ----------------
+function dbListOnboardingDocuments(userId) {
+  return sb.from('onboarding_documents').select('*').eq('user_id', userId);
+}
+function dbListAllOnboardingDocuments() {
+  return sb.from('onboarding_documents').select('*');
+}
+function dbMarkOnboardingDocSubmitted(userId, docKey) {
+  return sb.from('onboarding_documents').upsert(
+    { user_id: userId, doc_key: docKey, status: 'received', received_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { onConflict: 'user_id,doc_key' }
+  );
+}
+function dbSetOnboardingDocStatus(userId, docKey, status, verifierId, note) {
+  var patch = { user_id: userId, doc_key: docKey, status: status, updated_at: new Date().toISOString(), note: note || null };
+  if (status === 'verified' || status === 'rejected') { patch.verified_by = verifierId; patch.verified_at = new Date().toISOString(); }
+  return sb.from('onboarding_documents').upsert(patch, { onConflict: 'user_id,doc_key' });
+}
+
+// ---------------- Onboarding: DocuSeal e-signature integration ----------------
+// The DocuSeal API key never touches the browser -- this just invokes the
+// docuseal-send Edge Function (which holds that secret) over the caller's
+// own authenticated Supabase session.
+function dbSendForSignature(userId, docKey) {
+  return sb.functions.invoke('docuseal-send', { body: { userId: userId, docKey: docKey } });
+}
+function dbListDocusealTemplates() {
+  return sb.from('docuseal_templates').select('*');
+}
+function dbUpsertDocusealTemplate(docKey, templateId, label) {
+  return sb.from('docuseal_templates').upsert(
+    { doc_key: docKey, template_id: templateId, label: label || null, updated_at: new Date().toISOString() },
+    { onConflict: 'doc_key' }
+  );
+}
+
+// ---------------- Onboarding: HR/admin task queue ----------------
+// Fire-and-forget insert; a partial unique index (user_id, task_type where
+// status='open') means a duplicate simply fails with a conflict, which the
+// caller ignores -- this lets a rep's own client open a de-duplicated
+// classification-review task without ever being able to SELECT the queue.
+function dbOpenOnboardingTask(userId, taskType, title, detail, urgency, createdBy) {
+  return sb.from('onboarding_tasks').insert({ user_id: userId, task_type: taskType, title: title, detail: detail || null, urgency: urgency || 'normal', created_by: createdBy || userId });
+}
+function dbListOpenOnboardingTasks() {
+  return sb.from('onboarding_tasks').select('*').eq('status', 'open').order('created_at', { ascending: false });
+}
+function dbResolveOnboardingTask(taskId, resolverId) {
+  return sb.from('onboarding_tasks').update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: resolverId }).eq('id', taskId);
+}
+
+// ---------------- Onboarding: audit trail ----------------
+function dbLogOnboardingAudit(userId, action, actorId, result) {
+  return sb.from('onboarding_audit_log').insert({ user_id: userId, action: action, actor: actorId, result: result || null });
+}
+function dbListOnboardingAudit(userId) {
+  var q = sb.from('onboarding_audit_log').select('*').order('at', { ascending: false }).limit(100);
+  return userId ? q.eq('user_id', userId) : q;
+}
+
 // ---------------- Mass Save program DB (shared, admin-editable) ----------------
 function dbListMassSavePrograms() {
   return sb.from('mass_save_programs').select('*').order('program_name');
@@ -144,3 +234,21 @@ window.dbListTeamProfiles = dbListTeamProfiles;
 window.dbFetchUserFullProgress = dbFetchUserFullProgress;
 window.dbListMassSavePrograms = dbListMassSavePrograms;
 window.dbUpsertMassSaveProgram = dbUpsertMassSaveProgram;
+window.dbFetchOnboardingProfile = dbFetchOnboardingProfile;
+window.dbUpdateOnboardingProfile = dbUpdateOnboardingProfile;
+window.dbFetchOnboardingAdmin = dbFetchOnboardingAdmin;
+window.dbListOnboardingAdmin = dbListOnboardingAdmin;
+window.dbListAllOnboardingProfiles = dbListAllOnboardingProfiles;
+window.dbUpdateOnboardingAdmin = dbUpdateOnboardingAdmin;
+window.dbListOnboardingDocuments = dbListOnboardingDocuments;
+window.dbListAllOnboardingDocuments = dbListAllOnboardingDocuments;
+window.dbMarkOnboardingDocSubmitted = dbMarkOnboardingDocSubmitted;
+window.dbSetOnboardingDocStatus = dbSetOnboardingDocStatus;
+window.dbSendForSignature = dbSendForSignature;
+window.dbListDocusealTemplates = dbListDocusealTemplates;
+window.dbUpsertDocusealTemplate = dbUpsertDocusealTemplate;
+window.dbOpenOnboardingTask = dbOpenOnboardingTask;
+window.dbListOpenOnboardingTasks = dbListOpenOnboardingTasks;
+window.dbResolveOnboardingTask = dbResolveOnboardingTask;
+window.dbLogOnboardingAudit = dbLogOnboardingAudit;
+window.dbListOnboardingAudit = dbListOnboardingAudit;
