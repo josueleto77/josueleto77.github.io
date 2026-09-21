@@ -161,21 +161,6 @@ function dbSetOnboardingDocStatus(userId, docKey, status, verifierId, note) {
   return sb.from('onboarding_documents').upsert(patch, { onConflict: 'user_id,doc_key' });
 }
 
-// ---------------- Onboarding: fillable W-4 / M-4 / W-9 tax forms ----------------
-// No SSN/EIN/TIN field ever passes through these -- see schema.sql.
-function dbListOnboardingTaxForms(userId) {
-  return sb.from('onboarding_tax_forms').select('*').eq('user_id', userId);
-}
-function dbListAllOnboardingTaxForms() {
-  return sb.from('onboarding_tax_forms').select('*');
-}
-function dbUpsertOnboardingTaxForm(userId, formType, data) {
-  return sb.from('onboarding_tax_forms').upsert(
-    { user_id: userId, form_type: formType, data: data, signed: true, signed_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { onConflict: 'user_id,form_type' }
-  );
-}
-
 // ---------------- Onboarding: HR/admin task queue ----------------
 // Fire-and-forget insert; a partial unique index (user_id, task_type where
 // status='open') means a duplicate simply fails with a conflict, which the
@@ -240,9 +225,6 @@ window.dbListAllOnboardingProfiles = dbListAllOnboardingProfiles;
 window.dbUpdateOnboardingAdmin = dbUpdateOnboardingAdmin;
 window.dbListOnboardingDocuments = dbListOnboardingDocuments;
 window.dbListAllOnboardingDocuments = dbListAllOnboardingDocuments;
-window.dbListOnboardingTaxForms = dbListOnboardingTaxForms;
-window.dbListAllOnboardingTaxForms = dbListAllOnboardingTaxForms;
-window.dbUpsertOnboardingTaxForm = dbUpsertOnboardingTaxForm;
 window.dbMarkOnboardingDocSubmitted = dbMarkOnboardingDocSubmitted;
 window.dbSetOnboardingDocStatus = dbSetOnboardingDocStatus;
 window.dbOpenOnboardingTask = dbOpenOnboardingTask;

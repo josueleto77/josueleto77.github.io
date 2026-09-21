@@ -389,31 +389,6 @@ create table if not exists public.onboarding_documents (
   unique (user_id, doc_key)
 );
 
--- Structured, non-sensitive fields for the W-4 / MA M-4 / W-9 forms so a
--- rep can fill and sign them directly in the app. Deliberately holds NO
--- SSN/EIN/TIN column -- that field is never collected by this app; it's
--- provided directly and securely through the payroll/QuickBooks setup
--- process with HR. `data` is a small jsonb blob whose shape depends on
--- form_type (see js/data/onboarding-tax-forms.js, the single source of
--- truth for which fields each form asks for).
-create table if not exists public.onboarding_tax_forms (
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  form_type text not null check (form_type in ('w4', 'm4', 'w9')),
-  data jsonb not null default '{}',
-  signed boolean not null default false,
-  signed_at timestamptz,
-  updated_at timestamptz not null default now(),
-  created_at timestamptz not null default now(),
-  primary key (user_id, form_type)
-);
-alter table public.onboarding_tax_forms enable row level security;
-drop policy if exists "onb_tax_forms_self_rw" on public.onboarding_tax_forms;
-create policy "onb_tax_forms_self_rw" on public.onboarding_tax_forms for all
-  using (user_id = auth.uid()) with check (user_id = auth.uid());
-drop policy if exists "onb_tax_forms_staff_rw" on public.onboarding_tax_forms;
-create policy "onb_tax_forms_staff_rw" on public.onboarding_tax_forms for all
-  using (public.is_manager_or_admin()) with check (public.is_manager_or_admin());
-
 -- HR/Admin task queue: classification review, missing docs, legal/compliance
 -- escalations the bot must never guess its way through, new-hire reporting
 -- reminders, etc. A rep may create a task about themselves (e.g. the
