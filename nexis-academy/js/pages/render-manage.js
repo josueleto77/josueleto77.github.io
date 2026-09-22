@@ -323,7 +323,7 @@ function renderAdminMassSaveOrContentPage(sub) {
 function renderAdminUsers() {
   var me = NexisState.get().user;
   var inviteSection = window.NEXIS_BACKEND_READY ? (
-    '<div class="card mt-16"><h3>Invite someone</h3><p class="small">Only people invited here can create an account — anyone else who tries to sign up is blocked until you invite them. Choose their role below: Sales Representative, Manager, or Admin (admins can see everyone’s training and invite other admins).</p>' +
+    '<div class="card mt-16"><h3>Invite someone</h3><p class="small">Sends a real invitation email right away — the person clicks the link, sets a password, and they’re in. Only people invited here can create an account. Choose their role below: Sales Representative, Manager, or Admin (admins can see everyone’s training and invite other admins).</p>' +
       '<form id="invite-form" class="flex gap-10" style="align-items:flex-end;flex-wrap:wrap;">' +
         '<div class="field mb-0" style="flex:1;min-width:220px;"><label>Work email</label><input type="email" id="inv-email" placeholder="rep@nexispower.com" required></div>' +
         '<div class="field mb-0"><label>Role</label><select id="inv-role"><option value="rep">Sales Representative</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>' +
@@ -357,16 +357,30 @@ function bindInviteForm() {
     var role = qs('#inv-role').value;
     var statusEl = qs('#invite-status');
     if (role === 'admin' && !confirm('Invite ' + email + ' as an ADMIN? They will have full access to every rep’s training data, the content manager, and the ability to invite other admins. Continue?')) return;
-    dbCreateInvite(email, role, null, NexisState.get().user.id).then(function (res) {
+    var submitBtn = form.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    dbInviteRep(email, role, null).then(function (res) {
+      submitBtn.disabled = false;
       statusEl.style.display = 'block';
       if (res.error) {
-        statusEl.style.color = '#C0392B';
-        statusEl.textContent = res.error.message.indexOf('duplicate') !== -1 ? 'That email has already been invited.' : res.error.message;
+        var extractMsg = res.error.context && res.error.context.json ? res.error.context.json() : Promise.resolve(null);
+        extractMsg.then(function (body) {
+          statusEl.style.color = '#C0392B';
+          statusEl.textContent = (body && body.error) || res.error.message;
+        }, function () {
+          statusEl.style.color = '#C0392B';
+          statusEl.textContent = res.error.message;
+        });
+        return;
+      }
+      if (res.data && res.data.emailSent === false) {
+        statusEl.style.color = '#9A5B00';
+        statusEl.textContent = '⚠️ ' + email + ' was whitelisted, but the invite email could not be sent (' + (res.data.warning || 'unknown error') + '). They may already have an account — try signing in instead.';
       } else {
         statusEl.style.color = '#2E8A56';
-        statusEl.textContent = '✅ Invited ' + email + '. Tell them to open the Academy and click "Create your account" with this same email.';
-        form.reset();
+        statusEl.textContent = '✅ Invited ' + email + ' — they’ll get an email with a link to set their password and sign in.';
       }
+      form.reset();
     });
   });
 }

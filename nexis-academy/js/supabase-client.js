@@ -63,6 +63,13 @@ function dbCreateInvite(email, role, teamId, invitedBy) {
 function dbListInvites() {
   return sb.from('invites').select('*').order('created_at', { ascending: false });
 }
+// Admin-only: whitelists the email AND sends a real invitation email via
+// the invite-rep Edge Function (Supabase Auth's own email service --
+// no third-party provider). dbCreateInvite above still exists for direct
+// inserts, but the UI uses this so invited reps actually get an email.
+function dbInviteRep(email, role, teamId) {
+  return sb.functions.invoke('invite-rep', { body: { email: email, role: role, teamId: teamId || null } });
+}
 
 // ---------------- Progress writes (fire-and-forget upserts from state.js) ----------------
 function dbUpsertLesson(userId, courseId, moduleId, lessonId, estMinutes) {
@@ -222,6 +229,7 @@ window.dbFetchMyProfile = dbFetchMyProfile;
 window.dbUpdateProfile = dbUpdateProfile;
 window.dbCreateInvite = dbCreateInvite;
 window.dbListInvites = dbListInvites;
+window.dbInviteRep = dbInviteRep;
 window.dbUpsertLesson = dbUpsertLesson;
 window.dbUpsertModuleCheck = dbUpsertModuleCheck;
 window.dbUpsertLab = dbUpsertLab;

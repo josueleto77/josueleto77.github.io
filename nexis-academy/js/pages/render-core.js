@@ -153,6 +153,45 @@ function bindNotInvitedPage() {
   if (btn) btn.addEventListener('click', function () { authSignOut().then(function () { location.reload(); }); });
 }
 
+// ---------------- Set password (invited reps land here via the invite email's link) ----------------
+function renderSetPasswordPage(email) {
+  return (
+    '<div class="flex-center" style="min-height:100vh;padding:20px;">' +
+      '<div class="card" style="max-width:420px;width:100%;">' +
+        '<div style="margin-bottom:14px;">' + nexisLogoSVG({ height: 24 }) + '</div>' +
+        '<h2>Welcome to Nexis Power!</h2>' +
+        '<p class="small muted" style="margin-bottom:20px;">Signed in as <strong>' + escapeHtml(email) + '</strong>. Set a password to finish creating your account.</p>' +
+        '<form id="setpw-form">' +
+          '<div class="field"><label>Full Name</label><input type="text" id="setpw-name" required></div>' +
+          '<div class="field"><label>New Password</label><input type="password" id="setpw-pass" minlength="8" required></div>' +
+          '<div class="field"><label>Confirm Password</label><input type="password" id="setpw-pass2" minlength="8" required></div>' +
+          '<div id="setpw-error" class="callout compliance" style="display:none;margin-bottom:16px;"></div>' +
+          '<button type="submit" class="btn btn-primary btn-block">Set Password &amp; Continue</button>' +
+        '</form>' +
+      '</div>' +
+    '</div>'
+  );
+}
+function bindSetPasswordPage(session) {
+  var form = qs('#setpw-form');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = qs('#setpw-name').value.trim();
+    var pass = qs('#setpw-pass').value;
+    var pass2 = qs('#setpw-pass2').value;
+    var errEl = qs('#setpw-error');
+    function showErr(msg) { errEl.style.display = 'block'; errEl.textContent = msg; }
+    if (pass !== pass2) { showErr('Passwords do not match.'); return; }
+    var submitBtn = form.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    sb.auth.updateUser({ password: pass }).then(function (res) {
+      if (res.error) { submitBtn.disabled = false; showErr(res.error.message); return; }
+      dbUpdateProfile(session.user.id, { name: name }).then(function () { proceedPostAuth(session); }, function () { proceedPostAuth(session); });
+    });
+  });
+}
+
 // ---------------- Dashboard ----------------
 function metricsSummary() {
   var st = NexisState.get();
