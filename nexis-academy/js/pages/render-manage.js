@@ -363,17 +363,18 @@ function bindInviteForm() {
       submitBtn.disabled = false;
       statusEl.style.display = 'block';
       if (res.error) {
-        var extractMsg = res.error.context && res.error.context.json ? res.error.context.json() : Promise.resolve(null);
-        extractMsg.then(function (body) {
-          statusEl.style.color = '#C0392B';
-          statusEl.textContent = (body && body.error) || res.error.message;
-        }, function () {
-          statusEl.style.color = '#C0392B';
-          statusEl.textContent = res.error.message;
-        });
+        // Only an unexpected crash (no JSON body at all) reaches this path now
+        // — the function itself returns ok:false with a real message on 200.
+        statusEl.style.color = '#C0392B';
+        statusEl.textContent = res.error.message;
         return;
       }
-      if (res.data && res.data.emailSent === false) {
+      if (!res.data || res.data.ok === false) {
+        statusEl.style.color = '#C0392B';
+        statusEl.textContent = (res.data && res.data.error) || 'Could not send the invite.';
+        return;
+      }
+      if (res.data.emailSent === false) {
         statusEl.style.color = '#9A5B00';
         statusEl.textContent = '⚠️ ' + email + ' was whitelisted, but the invite email could not be sent (' + (res.data.warning || 'unknown error') + '). They may already have an account — try signing in instead.';
       } else {

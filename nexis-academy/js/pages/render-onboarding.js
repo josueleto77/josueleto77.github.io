@@ -340,7 +340,8 @@ function onbDocumentsCard(my) {
 function onbSendForSignature(docKey) {
   var user = NexisState.get().user;
   dbSendForSignature(user.id, docKey).then(function (res) {
-    if (res.error) { alert('Could not send for signature: ' + (res.error.message || res.error)); return; }
+    if (res.error) { alert('Could not send for signature: ' + res.error.message); return; }
+    if (!res.data || res.data.ok === false) { alert('Could not send for signature: ' + ((res.data && res.data.error) || 'unknown error')); return; }
     var existing = ONB_MY_CACHE.docs.filter(function (x) { return x.doc_key === docKey; })[0];
     if (existing) existing.status = 'sent'; else ONB_MY_CACHE.docs.push({ doc_key: docKey, status: 'sent' });
     router();

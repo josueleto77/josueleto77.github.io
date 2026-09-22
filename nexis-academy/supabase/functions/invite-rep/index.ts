@@ -21,46 +21,58 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ACADEMY_URL = Deno.env.get('ACADEMY_URL') || 'https://josueleto77.github.io/nexis-academy/';
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+// Always resolves with HTTP 200 (even for "expected" failures like bad auth
+// or a duplicate email) and puts the real outcome in the JSON body's `ok`
+// field instead. Supabase's client SDK treats any non-2xx response as a
+// generic FunctionsHttpError with a hardcoded message ("Edge Function
+// returned a non-2xx status code") and doesn't reliably expose the body
+// behind it, so a non-2xx status is how our actual error text was getting
+// swallowed client-side. A genuinely unexpected crash still falls through
+// to Deno's own 500 with no JSON body, which is the one case the client
+// truly can't get a specific message for.
+function json(body: unknown) {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+function fail(error: string) {
+  return json({ ok: false, error: error });
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  if (req.method !== 'POST') return fail('Method not allowed');
 
   const authHeader = req.headers.get('Authorization') || '';
   const jwt = authHeader.replace(/^Bearer /, '');
-  if (!jwt) return json({ error: 'Missing Authorization header' }, 401);
+  if (!jwt) return fail('Missing Authorization header');
 
   const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
   const { data: userRes, error: userErr } = await db.auth.getUser(jwt);
-  if (userErr || !userRes.user) return json({ error: 'Invalid session' }, 401);
+  if (userErr || !userRes.user) return fail('Invalid session');
   const callerId = userRes.user.id;
 
   const { data: callerProfile } = await db.from('profiles').select('role').eq('id', callerId).maybeSingle();
   if (!callerProfile || callerProfile.role !== 'admin') {
-    return json({ error: 'Only admins can invite representatives' }, 403);
+    return fail('Only admins can invite representatives');
   }
 
   let payload: { email?: string; role?: string; teamId?: string | null };
   try {
     payload = await req.json();
   } catch {
-    return json({ error: 'Invalid JSON body' }, 400);
+    return fail('Invalid JSON body');
   }
   const email = (payload.email || '').toLowerCase().trim();
   const role = payload.role || 'rep';
   const teamId = payload.teamId || null;
-  if (!email) return json({ error: 'email is required' }, 400);
-  if (!['rep', 'manager', 'admin'].includes(role)) return json({ error: 'invalid role' }, 400);
+  if (!email) return fail('email is required');
+  if (!['rep', 'manager', 'admin'].includes(role)) return fail('invalid role');
 
   const { error: inviteErr } = await db
     .from('invites')
     .insert({ email, role, team_id: teamId, invited_by: callerId });
   if (inviteErr) {
     const isDuplicate = inviteErr.code === '23505' || /duplicate/i.test(inviteErr.message);
-    return json({ error: isDuplicate ? 'That email has already been invited.' : inviteErr.message }, isDuplicate ? 409 : 500);
+    return fail(isDuplicate ? 'That email has already been invited.' : inviteErr.message);
   }
 
   const { error: authErr } = await db.auth.admin.inviteUserByEmail(email, { redirectTo: ACADEMY_URL });
