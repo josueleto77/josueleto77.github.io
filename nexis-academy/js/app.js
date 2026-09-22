@@ -241,6 +241,12 @@ function boot() {
   var root = qs('#app-root');
   root.innerHTML = '<div class="flex-center" style="min-height:100vh;"><p class="muted">Loading Nexis Power Academy…</p></div>';
 
+  // An invite email's link lands here with type=invite in the hash; capture
+  // that BEFORE cleanAuthParamsFromUrl scrubs it, so an invited rep is asked
+  // to set a password instead of being silently logged into a passwordless
+  // session they'd have no way to start again next time.
+  var isInviteLink = /type=invite/.test(window.location.hash);
+
   // supabase-js resolves any access_token/refresh_token (or PKCE `code`) it
   // finds in the current URL — left over from an email confirmation or
   // password-recovery link — as part of getSession() below. Once that's
@@ -250,6 +256,7 @@ function boot() {
     cleanAuthParamsFromUrl();
     var session = res.data && res.data.session;
     if (!session) { showAuthGate('signin'); return; }
+    if (isInviteLink) { showSetPasswordGate(session); return; }
     proceedPostAuth(session);
   });
 }
@@ -274,6 +281,11 @@ function showAuthGate(mode) {
   var root = qs('#app-root');
   root.innerHTML = renderAuthGatePage(mode || 'signin');
   bindAuthGatePage(mode || 'signin');
+}
+function showSetPasswordGate(session) {
+  var root = qs('#app-root');
+  root.innerHTML = renderSetPasswordPage(session.user.email);
+  bindSetPasswordPage(session);
 }
 function showNotInvitedGate(session) {
   var root = qs('#app-root');
