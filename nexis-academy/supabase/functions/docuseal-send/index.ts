@@ -23,45 +23,57 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const DOCUSEAL_API_KEY = Deno.env.get('DOCUSEAL_API_KEY')!;
 const DOCUSEAL_BASE_URL = Deno.env.get('DOCUSEAL_BASE_URL') || 'https://api.docuseal.com';
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+// Always resolves with HTTP 200 (even for "expected" failures like bad auth
+// or a missing template) and puts the real outcome in the JSON body's `ok`
+// field instead. Supabase's client SDK treats any non-2xx response as a
+// generic FunctionsHttpError with a hardcoded message ("Edge Function
+// returned a non-2xx status code") and doesn't reliably expose the body
+// behind it, so a non-2xx status is how our actual error text was getting
+// swallowed client-side. A genuinely unexpected crash still falls through
+// to Deno's own 500 with no JSON body, which is the one case the client
+// truly can't get a specific message for.
+function json(body: unknown) {
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+function fail(error: string) {
+  return json({ ok: false, error: error });
 }
 
 Deno.serve(async (req) => {
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
-  if (!DOCUSEAL_API_KEY) return json({ error: 'DOCUSEAL_API_KEY is not configured on this function.' }, 500);
+  if (req.method !== 'POST') return fail('Method not allowed');
+  if (!DOCUSEAL_API_KEY) return fail('DOCUSEAL_API_KEY is not configured on this function.');
 
   const authHeader = req.headers.get('Authorization') || '';
   const jwt = authHeader.replace(/^Bearer /, '');
-  if (!jwt) return json({ error: 'Missing Authorization header' }, 401);
+  if (!jwt) return fail('Missing Authorization header');
 
   const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
   const { data: userRes, error: userErr } = await db.auth.getUser(jwt);
-  if (userErr || !userRes.user) return json({ error: 'Invalid session' }, 401);
+  if (userErr || !userRes.user) return fail('Invalid session');
   const callerId = userRes.user.id;
 
   let payload: { userId?: string; docKey?: string };
   try {
     payload = await req.json();
   } catch {
-    return json({ error: 'Invalid JSON body' }, 400);
+    return fail('Invalid JSON body');
   }
   const targetUserId = payload.userId;
   const docKey = payload.docKey;
-  if (!targetUserId || !docKey) return json({ error: 'userId and docKey are required' }, 400);
+  if (!targetUserId || !docKey) return fail('userId and docKey are required');
 
   // A rep may only send their own documents; staff may send any rep's.
   if (callerId !== targetUserId) {
     const { data: callerProfile } = await db.from('profiles').select('role').eq('id', callerId).maybeSingle();
     if (!callerProfile || (callerProfile.role !== 'admin' && callerProfile.role !== 'manager')) {
-      return json({ error: 'Not authorized to send this document' }, 403);
+      return fail('Not authorized to send this document');
     }
   }
 
   const { data: template } = await db.from('docuseal_templates').select('template_id').eq('doc_key', docKey).maybeSingle();
   if (!template) {
-    return json({ error: 'No DocuSeal template configured for "' + docKey + '" yet. An admin needs to set it up in Admin → Onboarding → E-Signature Templates.' }, 400);
+    return fail('No DocuSeal template configured for "' + docKey + '" yet. An admin needs to set it up in Admin → Onboarding → E-Signature Templates.');
   }
 
   const { data: profile } = await db.from('profiles').select('name, email').eq('id', targetUserId).maybeSingle();
@@ -79,7 +91,7 @@ Deno.serve(async (req) => {
         ? profile.name
         : '';
   if (!signerEmail) {
-    return json({ error: 'This representative has no email on file yet — ask them to submit Personal Information first.' }, 400);
+    return fail('This representative has no email on file yet — ask them to submit Personal Information first.');
   }
 
   let dsRes: Response;
@@ -101,12 +113,12 @@ Deno.serve(async (req) => {
       })
     });
   } catch (e) {
-    return json({ error: 'Could not reach DocuSeal: ' + (e instanceof Error ? e.message : String(e)) }, 502);
+    return fail('Could not reach DocuSeal: ' + (e instanceof Error ? e.message : String(e)));
   }
 
   const dsBody = await dsRes.json().catch(() => ({}));
   if (!dsRes.ok) {
-    return json({ error: 'DocuSeal error: ' + (dsBody?.error || dsRes.statusText) }, 502);
+    return fail('DocuSeal error: ' + (dsBody?.error || dsRes.statusText));
   }
 
   // DocuSeal's create-submission response has varied slightly across
