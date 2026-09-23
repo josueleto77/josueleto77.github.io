@@ -365,8 +365,18 @@ function bindInviteForm() {
       if (res.error) {
         // Only an unexpected crash (no JSON body at all) reaches this path now
         // — the function itself returns ok:false with a real message on 200.
+        // Surface every diagnosable detail right in the UI (status code, error
+        // name, and the raw response body if it's still readable) since the
+        // generic client message alone doesn't say why the call failed.
         statusEl.style.color = '#C0392B';
-        statusEl.textContent = res.error.message;
+        var httpStatus = res.error.context && res.error.context.status;
+        var diag = '❌ ' + (res.error.name || 'Error') + (httpStatus ? ' (HTTP ' + httpStatus + ')' : '') + ': ' + res.error.message;
+        statusEl.textContent = diag;
+        if (res.error.context && typeof res.error.context.clone === 'function') {
+          res.error.context.clone().text().then(function (bodyText) {
+            if (bodyText) statusEl.textContent = diag + ' — response body: ' + bodyText;
+          }).catch(function () {});
+        }
         return;
       }
       if (!res.data || res.data.ok === false) {
