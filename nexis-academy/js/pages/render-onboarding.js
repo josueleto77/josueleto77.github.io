@@ -557,7 +557,7 @@ function renderAdminOnboardingPage() {
 }
 
 // ---------------- Admin: DocuSeal template ID mapping ----------------
-var ONB_DOCUSEAL_DOC_KEYS = ['employment_agreement', 'contractor_agreement', 'w4', 'm4', 'w9', 'direct_deposit', 'payment_setup'];
+var ONB_DOCUSEAL_DOC_KEYS = ['employment_agreement', 'contractor_agreement', 'confidentiality_agreement', 'w4', 'm4', 'w9', 'direct_deposit', 'payment_setup'];
 var ONB_DOCUSEAL_TEMPLATES_CACHE = null;
 function loadDocusealTemplates(onReadyRerender) {
   if (!window.NEXIS_BACKEND_READY) return null;
