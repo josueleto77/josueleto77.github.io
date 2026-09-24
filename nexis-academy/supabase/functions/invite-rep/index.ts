@@ -29,7 +29,7 @@
 // auto-injected key otherwise, so it keeps working once Supabase fixes
 // the underlying bug and this secret is no longer needed.
 // ============================================================
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.117.1';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY_LEGACY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
