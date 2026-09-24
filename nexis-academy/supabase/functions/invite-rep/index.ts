@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
     return fail('Only admins can invite representatives');
   }
 
-  let payload: { email?: string; role?: string; teamId?: string | null };
+  let payload: { email?: string; role?: string; teamId?: string | null; classification?: string };
   try {
     payload = await req.json();
   } catch {
@@ -127,9 +127,20 @@ Deno.serve(async (req) => {
   if (!email) return fail('email is required');
   if (!['rep', 'manager', 'admin'].includes(role)) return fail('invalid role');
 
+  // Classification (W-2 vs 1099) is decided up front, at invite time, never
+  // mid-onboarding -- so a rep can complete their whole self-service
+  // onboarding in one sitting instead of stalling on a "waiting on HR" step.
+  const classification = payload.classification || 'not_assigned';
+  if (role === 'rep' && !['w2_employee', '1099_contractor'].includes(classification)) {
+    return fail('Employment classification (W-2 or 1099) is required when inviting a Sales Representative');
+  }
+  if (!['not_assigned', 'w2_employee', '1099_contractor'].includes(classification)) {
+    return fail('invalid classification');
+  }
+
   const { error: inviteErr } = await db
     .from('invites')
-    .insert({ email, role, team_id: teamId, invited_by: callerId });
+    .insert({ email, role, team_id: teamId, invited_by: callerId, classification: role === 'rep' ? classification : 'not_assigned' });
   if (inviteErr) {
     const isDuplicate = inviteErr.code === '23505' || /duplicate/i.test(inviteErr.message);
     return fail(isDuplicate ? 'That email has already been invited.' : inviteErr.message);
