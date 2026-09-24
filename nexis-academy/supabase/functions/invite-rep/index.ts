@@ -66,6 +66,17 @@ async function sendInviteEmail(email: string): Promise<{ error: string | null }>
   return { error: 'HTTP ' + res.status + ': ' + message };
 }
 
+// Deno.serve does NOT answer CORS preflight (OPTIONS) requests on its own,
+// and a response with no Access-Control-Allow-* headers makes the browser
+// block the real request that follows -- the browser's own devtools showed
+// this exactly: every invocation was "OPTIONS 200" and no POST ever
+// actually went out. These headers go on every response, including OPTIONS.
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
 // Always resolves with HTTP 200 (even for "expected" failures like bad auth
 // or a duplicate email) and puts the real outcome in the JSON body's `ok`
 // field instead. Supabase's client SDK treats any non-2xx response as a
@@ -76,13 +87,17 @@ async function sendInviteEmail(email: string): Promise<{ error: string | null }>
 // to Deno's own 500 with no JSON body, which is the one case the client
 // truly can't get a specific message for.
 function json(body: unknown) {
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+  });
 }
 function fail(error: string) {
   return json({ ok: false, error: error });
 }
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (req.method !== 'POST') return fail('Method not allowed');
 
   const authHeader = req.headers.get('Authorization') || '';
