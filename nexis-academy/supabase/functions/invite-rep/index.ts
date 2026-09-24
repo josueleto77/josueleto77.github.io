@@ -28,12 +28,43 @@
 // This function prefers that secret when present and falls back to the
 // auto-injected key otherwise, so it keeps working once Supabase fixes
 // the underlying bug and this secret is no longer needed.
+//
+// The actual invite send below calls Supabase's Auth REST endpoint
+// (POST /auth/v1/invite) directly with plain fetch, instead of the SDK's
+// auth.admin.inviteUserByEmail(). That SDK method silently "succeeded"
+// (no error) without ever creating a user or sending mail on this
+// project, across multiple supabase-js versions -- calling the
+// documented REST endpoint directly sidesteps whatever the SDK is doing
+// wrong here, and is stable regardless of SDK version.
 // ============================================================
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.117.1';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY_LEGACY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ACADEMY_URL = Deno.env.get('ACADEMY_URL') || 'https://josueleto77.github.io/nexis-academy/';
+
+async function sendInviteEmail(email: string): Promise<{ error: string | null }> {
+  const url = SUPABASE_URL + '/auth/v1/invite?redirect_to=' + encodeURIComponent(ACADEMY_URL);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        apikey: SERVICE_ROLE_KEY,
+        Authorization: 'Bearer ' + SERVICE_ROLE_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email: email })
+    });
+  } catch (e) {
+    return { error: 'Could not reach Supabase Auth: ' + (e instanceof Error ? e.message : String(e)) };
+  }
+  if (res.ok) return { error: null };
+  const body = await res.json().catch(() => ({} as Record<string, unknown>));
+  const message =
+    (body as any).msg || (body as any).message || (body as any).error_description || (body as any).error || res.statusText;
+  return { error: 'HTTP ' + res.status + ': ' + message };
+}
 
 // Always resolves with HTTP 200 (even for "expected" failures like bad auth
 // or a duplicate email) and puts the real outcome in the JSON body's `ok`
@@ -89,12 +120,12 @@ Deno.serve(async (req) => {
     return fail(isDuplicate ? 'That email has already been invited.' : inviteErr.message);
   }
 
-  const { error: authErr } = await db.auth.admin.inviteUserByEmail(email, { redirectTo: ACADEMY_URL });
-  if (authErr) {
+  const { error: sendError } = await sendInviteEmail(email);
+  if (sendError) {
     // The invites row is saved either way -- report the invite as
     // partially successful so the admin knows to follow up manually
     // (e.g. this email already has an account).
-    return json({ ok: true, emailSent: false, warning: authErr.message });
+    return json({ ok: true, emailSent: false, warning: sendError });
   }
 
   return json({ ok: true, emailSent: true });
