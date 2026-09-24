@@ -14,11 +14,25 @@
 //   supabase functions deploy invite-rep
 // Optional secret (defaults to the GitHub Pages URL if unset):
 //   supabase secrets set ACADEMY_URL=https://josueleto77.github.io/nexis-academy/
+//
+// Known Supabase issue (as of Sep 2026, supabase/supabase#50801): on
+// projects using the new sb_secret_... key format, the auto-injected
+// SUPABASE_SERVICE_ROLE_KEY silently fails for auth.admin.* calls
+// specifically (the API gateway can't mint a service_role JWT from it),
+// even though it works fine for everything else. The documented
+// workaround is to use the LEGACY service_role JWT for this. If you're
+// hitting that, get the legacy service_role key from Project Settings ->
+// API Keys -> Legacy API Keys, and set it here (never share this value
+// outside Supabase's own secret store -- it bypasses all RLS):
+//   supabase secrets set SUPABASE_SERVICE_ROLE_KEY_LEGACY=your_legacy_jwt
+// This function prefers that secret when present and falls back to the
+// auto-injected key otherwise, so it keeps working once Supabase fixes
+// the underlying bug and this secret is no longer needed.
 // ============================================================
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY_LEGACY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const ACADEMY_URL = Deno.env.get('ACADEMY_URL') || 'https://josueleto77.github.io/nexis-academy/';
 
 // Always resolves with HTTP 200 (even for "expected" failures like bad auth
