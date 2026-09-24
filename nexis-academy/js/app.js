@@ -246,6 +246,10 @@ function boot() {
   // to set a password instead of being silently logged into a passwordless
   // session they'd have no way to start again next time.
   var isInviteLink = /type=invite/.test(window.location.hash);
+  // A "Forgot password?" email (self-service or admin-triggered) lands here
+  // the same way an invite does — already signed into a session — but the
+  // rep is choosing a new password for an existing account, not creating one.
+  var isRecoveryLink = /type=recovery/.test(window.location.hash);
 
   // supabase-js resolves any access_token/refresh_token (or PKCE `code`) it
   // finds in the current URL — left over from an email confirmation or
@@ -256,7 +260,8 @@ function boot() {
     cleanAuthParamsFromUrl();
     var session = res.data && res.data.session;
     if (!session) { showAuthGate('signin'); return; }
-    if (isInviteLink) { showSetPasswordGate(session); return; }
+    if (isInviteLink) { showSetPasswordGate(session, 'invite'); return; }
+    if (isRecoveryLink) { showSetPasswordGate(session, 'recovery'); return; }
     proceedPostAuth(session);
   });
 }
@@ -282,10 +287,10 @@ function showAuthGate(mode) {
   root.innerHTML = renderAuthGatePage(mode || 'signin');
   bindAuthGatePage(mode || 'signin');
 }
-function showSetPasswordGate(session) {
+function showSetPasswordGate(session, mode) {
   var root = qs('#app-root');
-  root.innerHTML = renderSetPasswordPage(session.user.email);
-  bindSetPasswordPage(session);
+  root.innerHTML = renderSetPasswordPage(session.user.email, mode);
+  bindSetPasswordPage(session, mode);
 }
 function showNotInvitedGate(session) {
   var root = qs('#app-root');

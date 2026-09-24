@@ -41,6 +41,18 @@ function authSignIn(email, password) {
 function authSignOut() {
   return sb.auth.signOut();
 }
+// Works for any email, invited or not, without needing to be signed in as
+// that user — Supabase's GoTrue never reveals whether the address actually
+// has an account, so the caller always shows the same generic message.
+// This lets an admin trigger it for someone else's email too (Admin → Users).
+function authResetPassword(email) {
+  return sb.auth.resetPasswordForEmail(email, { redirectTo: academyBaseUrl() });
+}
+// Admin-only: changes a rep's login email via the admin-update-email Edge
+// Function (needs the service role key, so it can't run directly in the browser).
+function dbAdminUpdateEmail(userId, newEmail) {
+  return sb.functions.invoke('admin-update-email', { body: { userId: userId, newEmail: newEmail } });
+}
 function authGetSession() {
   return sb.auth.getSession();
 }
@@ -224,6 +236,8 @@ window.authSignUp = authSignUp;
 window.authSignIn = authSignIn;
 window.authSignOut = authSignOut;
 window.authGetSession = authGetSession;
+window.authResetPassword = authResetPassword;
+window.dbAdminUpdateEmail = dbAdminUpdateEmail;
 window.authOnChange = authOnChange;
 window.dbFetchMyProfile = dbFetchMyProfile;
 window.dbUpdateProfile = dbUpdateProfile;

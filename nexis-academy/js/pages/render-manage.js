@@ -73,7 +73,7 @@ function realMemberFromProfile(profile, full) {
   var examsByCourse = { solar: [], hvac: [], 'energy-advisor': [] };
   full.exams.forEach(function (r) { examsByCourse[r.course_id] = examsByCourse[r.course_id] || []; examsByCourse[r.course_id].push({ scorePct: r.score_pct, passed: r.passed, at: r.at }); });
   return {
-    id: profile.id, name: profile.name,
+    id: profile.id, name: profile.name, email: profile.email,
     role: profile.role !== 'rep' ? (profile.role === 'admin' ? 'Admin' : 'Manager') : (solarCert && hvacCert ? 'Solar + HVAC Rep' : (solarCert ? 'Solar Rep' : (hvacCert ? 'HVAC Rep' : 'Rep'))),
     solarPct: courseLessonPct(SOLAR_COURSE, full.lessons), hvacPct: courseLessonPct(HVAC_COURSE, full.lessons),
     solarCert: solarCert, hvacCert: hvacCert, advisorStatus: advisorStatus,
@@ -338,7 +338,13 @@ function renderAdminUsers() {
     '<div class="card mt-16"><table class="lesson-table"><thead><tr><th>Name</th><th>Role</th><th>Solar</th><th>HVAC</th><th>Advisor</th><th></th></tr></thead><tbody>' +
       '<tr><td style="font-weight:700;">' + escapeHtml(me.name) + ' (you)</td><td>' + escapeHtml(me.role) + '</td>' +
       '<td>' + CERT_STATUS_LABEL[NexisState.certStatus(SOLAR_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(HVAC_COURSE)] + '</td><td>' + CERT_STATUS_LABEL[NexisState.certStatus(ENERGY_ADVISOR_COURSE)] + '</td><td></td></tr>' +
-      team.map(function (m) { return '<tr style="cursor:pointer;" onclick="navigate(\'manager/rep/' + m.id + '\')"><td style="font-weight:700;">' + escapeHtml(m.name) + '</td><td>' + escapeHtml(m.role) + '</td><td>' + certCellForMember(m, 'solar') + '</td><td>' + certCellForMember(m, 'hvac') + '</td><td>' + certCellForMember(m, 'advisor') + '</td><td class="small muted">View training →</td></tr>'; }).join('') +
+      team.map(function (m) {
+        return '<tr style="cursor:pointer;" onclick="navigate(\'manager/rep/' + m.id + '\')"><td style="font-weight:700;">' + escapeHtml(m.name) + '</td><td>' + escapeHtml(m.role) + '</td><td>' + certCellForMember(m, 'solar') + '</td><td>' + certCellForMember(m, 'hvac') + '</td><td>' + certCellForMember(m, 'advisor') + '</td>' +
+          '<td class="small" onclick="event.stopPropagation();" style="white-space:nowrap;">' +
+            '<button class="btn btn-outline btn-sm" onclick="adminResetPassword(\'' + escapeHtml(m.email || '') + '\')">Reset Password</button> ' +
+            '<button class="btn btn-outline btn-sm" onclick="adminChangeEmail(\'' + m.id + '\',\'' + escapeHtml(m.name).replace(/'/g, "\\'") + '\',\'' + escapeHtml(m.email || '') + '\')">Change Email</button>' +
+          '</td></tr>';
+      }).join('') +
     '</tbody></table></div>'
   );
 
@@ -393,6 +399,29 @@ function bindInviteForm() {
       }
       form.reset();
     });
+  });
+}
+
+function adminResetPassword(email) {
+  if (!email) { alert('This user has no email on file.'); return; }
+  if (!confirm('Send a password reset link to ' + email + '?')) return;
+  authResetPassword(email).then(function (res) {
+    if (res.error) { alert('Could not send reset link: ' + res.error.message); return; }
+    alert('✅ Reset link sent to ' + email + '.');
+  });
+}
+function adminChangeEmail(userId, name, currentEmail) {
+  var newEmail = prompt('New login email for ' + name + ':', currentEmail || '');
+  if (!newEmail) return;
+  newEmail = newEmail.trim();
+  if (newEmail === currentEmail) return;
+  if (!confirm('Change ' + name + '’s login email to ' + newEmail + '? They will sign in with this new address going forward.')) return;
+  dbAdminUpdateEmail(userId, newEmail).then(function (res) {
+    if (res.error) { alert('Could not change email: ' + res.error.message); return; }
+    if (!res.data || res.data.ok === false) { alert('Could not change email: ' + ((res.data && res.data.error) || 'unknown error')); return; }
+    alert('✅ Login email updated to ' + newEmail + '.');
+    TEAM_CACHE = null;
+    renderShell('admin/users', renderAdminUsers());
   });
 }
 
