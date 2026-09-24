@@ -39,9 +39,6 @@ window.ONBOARDING_DOCS = {
     { key: 'contractor_agreement', label: 'Independent Contractor Agreement', category: 'Company Agreements', viaDocuseal: true },
     { key: 'compensation_agreement', label: 'Compensation Agreement', category: 'Company Agreements' },
     { key: 'confidentiality_agreement', label: 'Confidentiality Agreement / NDA', category: 'Company Policies', viaDocuseal: true },
-    { key: 'code_of_conduct', label: 'Code of Conduct', category: 'Company Policies' },
-    { key: 'sales_compliance_agreement', label: 'Sales Compliance Agreement', category: 'Company Policies' },
-    { key: 'crm_data_security_agreement', label: 'CRM / Data Security Agreement', category: 'Company Policies' },
     { key: 'payment_setup', label: 'Payment Method / Direct Deposit Setup', category: 'Payment', viaDocuseal: true }
   ]
 };
