@@ -13,6 +13,7 @@ var SOLAR_COURSE = {
   tagline: 'Massachusetts residential solar: bills, savings, and a compliant sales process.',
   badgeId: 'cert-solar',
   practicalExam: false,
+  certValidityMonths: 12,
   exam: { bankVar: 'SOLAR_EXAM_BANK', numQuestions: 50, passPct: 80, complianceMinPct: 80, name: 'Nexis Residential Solar Sales Certification Exam' },
   modules: [
     {

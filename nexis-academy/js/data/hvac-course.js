@@ -14,6 +14,7 @@ var HVAC_COURSE = {
   tagline: 'Ductless mini-split heat pumps: comfort, zoning, BTU pre-qualification, and Mass Save.',
   badgeId: 'cert-hvac',
   practicalExam: false,
+  certValidityMonths: 12,
   exam: { bankVar: 'HVAC_EXAM_BANK', numQuestions: 40, passPct: 80, complianceMinPct: 80, name: 'Nexis HVAC & Mini-Split Sales Certification Exam' },
   modules: [
     {

@@ -43,10 +43,10 @@ function themeColor(theme) {
 }
 
 var CERT_STATUS_LABEL = {
-  locked: 'Locked', not_started: 'Not Started', in_progress: 'In Progress', ready_for_exam: 'Ready for Exam', certified: 'Certified'
+  locked: 'Locked', not_started: 'Not Started', in_progress: 'In Progress', ready_for_exam: 'Ready for Exam', certified: 'Certified', renewal_required: 'Renewal Required'
 };
 var CERT_STATUS_PILL = {
-  locked: 'pill-gray', not_started: 'pill-gray', in_progress: 'pill-blue', ready_for_exam: 'pill-orange', certified: 'pill-green'
+  locked: 'pill-gray', not_started: 'pill-gray', in_progress: 'pill-blue', ready_for_exam: 'pill-orange', certified: 'pill-green', renewal_required: 'pill-red'
 };
 
 // ---------- Router ----------
