@@ -55,6 +55,7 @@ function bindLoginPage() {
 // ---------------- Real auth (Supabase-backed sign in / accept-invite) ----------------
 function renderAuthGatePage(mode) {
   var isSignup = mode === 'signup';
+  var isForgot = mode === 'forgot';
   return (
     '<div class="login-wrap">' +
       '<div class="login-visual">' +
@@ -78,6 +79,15 @@ function renderAuthGatePage(mode) {
               '<button type="submit" class="btn btn-primary btn-block">Create Account</button>' +
             '</form>' +
             '<p class="tiny muted mt-16">Already have an account? <a href="#" onclick="showAuthGate(\'signin\');return false;">Sign in</a></p>'
+          ) : isForgot ? (
+            '<h2>Reset your password</h2>' +
+            '<p class="small muted" style="margin-bottom:24px;">Enter your work email and, if you have an account, we’ll send you a link to set a new password.</p>' +
+            '<form id="auth-form">' +
+              '<div class="field"><label>Work email</label><input type="email" id="au-email" placeholder="you@nexispower.com" required></div>' +
+              '<div id="auth-error" class="callout compliance" style="display:none;margin-bottom:16px;"></div>' +
+              '<button type="submit" class="btn btn-primary btn-block">Send Reset Link</button>' +
+            '</form>' +
+            '<p class="tiny muted mt-16"><a href="#" onclick="showAuthGate(\'signin\');return false;">← Back to sign in</a></p>'
           ) : (
             '<h2>Sign in</h2>' +
             '<p class="small muted" style="margin-bottom:24px;">Access your Nexis Power Academy training.</p>' +
@@ -87,14 +97,16 @@ function renderAuthGatePage(mode) {
               '<div id="auth-error" class="callout compliance" style="display:none;margin-bottom:16px;"></div>' +
               '<button type="submit" class="btn btn-primary btn-block">Sign In</button>' +
             '</form>' +
-            '<p class="tiny muted mt-16">Were you invited by your admin? <a href="#" onclick="showAuthGate(\'signup\');return false;">Create your account</a></p>'
+            '<p class="tiny muted mt-8"><a href="#" onclick="showAuthGate(\'forgot\');return false;">Forgot password?</a></p>' +
+            '<p class="tiny muted mt-8">Were you invited by your admin? <a href="#" onclick="showAuthGate(\'signup\');return false;">Create your account</a></p>'
           )) +
         '</div>' +
       '</div>' +
     '</div>'
   );
 }
-function authError(msg) { var el = qs('#auth-error'); if (el) { el.style.display = 'block'; el.textContent = msg; } }
+function authError(msg) { var el = qs('#auth-error'); if (el) { el.className = 'callout compliance'; el.style.display = 'block'; el.textContent = msg; } }
+function authNotice(msg) { var el = qs('#auth-error'); if (el) { el.className = 'callout tip'; el.style.display = 'block'; el.textContent = msg; } }
 function bindAuthGatePage(mode) {
   var form = qs('#auth-form');
   if (!form) return;
@@ -103,6 +115,17 @@ function bindAuthGatePage(mode) {
     var submitBtn = form.querySelector('button[type=submit]');
     submitBtn.disabled = true;
     var email = qs('#au-email').value.trim();
+
+    if (mode === 'forgot') {
+      authResetPassword(email).then(function (res) {
+        submitBtn.disabled = false;
+        if (res.error) { authError(res.error.message); return; }
+        authNotice('If an account exists for ' + email + ', a reset link has been sent — check your inbox.');
+        form.reset();
+      });
+      return;
+    }
+
     var pass = qs('#au-pass').value;
 
     if (mode === 'signup') {
@@ -153,31 +176,38 @@ function bindNotInvitedPage() {
   if (btn) btn.addEventListener('click', function () { authSignOut().then(function () { location.reload(); }); });
 }
 
-// ---------------- Set password (invited reps land here via the invite email's link) ----------------
-function renderSetPasswordPage(email) {
+// ---------------- Set password (invited reps land here via the invite email's
+// link, mode 'invite') / Reset password (mode 'recovery', via "Forgot password?"
+// or an admin-triggered reset email) ----------------
+function renderSetPasswordPage(email, mode) {
+  var isRecovery = mode === 'recovery';
   return (
     '<div class="flex-center" style="min-height:100vh;padding:20px;">' +
       '<div class="card" style="max-width:420px;width:100%;">' +
         '<div style="margin-bottom:14px;">' + nexisLogoSVG({ height: 24 }) + '</div>' +
-        '<h2>Welcome to Nexis Power!</h2>' +
-        '<p class="small muted" style="margin-bottom:20px;">Signed in as <strong>' + escapeHtml(email) + '</strong>. Set a password to finish creating your account.</p>' +
+        '<h2>' + (isRecovery ? 'Reset Your Password' : 'Welcome to Nexis Power!') + '</h2>' +
+        '<p class="small muted" style="margin-bottom:20px;">' + (isRecovery ?
+          'Signed in as <strong>' + escapeHtml(email) + '</strong>. Choose a new password.' :
+          'Signed in as <strong>' + escapeHtml(email) + '</strong>. Set a password to finish creating your account.') + '</p>' +
         '<form id="setpw-form">' +
-          '<div class="field"><label>Full Name</label><input type="text" id="setpw-name" required></div>' +
+          (isRecovery ? '' : '<div class="field"><label>Full Name</label><input type="text" id="setpw-name" required></div>') +
           '<div class="field"><label>New Password</label><input type="password" id="setpw-pass" minlength="8" required></div>' +
           '<div class="field"><label>Confirm Password</label><input type="password" id="setpw-pass2" minlength="8" required></div>' +
           '<div id="setpw-error" class="callout compliance" style="display:none;margin-bottom:16px;"></div>' +
-          '<button type="submit" class="btn btn-primary btn-block">Set Password &amp; Continue</button>' +
+          '<button type="submit" class="btn btn-primary btn-block">' + (isRecovery ? 'Set New Password' : 'Set Password &amp; Continue') + '</button>' +
         '</form>' +
       '</div>' +
     '</div>'
   );
 }
-function bindSetPasswordPage(session) {
+function bindSetPasswordPage(session, mode) {
   var form = qs('#setpw-form');
   if (!form) return;
+  var isRecovery = mode === 'recovery';
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    var name = qs('#setpw-name').value.trim();
+    var nameEl = qs('#setpw-name');
+    var name = nameEl ? nameEl.value.trim() : '';
     var pass = qs('#setpw-pass').value;
     var pass2 = qs('#setpw-pass2').value;
     var errEl = qs('#setpw-error');
@@ -187,6 +217,7 @@ function bindSetPasswordPage(session) {
     submitBtn.disabled = true;
     sb.auth.updateUser({ password: pass }).then(function (res) {
       if (res.error) { submitBtn.disabled = false; showErr(res.error.message); return; }
+      if (isRecovery) { proceedPostAuth(session); return; }
       dbUpdateProfile(session.user.id, { name: name }).then(function () { proceedPostAuth(session); }, function () { proceedPostAuth(session); });
     });
   });
