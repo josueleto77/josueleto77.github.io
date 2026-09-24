@@ -14,6 +14,7 @@ var ENERGY_ADVISOR_COURSE = {
   badgeId: 'cert-advisor',
   requires: ['solar', 'hvac'],
   practicalExam: true,
+  certValidityMonths: 12,
   exam: { bankVar: 'EA_EXAM_BANK', numQuestions: 60, passPct: 85, complianceMinPct: 85, name: 'Nexis Energy Advisor Advanced Certification Exam' },
   practicalScenario: {
     title: 'Practical Evaluation: The Whole-Home Case',

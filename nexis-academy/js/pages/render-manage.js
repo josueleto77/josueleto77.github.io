@@ -46,6 +46,27 @@ function bestExamForCourse(examRows, courseId) {
   if (!rows.length) return null;
   return rows.reduce(function (best, r) { return (!best || r.score_pct > best.score_pct) ? r : best; }, null);
 }
+// Expiration runs off the most recent PASSED attempt, not the best-scoring
+// one -- a renewal should reset the clock from when it actually happened.
+function mostRecentPassedAt(rows, courseId) {
+  var passed = rows.filter(function (r) { return r.course_id === courseId && r.passed; });
+  if (!passed.length) return null;
+  return passed.reduce(function (latest, r) { return (!latest || r.at > latest) ? r.at : latest; }, null);
+}
+function certExpiryFor(courseDef, examRows, practicalRows) {
+  if (!courseDef.certValidityMonths) return null;
+  var examAt = mostRecentPassedAt(examRows, courseDef.id);
+  if (!examAt) return null;
+  var at = examAt;
+  if (courseDef.practicalExam) {
+    var practicalAt = mostRecentPassedAt(practicalRows || [], courseDef.id);
+    if (!practicalAt) return null; // exam passed but practical not yet -- not certified
+    at = practicalAt > examAt ? practicalAt : examAt;
+  }
+  var d = new Date(at);
+  d.setMonth(d.getMonth() + courseDef.certValidityMonths);
+  return d.toISOString();
+}
 function realMemberFromProfile(profile, full) {
   var solarBest = bestExamForCourse(full.exams, 'solar');
   var hvacBest = bestExamForCourse(full.exams, 'hvac');
@@ -72,11 +93,22 @@ function realMemberFromProfile(profile, full) {
   });
   var examsByCourse = { solar: [], hvac: [], 'energy-advisor': [] };
   full.exams.forEach(function (r) { examsByCourse[r.course_id] = examsByCourse[r.course_id] || []; examsByCourse[r.course_id].push({ scorePct: r.score_pct, passed: r.passed, at: r.at }); });
+
+  var solarExpiresAt = certExpiryFor(SOLAR_COURSE, full.exams);
+  var hvacExpiresAt = certExpiryFor(HVAC_COURSE, full.exams);
+  var eaExpiresAt = certExpiryFor(ENERGY_ADVISOR_COURSE, full.exams, full.practicals);
+  var now = Date.now();
+  var solarExpired = !!(solarExpiresAt && new Date(solarExpiresAt).getTime() <= now);
+  var hvacExpired = !!(hvacExpiresAt && new Date(hvacExpiresAt).getTime() <= now);
+  var eaExpired = (advisorStatus === 'certified') && (!!(eaExpiresAt && new Date(eaExpiresAt).getTime() <= now) || solarExpired || hvacExpired);
+
   return {
     id: profile.id, name: profile.name, email: profile.email,
     role: profile.role !== 'rep' ? (profile.role === 'admin' ? 'Admin' : 'Manager') : (solarCert && hvacCert ? 'Solar + HVAC Rep' : (solarCert ? 'Solar Rep' : (hvacCert ? 'HVAC Rep' : 'Rep'))),
     solarPct: courseLessonPct(SOLAR_COURSE, full.lessons), hvacPct: courseLessonPct(HVAC_COURSE, full.lessons),
     solarCert: solarCert, hvacCert: hvacCert, advisorStatus: advisorStatus,
+    solarExpiresAt: solarExpiresAt, hvacExpiresAt: hvacExpiresAt, eaExpiresAt: eaExpiresAt,
+    solarExpired: solarExpired, hvacExpired: hvacExpired, eaExpired: eaExpired,
     quizAvg: quizAvg, examAvg: examAvg, trainingHours: Math.round((totalMinutes / 60) * 10) / 10,
     lastActivity: lastActivity, weakTopics: weakTopics,
     _lessons: full.lessons, _examsByCourse: examsByCourse
@@ -100,12 +132,15 @@ function examAttemptsFor(m, courseId) {
 // ---------------- Manager Dashboard ----------------
 function certCellForMember(m, track) {
   if (track === 'advisor') {
+    if (m.advisorStatus === 'certified' && m.eaExpired) return '<span class="pill pill-red">⚠️ Expired</span>';
     var map = { certified: '✅', ready: 'READY', locked: 'LOCKED' };
     var cls = m.advisorStatus === 'certified' ? 'pill-green' : m.advisorStatus === 'ready' ? 'pill-orange' : 'pill-gray';
     return '<span class="pill ' + cls + '">' + (map[m.advisorStatus] || m.advisorStatus) + '</span>';
   }
   var done = track === 'solar' ? m.solarCert : m.hvacCert;
+  var expired = track === 'solar' ? m.solarExpired : m.hvacExpired;
   var p = track === 'solar' ? m.solarPct : m.hvacPct;
+  if (done && expired) return '<span class="pill pill-red">⚠️ Expired</span>';
   if (done) return '<span class="pill pill-green">✅ Certified</span>';
   return '<span class="pill pill-blue">' + p + '%</span>';
 }
@@ -160,12 +195,14 @@ function renderRepDetailPage(memberId) {
   var m = team.find(function (x) { return x.id === memberId; });
   if (!m) return '<p>Rep not found. <a href="#/manager">Back to team</a></p>';
 
-  function courseSection(courseDef, pct, certified) {
+  function courseSection(courseDef, pct, certified, expired, expiresAt) {
     var mods = moduleListFor(m, courseDef, pct);
     var attempts = examAttemptsFor(m, courseDef.id);
+    var pillCls = expired ? 'pill-red' : certified ? 'pill-green' : (pct > 0 ? 'pill-blue' : 'pill-gray');
+    var pillLabel = expired ? '⚠️ Expired ' + fmtDate(expiresAt) : certified ? 'Certified — valid through ' + fmtDate(expiresAt) : pct + '% complete';
     return '<div class="card mt-16">' +
       '<div class="flex-between"><h3 class="mb-0">' + courseDef.icon + ' ' + escapeHtml(courseDef.title) + '</h3>' +
-      '<span class="pill ' + (certified ? 'pill-green' : (pct > 0 ? 'pill-blue' : 'pill-gray')) + '">' + (certified ? 'Certified' : pct + '% complete') + '</span></div>' +
+      '<span class="pill ' + pillCls + '">' + pillLabel + '</span></div>' +
       '<div class="progress-track mt-8"><div class="progress-fill" style="width:' + pct + '%;"></div></div>' +
       '<div class="grid grid-2 mt-16" style="max-height:260px;overflow-y:auto;">' +
         mods.map(function (mod) {
@@ -187,10 +224,36 @@ function renderRepDetailPage(memberId) {
       statTile('⏱️', m.trainingHours + 'h', 'Training Hours') +
       statTile('⚠️', m.weakTopics.length, 'Weak Topics Flagged') +
     '</div>' +
-    courseSection(SOLAR_COURSE, m.solarPct, m.solarCert) +
-    courseSection(HVAC_COURSE, m.hvacPct, m.hvacCert) +
+    courseSection(SOLAR_COURSE, m.solarPct, m.solarCert, m.solarExpired, m.solarExpiresAt) +
+    courseSection(HVAC_COURSE, m.hvacPct, m.hvacCert, m.hvacExpired, m.hvacExpiresAt) +
     (m.weakTopics.length ? '<div class="callout compliance mt-16"><h4>Weak Topics</h4><p class="mb-0">' + m.weakTopics.map(escapeHtml).join(', ') + ' — recommend revisiting the related modules or assigning a coaching session.</p></div>' : '')
   );
+}
+
+// ---------------- Certification Expiration ----------------
+function certExpirationRows(team) {
+  var tracks = [['solarExpiresAt', 'solarExpired', 'Solar'], ['hvacExpiresAt', 'hvacExpired', 'HVAC'], ['eaExpiresAt', 'eaExpired', 'Energy Advisor']];
+  var rows = [];
+  team.forEach(function (m) {
+    tracks.forEach(function (t) {
+      var expiresAt = m[t[0]];
+      if (!expiresAt) return;
+      var daysLeft = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 86400000);
+      if (daysLeft > 60) return;
+      rows.push({ name: m.name, track: t[2], expiresAt: expiresAt, daysLeft: daysLeft, expired: !!m[t[1]] });
+    });
+  });
+  return rows.sort(function (a, b) { return a.daysLeft - b.daysLeft; });
+}
+function certExpirationCard(team) {
+  var rows = certExpirationRows(team);
+  return '<div class="card"><h3>Certification Expiration</h3>' +
+    (rows.length ? rows.map(function (r) {
+      return '<div class="flex-between small" style="padding:6px 0;border-bottom:1px solid var(--border);">' +
+        '<span>' + escapeHtml(r.name) + ' — ' + escapeHtml(r.track) + '</span>' +
+        '<span class="pill ' + (r.expired ? 'pill-red' : 'pill-orange') + '">' + (r.expired ? 'Expired ' + fmtDate(r.expiresAt) : 'Expires ' + fmtDate(r.expiresAt) + ' (' + r.daysLeft + 'd)') + '</span></div>';
+    }).join('') : '<p class="small muted mb-0">No certifications are currently expiring within 60 days.</p>') +
+  '</div>';
 }
 
 // ---------------- Skill Matrix / Analytics ----------------
@@ -218,7 +281,7 @@ function renderManagerAnalyticsPage() {
     '<div class="section-head mt-8"><div><span class="eyebrow">Manager Analytics</span><h1>Team Skill Matrix</h1></div></div>' +
     '<div class="card">' + matrixHtml + '</div>' +
     '<div class="grid grid-3 mt-24">' +
-      '<div class="card"><h3>Certification Expiration</h3><p class="small">No certifications are currently expiring. Renewal reminders will surface here 60 days before expiration.</p></div>' +
+      certExpirationCard(team) +
       '<div class="card"><h3>Exports</h3><p class="small">Export employee progress, certification, and exam performance reports.</p>' +
         '<div class="tag-row mt-8"><button class="btn btn-outline btn-sm" onclick="alert(\'CSV export would download here in a connected environment.\')">CSV</button><button class="btn btn-outline btn-sm" onclick="alert(\'Excel export would download here in a connected environment.\')">Excel</button><button class="btn btn-outline btn-sm" onclick="alert(\'PDF export would download here in a connected environment.\')">PDF</button></div></div>' +
       '<div class="card"><h3>Notifications</h3><p class="small">Managers are notified when a rep completes a certification or falls behind on training pace.</p></div>' +
@@ -302,6 +365,7 @@ function renderAdminCertifications() {
       return '<div class="card"><h3>' + c.icon + ' ' + escapeHtml(c.title) + '</h3>' +
         (c.requires ? '<p class="small">Requires: ' + c.requires.map(function (r) { return courseById(r).short; }).join(' + ') + ' (Active)</p>' : '<p class="small">No prerequisites — independent certification.</p>') +
         '<p class="small">Passing score: ' + c.exam.passPct + '% · Compliance min: ' + c.exam.complianceMinPct + '%</p>' +
+        (c.certValidityMonths ? '<p class="small">Valid for ' + c.certValidityMonths + ' months — rep retakes the exam to renew.</p>' : '') +
         (c.practicalExam ? '<p class="small">Includes a practical evaluation.</p>' : '') +
       '</div>';
     }).join('') + '</div>' +

@@ -70,7 +70,8 @@ function renderCourseOverviewPage(courseDef) {
     '<div class="progress-track"><div class="progress-fill" style="width:' + p + '%;"></div></div>' +
     '<p class="small mt-8">' + p + '% complete · ' + courseDef.modules.length + ' modules</p>' +
     (status === 'ready_for_exam' ? '<div class="callout tip mt-16"><h4>Ready for your final exam</h4><p class="mb-0">All modules complete. When you’re ready, take the ' + escapeHtml(courseDef.exam.name) + '.</p><button class="btn btn-primary btn-sm mt-8" onclick="navigate(\'exam/' + courseDef.id + '\')">Begin Final Exam</button></div>' : '') +
-    (status === 'certified' ? '<div class="callout tip mt-16"><h4>Certified ✅</h4><p class="mb-0">You’ve completed this certification.</p><button class="btn btn-dark btn-sm mt-8" onclick="navigate(\'certificate/' + courseDef.id + '\')">View Certificate</button></div>' : '') +
+    (status === 'certified' ? '<div class="callout tip mt-16"><h4>Certified ✅</h4><p class="mb-0">You’ve completed this certification' + (NexisState.certExpiresAt(courseDef) ? ' — valid through ' + fmtDate(NexisState.certExpiresAt(courseDef)) : '') + '.</p><button class="btn btn-dark btn-sm mt-8" onclick="navigate(\'certificate/' + courseDef.id + '\')">View Certificate</button></div>' : '') +
+    (status === 'renewal_required' ? '<div class="callout compliance mt-16"><h4>⚠️ Renewal Required</h4><p class="mb-0">Your certification expired ' + fmtDate(NexisState.certExpiresAt(courseDef)) + '. Retake the ' + escapeHtml(courseDef.exam.name) + ' to renew it.</p><button class="btn btn-primary btn-sm mt-8" onclick="navigate(\'exam/' + courseDef.id + '\')">Retake Exam to Renew</button></div>' : '') +
     '<h2 class="mt-32">Modules</h2>' + modsHtml
   );
 }
@@ -327,7 +328,11 @@ function renderExamResultPage(courseDef, attemptId) {
 
 // ---------------- Certificate ----------------
 function renderCertificatePage(courseDef) {
-  if (!courseDef || NexisState.certStatus(courseDef) !== 'certified') {
+  var certStatusNow = courseDef && NexisState.certStatus(courseDef);
+  if (certStatusNow === 'renewal_required') {
+    return '<div class="card text-center" style="max-width:520px;margin:40px auto;"><h2>⚠️ Certification Expired</h2><p>This certification expired ' + fmtDate(NexisState.certExpiresAt(courseDef)) + '. Retake the exam to renew it and unlock a current certificate.</p><button class="btn btn-primary" onclick="navigate(\'exam/' + courseDef.id + '\')">Retake Exam to Renew</button></div>';
+  }
+  if (!courseDef || certStatusNow !== 'certified') {
     return '<div class="card text-center" style="max-width:520px;margin:40px auto;"><h2>Not certified yet</h2><p>Complete the certification exam to unlock your certificate.</p><button class="btn btn-primary" onclick="navigate(\'certifications\')">Back to Certifications</button></div>';
   }
   var user = NexisState.get().user;
@@ -352,9 +357,10 @@ function renderCertificatePage(courseDef) {
           '<div class="stat-tile">Advanced Assessment<br><span style="font-size:1.3rem;">✅</span></div>' +
         '</div>'
       ) : '') +
-      '<div class="grid grid-2 mt-32" style="text-align:left;max-width:420px;margin:32px auto 0;">' +
+      '<div class="grid grid-3 mt-32" style="text-align:left;max-width:560px;margin:32px auto 0;">' +
         '<div><p class="tiny muted mb-0">Certificate ID</p><p style="font-weight:700;">' + certId + '</p></div>' +
         '<div><p class="tiny muted mb-0">Date</p><p style="font-weight:700;">' + date + '</p></div>' +
+        '<div><p class="tiny muted mb-0">Valid Through</p><p style="font-weight:700;">' + (NexisState.certExpiresAt(courseDef) ? fmtDate(NexisState.certExpiresAt(courseDef)) : '—') + '</p></div>' +
       '</div>' +
       '<p class="tiny muted mt-24">Authorized by Nexis Power LLC</p>' +
     '</div>'

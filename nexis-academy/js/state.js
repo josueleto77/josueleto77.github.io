@@ -212,6 +212,11 @@ var NexisState = (function () {
     return !!(best && best.passed);
   }
 
+  function mostRecentPassedAt(attempts) {
+    return (attempts || []).filter(function (a) { return a.passed; })
+      .reduce(function (latest, a) { return (!latest || a.at > latest) ? a.at : latest; }, null);
+  }
+
   function recordExamAttempt(courseId, attempt) {
     attempt.at = nowISO();
     attempt.id = uid('attempt');
@@ -246,14 +251,47 @@ var NexisState = (function () {
     return !!(best && best.passed);
   }
 
+  // ---------- Certification expiration ----------
+  // certifiedAt is the later of the most recent PASSED exam attempt and (if
+  // required) the most recent passed practical -- not the highest-scoring
+  // attempt, since a renewal should reset the clock from when it actually
+  // happened, not from whenever the best score happened to land.
+  function certifiedAt(courseDef) {
+    var examAt = mostRecentPassedAt(state.examAttempts[courseDef.id]);
+    if (!examAt) return null;
+    if (!courseDef.practicalExam) return examAt;
+    var practicalAt = mostRecentPassedAt(state.practicalAttempts[courseDef.id]);
+    if (!practicalAt) return null; // exam passed but practical not yet -- not certified
+    return practicalAt > examAt ? practicalAt : examAt;
+  }
+  function certExpiresAt(courseDef) {
+    if (!courseDef.certValidityMonths) return null;
+    var at = certifiedAt(courseDef);
+    if (!at) return null;
+    var d = new Date(at);
+    d.setMonth(d.getMonth() + courseDef.certValidityMonths);
+    return d.toISOString();
+  }
+  function isCertExpired(courseDef) {
+    var exp = certExpiresAt(courseDef);
+    return !!(exp && new Date(exp).getTime() <= Date.now());
+  }
+
   // ---------- Certification status ----------
-  // 'locked' | 'not_started' | 'in_progress' | 'ready_for_exam' | 'certified'
+  // 'locked' | 'not_started' | 'in_progress' | 'ready_for_exam' | 'certified' | 'renewal_required'
   function certStatus(courseDef) {
     if (courseDef.id === 'energy-advisor' && !isEnergyAdvisorUnlocked()) return 'locked';
     var passedExam = hasPassedExam(courseDef.id);
     var needsPractical = !!courseDef.practicalExam;
     var passedPractical = needsPractical ? hasPassedPractical(courseDef.id) : true;
-    if (passedExam && passedPractical) return 'certified';
+    if (passedExam && passedPractical) {
+      if (isCertExpired(courseDef)) return 'renewal_required';
+      // A dependent cert is only as good as its prerequisites: Energy
+      // Advisor requires current Solar + HVAC certifications, not just
+      // ones that were valid whenever Energy Advisor was originally earned.
+      if (courseDef.id === 'energy-advisor' && (isCertExpired(SOLAR_COURSE) || isCertExpired(HVAC_COURSE))) return 'renewal_required';
+      return 'certified';
+    }
     var pct = courseProgressPercent(courseDef);
     var modsDone = allModulesComplete(courseDef);
     if (modsDone) return 'ready_for_exam';
@@ -333,6 +371,9 @@ var NexisState = (function () {
     bestPracticalAttempt: bestPracticalAttempt,
     hasPassedPractical: hasPassedPractical,
     certStatus: certStatus,
+    certifiedAt: certifiedAt,
+    certExpiresAt: certExpiresAt,
+    isCertExpired: isCertExpired,
     isEnergyAdvisorUnlocked: isEnergyAdvisorUnlocked,
     certificateId: certificateId,
     persist: persist,

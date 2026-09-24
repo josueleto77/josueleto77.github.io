@@ -119,6 +119,7 @@ img, svg { display: block; max-width: 100%; }
 .pill-blue { background: rgba(68,90,125,.14); color: var(--nexis-blue); }
 .pill-green { background: rgba(46,138,86,.14); color: #2E8A56; }
 .pill-gray { background: var(--surface-sunk); color: var(--ink-faint); }
+.pill-red { background: rgba(192,57,43,.12); color: #C0392B; }
 .pill-dark { background: var(--nexis-charcoal); color: #fff; }
 
 .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
