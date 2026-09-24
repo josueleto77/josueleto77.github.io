@@ -32,14 +32,28 @@ const DOCUSEAL_BASE_URL = Deno.env.get('DOCUSEAL_BASE_URL') || 'https://api.docu
 // swallowed client-side. A genuinely unexpected crash still falls through
 // to Deno's own 500 with no JSON body, which is the one case the client
 // truly can't get a specific message for.
+// Deno.serve does NOT answer CORS preflight (OPTIONS) requests on its own,
+// and a response with no Access-Control-Allow-* headers makes the browser
+// block the real request that follows it. These headers go on every
+// response, including OPTIONS.
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
 function json(body: unknown) {
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' }
+  });
 }
 function fail(error: string) {
   return json({ ok: false, error: error });
 }
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
   if (req.method !== 'POST') return fail('Method not allowed');
   if (!DOCUSEAL_API_KEY) return fail('DOCUSEAL_API_KEY is not configured on this function.');
 
