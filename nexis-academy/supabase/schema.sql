@@ -548,3 +548,31 @@ create trigger on_profile_created_onboarding
 -- insert into public.invites (email, role) values ('you@nexispower.com', 'admin')
 --   on conflict (email) do update set role = 'admin', used_at = null;
 -- -- then sign up again (or re-submit the signup form) with that email.
+
+-- ============================================================
+-- Email notifications (HighLevel) — daily onboarding-reminder cron
+--
+-- Schedules the send-onboarding-reminders Edge Function to run once a
+-- day. That function is protected by a shared secret (not a Supabase
+-- JWT, since there's no user session on a cron trigger) -- generate
+-- your own random value, set it as that function's CRON_SECRET secret,
+-- and substitute it for <CRON_SECRET> below before running this block.
+-- Never commit the real secret value to this file (this repo is public).
+--
+-- notify-new-task (admin task-opened emails) needs no scheduling -- the
+-- client calls it directly right after a task is created.
+-- ============================================================
+-- create extension if not exists pg_cron with schema extensions;
+-- create extension if not exists pg_net with schema extensions;
+--
+-- select cron.schedule(
+--   'nexis-onboarding-reminders-daily',
+--   '0 13 * * *', -- 13:00 UTC daily; adjust to your preferred time
+--   $$
+--   select net.http_post(
+--     url := 'https://zalnezuwjbimvztgpkju.supabase.co/functions/v1/send-onboarding-reminders',
+--     headers := jsonb_build_object('Content-Type','application/json','x-cron-secret','<CRON_SECRET>'),
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );
