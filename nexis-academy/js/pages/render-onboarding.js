@@ -314,12 +314,13 @@ function onbMaybeOpenClassificationTask() {
   if (window._onbClassTaskFired) return;
   window._onbClassTaskFired = true;
   var user = NexisState.get().user;
-  dbOpenOnboardingTask(
-    user.id, 'classification_review', 'Employment Classification Review Required — ' + user.name,
-    'Representative has entered onboarding and is waiting on an approved W-2/1099 classification before tax and document workflows can proceed. This must be set by an authorized administrator, never inferred automatically.',
-    'urgent', user.id
-  ).then(function (res) {
-    if (!res.error) dbLogOnboardingAudit(user.id, 'Classification review task opened', user.id, 'OPEN').catch(function () {});
+  var title = 'Employment Classification Review Required — ' + user.name;
+  var detail = 'Representative has entered onboarding and is waiting on an approved W-2/1099 classification before tax and document workflows can proceed. This must be set by an authorized administrator, never inferred automatically.';
+  dbOpenOnboardingTask(user.id, 'classification_review', title, detail, 'urgent', user.id).then(function (res) {
+    if (!res.error) {
+      dbLogOnboardingAudit(user.id, 'Classification review task opened', user.id, 'OPEN').catch(function () {});
+      dbNotifyNewTask('classification_review', title, detail, 'urgent', user.name).catch(function () {});
+    }
   }).catch(function () {});
 }
 
@@ -428,11 +429,13 @@ function onbAskFaq() {
     turn.escalated = true;
     var user = NexisState.get().user;
     if (window.NEXIS_BACKEND_READY) {
-      dbOpenOnboardingTask(
-        user.id, 'legal_compliance_review', 'Legal/Compliance Review — ' + user.name,
-        'Question asked during onboarding with no matching approved content: "' + query + '"', 'normal', user.id
-      ).then(function (res) {
-        if (!res.error) dbLogOnboardingAudit(user.id, 'Legal/compliance review task opened', user.id, 'OPEN').catch(function () {});
+      var faqTitle = 'Legal/Compliance Review — ' + user.name;
+      var faqDetail = 'Question asked during onboarding with no matching approved content: "' + query + '"';
+      dbOpenOnboardingTask(user.id, 'legal_compliance_review', faqTitle, faqDetail, 'normal', user.id).then(function (res) {
+        if (!res.error) {
+          dbLogOnboardingAudit(user.id, 'Legal/compliance review task opened', user.id, 'OPEN').catch(function () {});
+          dbNotifyNewTask('legal_compliance_review', faqTitle, faqDetail, 'normal', user.name).catch(function () {});
+        }
       }).catch(function () {});
     }
   }

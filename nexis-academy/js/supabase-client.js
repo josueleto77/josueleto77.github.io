@@ -215,6 +215,13 @@ function dbListOpenOnboardingTasks() {
 function dbResolveOnboardingTask(taskId, resolverId) {
   return sb.from('onboarding_tasks').update({ status: 'resolved', resolved_at: new Date().toISOString(), resolved_by: resolverId }).eq('id', taskId);
 }
+// Best-effort: emails every admin via HighLevel about a just-opened task.
+// The onboarding_tasks row (already inserted by dbOpenOnboardingTask) stays
+// the source of truth -- callers should .catch(function(){}) this the same
+// way they already do for dbLogOnboardingAudit.
+function dbNotifyNewTask(taskType, title, detail, urgency, repName) {
+  return sb.functions.invoke('notify-new-task', { body: { taskType: taskType, title: title, detail: detail || null, urgency: urgency || 'normal', repName: repName || null } });
+}
 
 // ---------------- Onboarding: audit trail ----------------
 function dbLogOnboardingAudit(userId, action, actorId, result) {
@@ -276,5 +283,6 @@ window.dbUpsertDocusealTemplate = dbUpsertDocusealTemplate;
 window.dbOpenOnboardingTask = dbOpenOnboardingTask;
 window.dbListOpenOnboardingTasks = dbListOpenOnboardingTasks;
 window.dbResolveOnboardingTask = dbResolveOnboardingTask;
+window.dbNotifyNewTask = dbNotifyNewTask;
 window.dbLogOnboardingAudit = dbLogOnboardingAudit;
 window.dbListOnboardingAudit = dbListOnboardingAudit;
