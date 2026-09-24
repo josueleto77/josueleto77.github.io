@@ -323,10 +323,15 @@ function renderAdminMassSaveOrContentPage(sub) {
 function renderAdminUsers() {
   var me = NexisState.get().user;
   var inviteSection = window.NEXIS_BACKEND_READY ? (
-    '<div class="card mt-16"><h3>Invite someone</h3><p class="small">Sends a real invitation email right away — the person clicks the link, sets a password, and they’re in. Only people invited here can create an account. Choose their role below: Sales Representative, Manager, or Admin (admins can see everyone’s training and invite other admins).</p>' +
+    '<div class="card mt-16"><h3>Invite someone</h3><p class="small">Sends a real invitation email right away — the person clicks the link, sets a password, and they’re in. Only people invited here can create an account. Choose their role below: Sales Representative, Manager, or Admin (admins can see everyone’s training and invite other admins). A Sales Representative’s W-2/1099 classification is set here, up front — never assigned later — so they can complete their whole onboarding in one sitting.</p>' +
       '<form id="invite-form" class="flex gap-10" style="align-items:flex-end;flex-wrap:wrap;">' +
         '<div class="field mb-0" style="flex:1;min-width:220px;"><label>Work email</label><input type="email" id="inv-email" placeholder="rep@nexispower.com" required></div>' +
-        '<div class="field mb-0"><label>Role</label><select id="inv-role"><option value="rep">Sales Representative</option><option value="manager">Manager</option><option value="admin">Admin</option></select></div>' +
+        '<div class="field mb-0"><label>Role</label><select id="inv-role" onchange="qs(\'#inv-classification-field\').style.display = this.value === \'rep\' ? \'\' : \'none\';">' +
+          '<option value="rep">Sales Representative</option><option value="manager">Manager</option><option value="admin">Admin</option>' +
+        '</select></div>' +
+        '<div class="field mb-0" id="inv-classification-field"><label>Classification</label><select id="inv-classification">' +
+          '<option value="">Select…</option><option value="w2_employee">W-2 Employee</option><option value="1099_contractor">1099 Contractor</option>' +
+        '</select></div>' +
         '<button type="submit" class="btn btn-primary">Send Invite</button>' +
       '</form>' +
       '<p id="invite-status" class="small mt-8" style="display:none;"></p>' +
@@ -361,11 +366,13 @@ function bindInviteForm() {
     e.preventDefault();
     var email = qs('#inv-email').value.trim();
     var role = qs('#inv-role').value;
+    var classification = qs('#inv-classification').value;
     var statusEl = qs('#invite-status');
+    if (role === 'rep' && !classification) { statusEl.style.display = 'block'; statusEl.style.color = '#C0392B'; statusEl.textContent = 'Choose a classification (W-2 or 1099) for this Sales Representative.'; return; }
     if (role === 'admin' && !confirm('Invite ' + email + ' as an ADMIN? They will have full access to every rep’s training data, the content manager, and the ability to invite other admins. Continue?')) return;
     var submitBtn = form.querySelector('button[type=submit]');
     submitBtn.disabled = true;
-    dbInviteRep(email, role, null).then(function (res) {
+    dbInviteRep(email, role, null, classification || null).then(function (res) {
       submitBtn.disabled = false;
       statusEl.style.display = 'block';
       if (res.error) {

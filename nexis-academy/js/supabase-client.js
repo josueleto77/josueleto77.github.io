@@ -79,8 +79,8 @@ function dbListInvites() {
 // the invite-rep Edge Function (Supabase Auth's own email service --
 // no third-party provider). dbCreateInvite above still exists for direct
 // inserts, but the UI uses this so invited reps actually get an email.
-function dbInviteRep(email, role, teamId) {
-  return sb.functions.invoke('invite-rep', { body: { email: email, role: role, teamId: teamId || null } });
+function dbInviteRep(email, role, teamId, classification) {
+  return sb.functions.invoke('invite-rep', { body: { email: email, role: role, teamId: teamId || null, classification: classification || null } });
 }
 
 // ---------------- Progress writes (fire-and-forget upserts from state.js) ----------------
@@ -140,7 +140,11 @@ function dbFetchOnboardingProfile(userId) {
 }
 function dbUpdateOnboardingProfile(userId, patch) {
   patch.updated_at = new Date().toISOString();
-  return sb.from('onboarding_profile').update(patch).eq('user_id', userId);
+  // .select() forces PostgREST to return the updated row (or an empty array)
+  // instead of null — without it, an UPDATE that RLS silently matches zero
+  // rows on comes back as success with no error and no row, which looked to
+  // the rep exactly like clicking Submit did nothing.
+  return sb.from('onboarding_profile').update(patch).eq('user_id', userId).select();
 }
 
 // ---------------- Onboarding: admin/manager-only classification + pipeline status ----------------

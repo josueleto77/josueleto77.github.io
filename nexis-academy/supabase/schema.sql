@@ -45,6 +45,15 @@ create table if not exists public.invites (
   used_at timestamptz,
   used_by uuid references public.profiles(id)
 );
+-- Employment classification (W-2 vs 1099) is decided by the admin up front,
+-- at invite time -- never mid-onboarding -- so a rep can complete their
+-- entire self-service onboarding (personal info + every required document)
+-- in one sitting instead of stalling on a "waiting on HR" step. Re-run-safe
+-- widen for installs that already had the old invites shape.
+alter table public.invites add column if not exists classification text not null default 'not_assigned';
+alter table public.invites drop constraint if exists invites_classification_check;
+alter table public.invites add constraint invites_classification_check
+  check (classification in ('not_assigned', 'w2_employee', '1099_contractor'));
 
 -- ---------- Training progress tables (mirror the app's state.js shape) ----------
 create table if not exists public.lesson_progress (
@@ -299,6 +308,12 @@ begin
       inv.team_id
     );
     update public.invites set used_at = now(), used_by = new.id where id = inv.id;
+    -- The profiles insert above already fired on_profile_created_onboarding,
+    -- which created onboarding_admin with classification = 'not_assigned'.
+    -- Correct it here to whatever the admin chose at invite time.
+    if inv.classification is not null and inv.classification <> 'not_assigned' then
+      update public.onboarding_admin set classification = inv.classification, updated_at = now() where user_id = new.id;
+    end if;
   end if;
   -- if no invite matches, we deliberately do NOT create a profile;
   -- the app checks for a profile after login and blocks access if absent.

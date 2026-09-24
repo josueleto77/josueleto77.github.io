@@ -78,6 +78,12 @@ function renderNav(activeKey) {
   if (role === 'manager' || role === 'admin') items = items.concat(NAV_ITEMS_MANAGER_EXTRA);
   var showAdminMenu = role === 'admin';
 
+  // Mirror the router's onboarding gate here too, so a rep who hasn't
+  // finished doesn't see nav links that would just bounce them back.
+  if (role === 'rep' && window.NEXIS_BACKEND_READY && window.ONB_MY_CACHE && !onbSelfServiceDone(window.ONB_MY_CACHE)) {
+    items = [['onboarding', 'Onboarding'], ['profile', 'Profile']];
+  }
+
   var linksHtml = items.map(function (it) {
     var key = it[0], label = it[1];
     var isActive = activeKey === key || (activeKey || '').indexOf(key) === 0;
@@ -148,6 +154,17 @@ function router() {
 
   var page = parts[0] || 'dashboard';
   if (page === '' || page === 'login') page = 'dashboard';
+
+  // Onboarding is the first thing a rep has to do: nothing else in the
+  // Academy opens up until they've submitted their personal info and acted
+  // on every required document for their (admin-assigned) classification.
+  // 'profile' stays reachable too, purely so a stuck rep can still sign out.
+  var gateUser = NexisState.get().user;
+  if (window.NEXIS_BACKEND_READY && gateUser && gateUser.role === 'rep' && page !== 'onboarding' && page !== 'profile') {
+    var gateOnb = loadMyOnboarding(router);
+    if (!gateOnb) return renderShell(page, loadingCard('Loading your onboarding…'));
+    if (!onbSelfServiceDone(gateOnb)) { navigate('onboarding'); return; }
+  }
 
   if (page === 'dashboard') return renderShell('dashboard', renderDashboardPage());
   if (page === 'onboarding') return renderShell('onboarding', renderOnboardingPage());

@@ -131,6 +131,24 @@ function onboardingTrainingComplete(track) {
   if (track === 'both') return NexisState.hasPassedExam('solar') && NexisState.hasPassedExam('hvac');
   return false;
 }
+// The gate that unlocks the rest of the Academy: everything the rep can do
+// themselves, in one sitting -- personal info submitted, and every required
+// document for their classification at least acted on (marked submitted, or
+// sent off for e-signature). It deliberately does NOT wait on a document
+// actually coming back signed/verified (that can take hours via email) or on
+// admin-only steps like email/CRM provisioning or training itself -- training
+// happens inside the Academy this gate unlocks, so waiting on it here would
+// make it impossible for anyone to ever get in.
+function onbSelfServiceDone(my) {
+  var profile = my.profile || {}, admin = my.admin || {};
+  if (!profile.intake_submitted_at) return false;
+  var required = onboardingDocsFor(admin.classification);
+  if (!required.length) return false; // classification not assigned yet
+  return required.every(function (d) {
+    var row = my.docs.filter(function (x) { return x.doc_key === d.key; })[0];
+    return row && row.status !== 'missing' && row.status !== 'rejected';
+  });
+}
 function onboardingSteps(my) {
   var profile = my.profile || {}, admin = my.admin || {};
   var required = onboardingDocsFor(admin.classification);
@@ -267,9 +285,16 @@ function bindOnbPersonalForm() {
     dbUpdateOnboardingProfile(user.id, patch).then(function (res) {
       submitBtn.disabled = false;
       if (res.error) { alert('Could not save: ' + res.error.message); return; }
-      Object.assign(ONB_MY_CACHE.profile, patch);
+      if (!res.data || !res.data.length) {
+        alert('Your information was not saved — no matching onboarding record was found for your account. Please contact an admin.');
+        return;
+      }
+      if (ONB_MY_CACHE) Object.assign(ONB_MY_CACHE.profile, patch);
       dbLogOnboardingAudit(user.id, 'Personal information submitted', user.id, 'COMPLETE').catch(function () {});
       router();
+    }, function (err) {
+      submitBtn.disabled = false;
+      alert('Could not save: ' + (err && err.message ? err.message : 'unknown error'));
     });
   });
 }
