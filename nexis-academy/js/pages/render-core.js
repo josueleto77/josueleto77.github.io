@@ -475,12 +475,14 @@ function renderLeaderboardPage(scope) {
 // ---------------- Resources ----------------
 function renderResourcesPage() {
   var items = [
-    { title: 'Nexis Residential Solar Sales Training Manual (source)', tag: 'Solar' },
-    { title: 'Nexis Mini-Split Heat Pump Sales Training (source)', tag: 'HVAC' },
+    { title: 'Nexis Residential Solar Sales Training Manual (source)', tag: 'Solar', action: "navigate('course/solar')" },
+    { title: 'Nexis Mini-Split Heat Pump Sales Training (source)', tag: 'HVAC', action: "navigate('course/hvac')" },
     { title: 'Mass Save Program Database (admin-editable)', tag: 'Programs', action: "navigate('practice/mass-save-programs')" },
-    { title: 'Compliance Language Guardrails (Do / Do-Not-Say)', tag: 'Compliance' },
-    { title: 'LAER Objection Framework Quick Reference', tag: 'Solar' },
-    { title: 'Nexis Energy Advisor Consultative Framework', tag: 'Advisor' }
+    { title: 'Compliance Language Guardrails (Do / Do-Not-Say)', tag: 'Compliance', action: "navigate('course/solar/module/sol-m18/lesson/l1')" },
+    { title: 'LAER Objection Framework Quick Reference', tag: 'Solar', action: "navigate('course/solar/module/sol-m17/lesson/l1')" },
+    { title: 'Nexis Energy Advisor Consultative Framework', tag: 'Advisor', action: "navigate('course/energy-advisor/module/ea-m9/lesson/l1')" },
+    { title: 'Nexis Power Solar Sales Virtual Presentation', tag: 'Solar', action: "window.open('resources/nexis-power-solar-virtual-presentation.pdf','_blank')" },
+    { title: 'Nexis Power HVAC (Heat Pumps) Virtual Presentation', tag: 'HVAC', action: "window.open('resources/nexis-power-hvac-virtual-presentation.pdf','_blank')" }
   ];
   return (
     '<div class="section-head"><div><span class="eyebrow">Resources</span><h1>Reference library</h1></div></div>' +
