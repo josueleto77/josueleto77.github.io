@@ -2,7 +2,7 @@
    NEXIS POWER ACADEMY — App shell, router, and shared helpers
    ============================================================ */
 
-window.NEXIS_BUILD = '20260928a';
+window.NEXIS_BUILD = '20260928b';
 console.log('[Nexis Academy] build ' + window.NEXIS_BUILD);
 
 var COURSES = [window.SOLAR_COURSE, window.HVAC_COURSE, window.ENERGY_ADVISOR_COURSE];
