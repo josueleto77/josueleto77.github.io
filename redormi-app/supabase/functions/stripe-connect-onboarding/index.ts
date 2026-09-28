@@ -4,7 +4,15 @@
 // Requires the STRIPE_SECRET_KEY secret (supabase secrets set STRIPE_SECRET_KEY=sk_...).
 import Stripe from "npm:stripe@^17.0.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+
+// Inlined rather than imported from ../_shared/cors.ts — the MCP-based
+// deploy path (used to actually ship this) bundles each function's files
+// under its own root and doesn't resolve a sibling function's relative
+// "../_shared" import, so keep this in sync across all three functions.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", { apiVersion: "2024-12-18.acacia" });
 

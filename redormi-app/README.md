@@ -155,8 +155,7 @@ key can't live in the frontend — they're three Supabase Edge Functions in `sup
 - **`stripe-webhook`** — Stripe calls this directly (no Supabase session) on `checkout.session.completed`
   (marks the booking paid + confirmed) and `account.updated` (updates the host's payout status).
 
-None of this is deployed yet — I don't have your Stripe account or Supabase CLI access, so these steps are
-yours to run:
+**All three functions are already deployed** to the Redormi Supabase project (`vgqigexbgojcnbgruqio`) — `stripe-connect-onboarding` and `stripe-checkout` with `verify_jwt` on, `stripe-webhook` with it off, matching `supabase/config.toml`. They currently do nothing useful, though: the Stripe secrets aren't set yet, so every call fails until you do this:
 
 ```bash
 # 1. Create a Stripe account (stripe.com) if you don't have one, then grab your
@@ -165,22 +164,21 @@ yours to run:
 # 2. Install the Supabase CLI and log in, if you haven't already:
 npm install -g supabase
 supabase login
-supabase link --project-ref <your-project-ref>   # find this in your Supabase project's URL/settings
+supabase link --project-ref vgqigexbgojcnbgruqio
 
-# 3. Set the secrets the functions need:
+# 3. Set the secret the functions need to talk to Stripe:
 supabase secrets set STRIPE_SECRET_KEY=sk_test_...
 
-# 4. Deploy the three functions:
-supabase functions deploy stripe-connect-onboarding
-supabase functions deploy stripe-checkout
-supabase functions deploy stripe-webhook --no-verify-jwt
-
-# 5. In the Stripe Dashboard -> Developers -> Webhooks, add an endpoint pointing at:
-#    https://<your-project-ref>.supabase.co/functions/v1/stripe-webhook
+# 4. In the Stripe Dashboard -> Developers -> Webhooks, add an endpoint pointing at:
+#    https://vgqigexbgojcnbgruqio.supabase.co/functions/v1/stripe-webhook
 #    Subscribe it to `checkout.session.completed` and `account.updated`.
 #    Copy the signing secret it gives you (whsec_...) and set it too:
 supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
 ```
+
+You only need `supabase link` (not a redeploy) unless you go on to edit the function code — secrets apply
+immediately to the already-deployed functions. If you do change a function's code, redeploy it with
+`supabase functions deploy <name>` (add `--no-verify-jwt` only for `stripe-webhook`).
 
 Test-mode Stripe accounts work end-to-end without real money — use Stripe's [test card
 numbers](https://docs.stripe.com/testing) (e.g. `4242 4242 4242 4242`) to pay, and Stripe's test-mode Connect
