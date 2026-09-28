@@ -340,7 +340,9 @@ function renderCertificatePage(courseDef) {
   var date = fmtDate(new Date().toISOString());
   var isAdvisor = courseDef.id === 'energy-advisor';
   return (
-    '<div class="no-print flex-between mt-0" style="margin-bottom:18px;"><a class="tiny muted" href="#/certifications" style="text-decoration:none;">← Back to Certifications</a><button class="btn btn-dark btn-sm" onclick="window.print()">Print / Save as PDF</button></div>' +
+    '<div class="no-print flex-between mt-0" style="margin-bottom:18px;"><a class="tiny muted" href="#/certifications" style="text-decoration:none;">← Back to Certifications</a>' +
+      '<div class="tag-row"><button class="btn btn-outline btn-sm" onclick="window.print()">Print</button><button class="btn btn-primary btn-sm" id="cert-download-btn" onclick="downloadCertificatePdf(\'' + courseDef.id + '\')">Download PDF</button></div>' +
+    '</div>' +
     '<div class="certificate-frame">' +
       '<div class="certificate-seal">' + courseDef.icon + '</div>' +
       '<div style="display:flex;justify-content:center;margin-bottom:6px;">' + nexisLogoSVG({ height: 24 }) + '</div>' +
@@ -365,6 +367,36 @@ function renderCertificatePage(courseDef) {
       '<p class="tiny muted mt-24">Authorized by Nexis Power LLC</p>' +
     '</div>'
   );
+}
+
+// Renders the on-screen .certificate-frame to an image (html2canvas) and
+// embeds that image as a same-size PDF page (jsPDF) -- reuses the exact
+// certificate design instead of maintaining a second, separate PDF layout,
+// and avoids the browser print dialog's own headers/footers/margins.
+function downloadCertificatePdf(courseId) {
+  var courseDef = courseById(courseId);
+  var btn = qs('#cert-download-btn');
+  var el = qs('.certificate-frame');
+  if (!el || !window.html2canvas || !window.jspdf || !window.jspdf.jsPDF) {
+    alert('PDF download isn’t available right now — try Print instead.');
+    return;
+  }
+  var originalLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+  window.html2canvas(el, { scale: 3, backgroundColor: '#ffffff', useCORS: true }).then(function (canvas) {
+    var imgData = canvas.toDataURL('image/png');
+    var jsPDF = window.jspdf.jsPDF;
+    var pdf = new jsPDF({ orientation: canvas.width >= canvas.height ? 'landscape' : 'portrait', unit: 'px', format: [canvas.width, canvas.height] });
+    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+    var user = NexisState.get().user;
+    var safeName = (user.name || 'Certificate').replace(/[^a-z0-9]+/gi, '-');
+    var safeCourse = (courseDef ? courseDef.short : 'Nexis').replace(/[^a-z0-9]+/gi, '-');
+    pdf.save('Nexis-Power-' + safeCourse + '-Certificate-' + safeName + '.pdf');
+  }).catch(function (e) {
+    alert('Could not generate the PDF: ' + (e && e.message ? e.message : 'unknown error') + '. Try Print instead.');
+  }).then(function () {
+    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+  });
 }
 
 // ============================================================
