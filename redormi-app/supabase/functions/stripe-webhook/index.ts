@@ -5,11 +5,15 @@
 // (Stripe calls it directly) — set `verify_jwt = false` for it in
 // supabase/config.toml, which this repo already does.
 // Deploy: supabase functions deploy stripe-webhook --no-verify-jwt
-import Stripe from "npm:stripe@^17.0.0";
+// stripe@^17 fails on this runtime with "'headers' of 'RequestInit' is not
+// a valid ByteString" — Supabase's own examples pin stripe@^22, which
+// doesn't have this Deno fetch-client incompatibility.
+import Stripe from "npm:stripe@^22";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", { apiVersion: "2024-12-18.acacia" });
+const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "");
 const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? "";
+const cryptoProvider = Stripe.createSubtleCryptoProvider();
 
 Deno.serve(async (req) => {
   const signature = req.headers.get("Stripe-Signature");
@@ -18,7 +22,7 @@ Deno.serve(async (req) => {
   let event: Stripe.Event;
   try {
     if (!signature) throw new Error("Missing Stripe-Signature header");
-    event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret);
+    event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret, undefined, cryptoProvider);
   } catch (err) {
     console.error("Webhook signature verification failed", err);
     return new Response("Invalid signature", { status: 400 });

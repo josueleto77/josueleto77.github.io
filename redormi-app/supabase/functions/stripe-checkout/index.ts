@@ -2,7 +2,10 @@
 // paying the host's connected account minus Redormi's service fee (a
 // "destination charge" — see https://docs.stripe.com/connect/destination-charges).
 // Deploy: supabase functions deploy stripe-checkout
-import Stripe from "npm:stripe@^17.0.0";
+// stripe@^17 fails on this runtime with "'headers' of 'RequestInit' is not
+// a valid ByteString" — Supabase's own examples pin stripe@^22, which
+// doesn't have this Deno fetch-client incompatibility.
+import Stripe from "npm:stripe@^22";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Inlined — see the same note in stripe-connect-onboarding/index.ts.
@@ -11,7 +14,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", { apiVersion: "2024-12-18.acacia" });
+const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "");
 
 function jsonError(message: string, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
@@ -91,6 +94,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    console.error("stripe-checkout error", err);
     return jsonError(err instanceof Error ? err.message : "Unknown error", 500);
   }
 });

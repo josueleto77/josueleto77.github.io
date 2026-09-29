@@ -2,7 +2,10 @@
 // host and returns a one-time onboarding link URL to redirect them to.
 // Deploy: supabase functions deploy stripe-connect-onboarding
 // Requires the STRIPE_SECRET_KEY secret (supabase secrets set STRIPE_SECRET_KEY=sk_...).
-import Stripe from "npm:stripe@^17.0.0";
+// stripe@^17 fails on this runtime with "'headers' of 'RequestInit' is not
+// a valid ByteString" — Supabase's own examples pin stripe@^22, which
+// doesn't have this Deno fetch-client incompatibility.
+import Stripe from "npm:stripe@^22";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Inlined rather than imported from ../_shared/cors.ts — the MCP-based
@@ -14,7 +17,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", { apiVersion: "2024-12-18.acacia" });
+const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
