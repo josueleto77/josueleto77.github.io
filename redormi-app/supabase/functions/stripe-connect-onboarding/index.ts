@@ -45,20 +45,6 @@ async function stripeRequest(path: string, params: Record<string, unknown>) {
   const body = new URLSearchParams();
   flattenParams(params, "", body);
 
-  const badChars = [...STRIPE_SECRET_KEY]
-    .map((ch, i) => ({ ch, code: ch.codePointAt(0)!, i }))
-    .filter((c) => c.code < 33 || c.code > 126);
-  console.log(
-    "STRIPE_SECRET_KEY diagnostic: length=",
-    STRIPE_SECRET_KEY.length,
-    "prefix=",
-    STRIPE_SECRET_KEY.slice(0, 12),
-    "suffix=",
-    STRIPE_SECRET_KEY.slice(-6),
-    "badChars=",
-    JSON.stringify(badChars)
-  );
-
   const res = await fetch(`https://api.stripe.com/v1/${path}`, {
     method: "POST",
     headers: {
