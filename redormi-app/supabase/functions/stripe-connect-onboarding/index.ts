@@ -2,10 +2,14 @@
 // host and returns a one-time onboarding link URL to redirect them to.
 // Deploy: supabase functions deploy stripe-connect-onboarding
 // Requires the STRIPE_SECRET_KEY secret (supabase secrets set STRIPE_SECRET_KEY=sk_...).
-// stripe@^17 fails on this runtime with "'headers' of 'RequestInit' is not
-// a valid ByteString" — Supabase's own examples pin stripe@^22, which
-// doesn't have this Deno fetch-client incompatibility.
-import Stripe from "npm:stripe@^22";
+//
+// This calls the Stripe REST API directly via fetch() instead of the
+// stripe-node SDK: under Supabase's Deno edge runtime, stripe-node's
+// automatic telemetry/user-agent header (which shells out to `uname -a`
+// via Node's child_process compat shim) comes back mangled, and Deno's
+// fetch rejects the resulting header as "not a valid ByteString" on every
+// single API call (stripe@17 and stripe@22 both hit this). A hand-rolled
+// client sidesteps it by only ever sending headers we set ourselves.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Inlined rather than imported from ../_shared/cors.ts — the MCP-based
@@ -17,7 +21,42 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "");
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+
+function flattenParams(obj: Record<string, unknown>, prefix: string, body: URLSearchParams) {
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    const paramKey = prefix ? `${prefix}[${key}]` : key;
+    if (Array.isArray(value)) {
+      value.forEach((item, i) => {
+        const itemKey = `${paramKey}[${i}]`;
+        if (item && typeof item === "object") flattenParams(item as Record<string, unknown>, itemKey, body);
+        else body.append(itemKey, String(item));
+      });
+    } else if (value && typeof value === "object") {
+      flattenParams(value as Record<string, unknown>, paramKey, body);
+    } else {
+      body.append(paramKey, String(value));
+    }
+  }
+}
+
+async function stripeRequest(path: string, params: Record<string, unknown>) {
+  const body = new URLSearchParams();
+  flattenParams(params, "", body);
+
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error?.message ?? `Stripe API error (${res.status})`);
+  return json;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -59,7 +98,7 @@ Deno.serve(async (req) => {
 
     let accountId = existing?.stripe_account_id as string | undefined;
     if (!accountId) {
-      const account = await stripe.accounts.create({
+      const account = await stripeRequest("accounts", {
         type: "express",
         email: user.email,
         capabilities: {
@@ -71,7 +110,7 @@ Deno.serve(async (req) => {
       await admin.from("host_stripe_accounts").insert({ user_id: user.id, stripe_account_id: accountId });
     }
 
-    const accountLink = await stripe.accountLinks.create({
+    const accountLink = await stripeRequest("account_links", {
       account: accountId,
       refresh_url: returnUrl,
       return_url: returnUrl,

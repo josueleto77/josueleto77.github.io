@@ -2,10 +2,10 @@
 // paying the host's connected account minus Redormi's service fee (a
 // "destination charge" — see https://docs.stripe.com/connect/destination-charges).
 // Deploy: supabase functions deploy stripe-checkout
-// stripe@^17 fails on this runtime with "'headers' of 'RequestInit' is not
-// a valid ByteString" — Supabase's own examples pin stripe@^22, which
-// doesn't have this Deno fetch-client incompatibility.
-import Stripe from "npm:stripe@^22";
+//
+// Calls the Stripe REST API directly via fetch() instead of the stripe-node
+// SDK — see the long comment in stripe-connect-onboarding/index.ts for why
+// (the SDK's own telemetry header breaks Deno's fetch on this runtime).
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Inlined — see the same note in stripe-connect-onboarding/index.ts.
@@ -14,7 +14,42 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "");
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+
+function flattenParams(obj: Record<string, unknown>, prefix: string, body: URLSearchParams) {
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    const paramKey = prefix ? `${prefix}[${key}]` : key;
+    if (Array.isArray(value)) {
+      value.forEach((item, i) => {
+        const itemKey = `${paramKey}[${i}]`;
+        if (item && typeof item === "object") flattenParams(item as Record<string, unknown>, itemKey, body);
+        else body.append(itemKey, String(item));
+      });
+    } else if (value && typeof value === "object") {
+      flattenParams(value as Record<string, unknown>, paramKey, body);
+    } else {
+      body.append(paramKey, String(value));
+    }
+  }
+}
+
+async function stripeRequest(path: string, params: Record<string, unknown>) {
+  const body = new URLSearchParams();
+  flattenParams(params, "", body);
+
+  const res = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error?.message ?? `Stripe API error (${res.status})`);
+  return json;
+}
 
 function jsonError(message: string, status = 400) {
   return new Response(JSON.stringify({ error: message }), {
@@ -67,7 +102,7 @@ Deno.serve(async (req) => {
     const totalCents = Math.round(Number(booking.total) * 100);
     const applicationFeeCents = Math.round(Number(booking.service_fee) * 100);
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeRequest("checkout/sessions", {
       mode: "payment",
       line_items: [
         {
