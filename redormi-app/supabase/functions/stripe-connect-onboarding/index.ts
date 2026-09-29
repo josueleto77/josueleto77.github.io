@@ -79,6 +79,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    console.error("stripe-connect-onboarding error", err);
     return new Response(JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
