@@ -362,6 +362,97 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Live messaging: without this, a new message from the other participant
+  // only ever shows up after a full reload, since state.messages/threads
+  // are otherwise only fetched once (above) on session sync. Realtime
+  // delivery is scoped by each table's own RLS SELECT policy (thread
+  // participants only, see the enable_realtime_messaging migration), so no
+  // extra filtering is needed for authorization — the participant_ids
+  // check below is just a defensive double-check.
+  useEffect(() => {
+    if (!state.hasSupabaseSession || !state.currentUserId) return;
+    const myId = state.currentUserId;
+
+    const channel = supabase
+      .channel(`messaging:${myId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            thread_id: string;
+            sender_id: string;
+            text: string;
+            image_url: string | null;
+            sent_at: string;
+          };
+          setState((s) => {
+            if (s.messages.some((m) => m.id === row.id)) return s; // our own optimistic send, already have it
+            const thread = s.threads.find((t) => t.id === row.thread_id);
+            if (!thread) return s; // thread not known yet — self-heals on next full sync
+            const msg: Message = {
+              id: row.id,
+              threadId: row.thread_id,
+              senderId: row.sender_id,
+              text: row.text,
+              imageUrl: row.image_url ?? undefined,
+              sentAt: row.sent_at,
+              readBy: row.sender_id === myId ? [myId] : [],
+            };
+            return {
+              ...s,
+              messages: [...s.messages, msg],
+              threads: s.threads.map((t) =>
+                t.id === row.thread_id
+                  ? {
+                      ...t,
+                      lastMessageAt: row.sent_at,
+                      unreadFor: Array.from(new Set([...t.unreadFor, ...t.participantIds.filter((p) => p !== row.sender_id)])),
+                    }
+                  : t
+              ),
+            };
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "threads" },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            listing_id: string | null;
+            booking_id: string | null;
+            swap_id: string | null;
+            participant_ids: string[];
+            context: "rent" | "switch";
+            last_message_at: string;
+          };
+          if (!row.participant_ids.includes(myId)) return;
+          setState((s) => {
+            if (s.threads.some((t) => t.id === row.id)) return s; // we created it ourselves, already have it
+            const thread: MessageThread = {
+              id: row.id,
+              listingId: row.listing_id ?? undefined,
+              bookingId: row.booking_id ?? undefined,
+              swapId: row.swap_id ?? undefined,
+              participantIds: row.participant_ids,
+              lastMessageAt: row.last_message_at,
+              unreadFor: [],
+              context: row.context,
+            };
+            return { ...s, threads: [thread, ...s.threads] };
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [state.hasSupabaseSession, state.currentUserId]);
+
   const currentUser = useMemo(
     () => state.users.find((u) => u.id === state.currentUserId),
     [state.users, state.currentUserId]
