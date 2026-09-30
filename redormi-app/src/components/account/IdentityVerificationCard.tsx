@@ -6,7 +6,11 @@ import Icon from "@/components/ui/icons";
 import { useToast } from "@/lib/store/ToastContext";
 import { fetchIdentityVerificationStatus, startIdentityVerification, type IdentityVerificationStatus } from "@/lib/supabase/identity";
 
-const IN_PROGRESS_STATUSES = new Set(["In Progress", "In Review", "not_started", "Not Started"]);
+// Only these mean "Didit is actively working on it, no action needed right
+// now". Everything else — including "Not Started" (a session was created
+// but the user never finished it, e.g. they closed the tab) — still shows
+// the action button, so nobody gets stuck with no way to retry.
+const REVIEWING_STATUSES = new Set(["In Progress", "In Review"]);
 
 export default function IdentityVerificationCard({ userId }: { userId: string }) {
   const toast = useToast();
@@ -36,7 +40,7 @@ export default function IdentityVerificationCard({ userId }: { userId: string })
 
   const isApproved = status !== "loading" && status?.status === "Approved";
   const isDeclined = status !== "loading" && status?.status === "Declined";
-  const isPending = status !== "loading" && status !== null && IN_PROGRESS_STATUSES.has(status.status) && status.status !== "not_started";
+  const isReviewing = status !== "loading" && status !== null && REVIEWING_STATUSES.has(status.status);
 
   return (
     <div className="rounded-2xl border border-navy/10 bg-white p-5">
@@ -51,17 +55,17 @@ export default function IdentityVerificationCard({ userId }: { userId: string })
         <p className="mt-2 flex items-center gap-1.5 text-sm text-sage-dark">
           <Icon name="check-circle" className="h-4 w-4" /> Your identity is verified.
         </p>
-      ) : isPending ? (
-        <p className="mt-2 text-sm text-ink/60">Your verification is being reviewed — this usually takes just a few minutes.</p>
       ) : (
         <>
           <p className="mt-2 text-sm text-ink/60">
-            {isDeclined
-              ? "Your last verification attempt wasn't approved. You can try again with a valid government ID."
-              : "Verify your identity with a government ID and a quick selfie so hosts and guests can trust who they're dealing with."}
+            {isReviewing
+              ? "Your verification is being reviewed — this usually takes just a few minutes. Didn't finish, or want to check again? You can start over below."
+              : isDeclined
+                ? "Your last verification attempt wasn't approved. You can try again with a valid government ID."
+                : "Verify your identity with a government ID and a quick selfie so hosts and guests can trust who they're dealing with."}
           </p>
           <Button size="sm" className="mt-3" onClick={start} disabled={starting}>
-            {starting ? "Redirecting…" : isDeclined ? "Try verification again" : "Verify my identity"}
+            {starting ? "Redirecting…" : isReviewing || isDeclined ? "Start verification again" : "Verify my identity"}
           </Button>
         </>
       )}
