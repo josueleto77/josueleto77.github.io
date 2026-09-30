@@ -13,10 +13,13 @@ import ExtraServiceCard from "@/components/services/ExtraServiceCard";
 import PayNowButton from "@/components/payments/PayNowButton";
 import WriteReviewModal from "@/components/listing/WriteReviewModal";
 import CancelBookingModal from "@/components/listing/CancelBookingModal";
+import OpenDisputeModal from "@/components/shared/OpenDisputeModal";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { listingHref } from "@/lib/utils/listingHref";
 import { fetchMyReviewedBookingIds } from "@/lib/supabase/reviews";
+import { fetchMyDisputes } from "@/lib/supabase/disputes";
+import type { Dispute } from "@/lib/types";
 
 const STATUS_TONE: Record<string, "coral" | "sage" | "navy" | "cream"> = {
   held: "coral",
@@ -32,12 +35,17 @@ export default function GuestDashboardClient() {
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [reviewingBookingId, setReviewingBookingId] = useState<string | null>(null);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [disputingBookingId, setDisputingBookingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!state.hasSupabaseSession) return;
     let cancelled = false;
     fetchMyReviewedBookingIds().then((ids) => {
       if (!cancelled) setReviewedIds(ids);
+    });
+    fetchMyDisputes().then((d) => {
+      if (!cancelled) setDisputes(d);
     });
     return () => {
       cancelled = true;
@@ -92,6 +100,7 @@ export default function GuestDashboardClient() {
                   b.checkOut <= isoToday() &&
                   !reviewedIds.has(b.id);
                 const canCancel = (b.status === "held" || b.status === "confirmed") && b.checkIn > isoToday();
+                const dispute = disputes.find((d) => d.bookingId === b.id);
                 return (
                   <div key={b.id} className="rounded-2xl border border-navy/10 bg-white p-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -152,6 +161,23 @@ export default function GuestDashboardClient() {
                         </Button>
                       </div>
                     )}
+                    {state.hasSupabaseSession && b.status !== "cancelled" && (
+                      <div className="mt-4 border-t border-navy/10 pt-4">
+                        {dispute ? (
+                          <p className="text-xs text-ink/60">
+                            Dispute {dispute.status}
+                            {dispute.resolutionNote && ` — ${dispute.resolutionNote}`}
+                          </p>
+                        ) : (
+                          <button
+                            onClick={() => setDisputingBookingId(b.id)}
+                            className="text-xs font-semibold text-ink/50 underline hover:text-coral"
+                          >
+                            Report a problem
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {reviewingBookingId === b.id && (
                       <WriteReviewModal
                         open
@@ -167,6 +193,15 @@ export default function GuestDashboardClient() {
                         onClose={() => setCancellingBookingId(null)}
                         booking={b}
                         cancellationPolicy={listing.cancellationPolicy}
+                      />
+                    )}
+                    {disputingBookingId === b.id && (
+                      <OpenDisputeModal
+                        open
+                        onClose={() => setDisputingBookingId(null)}
+                        bookingId={b.id}
+                        againstId={listing.hostId}
+                        onOpened={(d) => setDisputes((ds) => [d, ...ds])}
                       />
                     )}
                   </div>

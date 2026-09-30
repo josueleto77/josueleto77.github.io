@@ -369,12 +369,19 @@ export interface AcceptanceRecord {
   ip: string;
 }
 
+export type DisputeCategory = "not_as_described" | "damage" | "payment" | "no_show" | "behavior" | "other";
+
 export interface Dispute {
   id: string;
   bookingId?: string;
   swapId?: string;
   raisedById: string;
+  againstId: string;
+  category: DisputeCategory;
   reason: string;
   status: "open" | "reviewing" | "resolved";
+  resolutionNote?: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
   createdAt: string;
 }

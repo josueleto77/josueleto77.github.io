@@ -10,9 +10,19 @@ import { useAppData } from "@/lib/store/AppDataContext";
 import { useToast } from "@/lib/store/ToastContext";
 import { fetchAllListingsForAdmin } from "@/lib/supabase/listings";
 import { fetchAllProfiles, moderate } from "@/lib/supabase/admin";
+import { fetchAllDisputesForAdmin } from "@/lib/supabase/disputes";
 import { formatDate } from "@/lib/utils/format";
 import { listingHref } from "@/lib/utils/listingHref";
-import type { Listing, User } from "@/lib/types";
+import type { Dispute, Listing, User } from "@/lib/types";
+
+const DISPUTE_CATEGORY_LABEL: Record<Dispute["category"], string> = {
+  not_as_described: "Not as described",
+  damage: "Property damage",
+  payment: "Payment issue",
+  no_show: "No-show",
+  behavior: "Behavior",
+  other: "Other",
+};
 
 export default function AdminClient() {
   const { currentUser } = useAppData();
@@ -20,6 +30,7 @@ export default function AdminClient() {
   const [tab, setTab] = useState("listings");
   const [listings, setListings] = useState<Listing[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
@@ -27,10 +38,11 @@ export default function AdminClient() {
   useEffect(() => {
     if (!currentUser?.isAdmin) return;
     let cancelled = false;
-    Promise.all([fetchAllListingsForAdmin(), fetchAllProfiles()]).then(([l, u]) => {
+    Promise.all([fetchAllListingsForAdmin(), fetchAllProfiles(), fetchAllDisputesForAdmin()]).then(([l, u, d]) => {
       if (cancelled) return;
       setListings(l);
       setUsers(u);
+      setDisputes(d);
       setLoading(false);
     });
     return () => {
@@ -111,6 +123,34 @@ export default function AdminClient() {
     toast?.push({ tone: "success", text: "Account reinstated." });
   }
 
+  async function markDisputeReviewing(id: string) {
+    setActingId(id);
+    const { error } = await moderate("mark_dispute_reviewing", id);
+    setActingId(null);
+    if (error) {
+      toast?.push({ tone: "error", text: error });
+      return;
+    }
+    setDisputes((ds) => ds.map((d) => (d.id === id ? { ...d, status: "reviewing" } : d)));
+    toast?.push({ tone: "success", text: "Dispute marked as reviewing." });
+  }
+
+  async function resolveDispute(id: string) {
+    const note = reasonDrafts[id];
+    setActingId(id);
+    const { error } = await moderate("resolve_dispute", id, note || undefined);
+    setActingId(null);
+    if (error) {
+      toast?.push({ tone: "error", text: error });
+      return;
+    }
+    setReasonDrafts((d) => ({ ...d, [id]: "" }));
+    setDisputes((ds) =>
+      ds.map((d) => (d.id === id ? { ...d, status: "resolved", resolutionNote: note || undefined, resolvedAt: new Date().toISOString() } : d))
+    );
+    toast?.push({ tone: "success", text: "Dispute resolved." });
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <h1 className="mb-1 text-2xl font-extrabold text-navy">Admin</h1>
@@ -120,6 +160,7 @@ export default function AdminClient() {
         items={[
           { key: "listings", label: "Listings", count: listings.length },
           { key: "users", label: "Users", count: users.length },
+          { key: "disputes", label: "Disputes", count: disputes.filter((d) => d.status !== "resolved").length },
         ]}
         active={tab}
         onChange={setTab}
@@ -128,6 +169,64 @@ export default function AdminClient() {
       <div className="mt-6">
         {loading ? (
           <p className="text-sm text-ink/50">Loading…</p>
+        ) : tab === "disputes" ? (
+          disputes.length === 0 ? (
+            <p className="text-sm text-ink/50">No disputes.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {disputes.map((d) => {
+                const raisedBy = users.find((u) => u.id === d.raisedById);
+                const against = users.find((u) => u.id === d.againstId);
+                const isActing = actingId === d.id;
+                const isResolved = d.status === "resolved";
+                return (
+                  <div key={d.id} className="rounded-2xl border border-navy/10 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-navy">{DISPUTE_CATEGORY_LABEL[d.category]}</p>
+                        <p className="text-xs text-ink/60">
+                          {raisedBy?.name ?? raisedBy?.email ?? "Unknown"} vs {against?.name ?? against?.email ?? "Unknown"} · {formatDate(d.createdAt)}
+                        </p>
+                        <p className="mt-1 text-xs text-ink/70">{d.reason}</p>
+                        {isResolved && (
+                          <p className="mt-1 text-xs text-ink/50">
+                            Resolved {d.resolvedAt && formatDate(d.resolvedAt)}
+                            {d.resolutionNote && ` — ${d.resolutionNote}`}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge tone={d.status === "resolved" ? "sage" : d.status === "reviewing" ? "cream" : "coral"} className="capitalize">
+                          {d.status}
+                        </Badge>
+                        {!isResolved && (
+                          <>
+                            {d.status === "open" && (
+                              <Button size="sm" variant="outline" onClick={() => markDisputeReviewing(d.id)} disabled={isActing}>
+                                {isActing ? "…" : "Mark reviewing"}
+                              </Button>
+                            )}
+                            <Button size="sm" variant="outline" onClick={() => resolveDispute(d.id)} disabled={isActing}>
+                              {isActing ? "…" : "Resolve"}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {!isResolved && (
+                      <input
+                        type="text"
+                        value={reasonDrafts[d.id] ?? ""}
+                        onChange={(e) => setReasonDrafts((rd) => ({ ...rd, [d.id]: e.target.value }))}
+                        placeholder="Resolution note (optional, shown to both parties)"
+                        className="mt-2 w-full rounded-lg border border-navy/10 px-2 py-1 text-xs"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
         ) : tab === "listings" ? (
           <div className="flex flex-col gap-3">
             {listings.map((l) => {
