@@ -37,6 +37,8 @@ interface FormState {
   cardNumber: string;
   payoutAccount: string;
   roles: Role[];
+  /** Honeypot: real users never see or fill this in; bots that blindly fill every field do. */
+  website: string;
 }
 
 export default function SignupWizard() {
@@ -59,6 +61,7 @@ export default function SignupWizard() {
     cardNumber: "",
     payoutAccount: "",
     roles: ["traveler"],
+    website: "",
   });
 
   function patch(p: Partial<FormState>) {
@@ -103,6 +106,7 @@ export default function SignupWizard() {
   }
 
   async function finish() {
+    if (form.website.trim() !== "") return; // Honeypot tripped — silently drop.
     const result = await signup(form.email, form.password, {
       name: form.name,
       phone: form.phone,
@@ -143,6 +147,16 @@ export default function SignupWizard() {
         {step === 0 && (
           <div className="flex flex-col gap-4">
             <h1 className="text-xl font-extrabold text-navy">Create your account</h1>
+            <input
+              type="text"
+              name="website"
+              value={form.website}
+              onChange={(e) => patch({ website: e.target.value })}
+              tabIndex={-1}
+              autoComplete="off"
+              aria-hidden="true"
+              className="absolute left-[-9999px] h-0 w-0 opacity-0"
+            />
             <Input label="Full name" value={form.name} onChange={(e) => patch({ name: e.target.value })} required />
             <Input label="Email" type="email" value={form.email} onChange={(e) => patch({ email: e.target.value })} required />
             <Input

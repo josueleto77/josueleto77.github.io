@@ -51,7 +51,7 @@ export async function fetchOffersForUser(): Promise<Offer[]> {
 export async function createOfferInSupabase(
   offer: Omit<Offer, "id" | "createdAt" | "status" | "expiresAt" | "history" | "lastActor">,
   expiresAt: string
-): Promise<Offer | null> {
+): Promise<{ offer: Offer | null; error: string | null }> {
   const { data, error } = await supabase
     .from("offers")
     .insert({
@@ -67,8 +67,8 @@ export async function createOfferInSupabase(
     })
     .select("*")
     .maybeSingle();
-  if (error || !data) return null;
-  return mapRowToOffer(data as OfferRow);
+  if (error || !data) return { offer: null, error: error?.message ?? "Couldn't send that offer — try again." };
+  return { offer: mapRowToOffer(data as OfferRow), error: null };
 }
 
 export async function counterOfferInSupabase(

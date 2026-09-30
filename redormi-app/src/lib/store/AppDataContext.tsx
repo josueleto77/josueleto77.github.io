@@ -580,15 +580,19 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       lastActor: "guest",
     };
     setState((s) => ({ ...s, offers: [full, ...s.offers] }));
-    toast?.push({ tone: "success", text: "Offer sent! You'll hear back within 48 hours." });
 
     if (state.hasSupabaseSession) {
-      const real = await createOfferInSupabase(offer, expiresAt);
+      const { offer: real, error } = await createOfferInSupabase(offer, expiresAt);
       if (real) {
         setState((s) => ({ ...s, offers: s.offers.map((o) => (o.id === tempId ? real : o)) }));
+        toast?.push({ tone: "success", text: "Offer sent! You'll hear back within 48 hours." });
         return real;
       }
+      setState((s) => ({ ...s, offers: s.offers.filter((o) => o.id !== tempId) }));
+      toast?.push({ tone: "error", text: error ?? "Couldn't send that offer — try again." });
+      return full;
     }
+    toast?.push({ tone: "success", text: "Offer sent! You'll hear back within 48 hours." });
     return full;
   }, [toast, state.hasSupabaseSession]);
 
@@ -821,12 +825,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }));
 
     if (state.hasSupabaseSession) {
-      const real = await sendMessageInSupabase(threadId, state.currentUserId, text, imageUrl);
+      const { message: real, error } = await sendMessageInSupabase(threadId, state.currentUserId, text, imageUrl);
       if (real) {
         setState((s) => ({ ...s, messages: s.messages.map((m) => (m.id === tempId ? real : m)) }));
+      } else {
+        setState((s) => ({ ...s, messages: s.messages.filter((m) => m.id !== tempId) }));
+        toast?.push({ tone: "error", text: error ?? "Couldn't send that message — try again." });
       }
     }
-  }, [state.currentUserId, state.hasSupabaseSession]);
+  }, [state.currentUserId, state.hasSupabaseSession, toast]);
 
   const markThreadRead = useCallback<AppDataApi["markThreadRead"]>(async (threadId) => {
     if (!state.currentUserId) return;
