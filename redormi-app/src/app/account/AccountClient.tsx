@@ -7,6 +7,7 @@ import Button from "@/components/ui/Button";
 import Toggle from "@/components/ui/Toggle";
 import Badge from "@/components/ui/Badge";
 import Icon from "@/components/ui/icons";
+import IdentityVerificationCard from "@/components/account/IdentityVerificationCard";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { ALL_LEGAL_DOCS } from "@/lib/legal/registry";
 import { formatDate } from "@/lib/utils/format";
@@ -77,20 +78,18 @@ export default function AccountClient() {
         </div>
       </section>
 
+      <section className="mb-8">
+        <IdentityVerificationCard userId={currentUser.id} />
+      </section>
+
       <section className="mb-8 rounded-2xl border border-navy/10 bg-white p-6">
-        <h2 className="mb-4 text-lg font-extrabold text-navy">Payment methods & documents</h2>
+        <h2 className="mb-4 text-lg font-extrabold text-navy">Payment methods</h2>
         <div className="flex flex-col gap-3 text-sm">
           <div className="flex items-center justify-between rounded-xl bg-cream p-3">
             <span className="flex items-center gap-2 text-navy">
               <Icon name="credit-card" className="h-4 w-4" /> Visa •••• 4242
             </span>
             <span className="text-ink/50">Default</span>
-          </div>
-          <div className="flex items-center justify-between rounded-xl bg-cream p-3">
-            <span className="flex items-center gap-2 text-navy">
-              <Icon name="upload" className="h-4 w-4" /> Government ID
-            </span>
-            <Badge tone={currentUser.verification.identity === "verified" ? "sage" : "cream"}>{currentUser.verification.identity}</Badge>
           </div>
         </div>
       </section>

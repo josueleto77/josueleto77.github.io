@@ -15,6 +15,7 @@ export interface ProfileRow {
   roles: Role[];
   is_host: boolean;
   is_switch_member: boolean;
+  is_identity_verified: boolean;
   member_since: string;
 }
 
@@ -30,7 +31,7 @@ export function mapProfileToUser(row: ProfileRow): User {
     roles: row.roles?.length ? row.roles : ["traveler"],
     isHost: row.is_host,
     isSwitchMember: row.is_switch_member,
-    verification: { identity: "unverified", email: true, phone: !!row.phone },
+    verification: { identity: row.is_identity_verified ? "verified" : "unverified", email: true, phone: !!row.phone },
     memberSince: row.member_since?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
     city: row.city ?? undefined,
     country: row.country ?? undefined,
