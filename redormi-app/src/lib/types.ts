@@ -44,6 +44,9 @@ export interface User {
   country?: string;
   twoFactorEnabled?: boolean;
   lastKnownCoords?: { lat: number; lng: number };
+  isAdmin?: boolean;
+  suspendedAt?: string;
+  suspendedReason?: string;
 }
 
 export interface Amenity {
@@ -187,6 +190,8 @@ export interface Listing {
   extraServiceIds: string[];
   status: "published" | "draft";
   createdAt: string;
+  removedAt?: string;
+  removedReason?: string;
 }
 
 export type OfferStatus = "pending" | "accepted" | "declined" | "countered" | "expired";

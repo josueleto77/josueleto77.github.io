@@ -99,6 +99,7 @@ export default function Navbar() {
                   <MenuLink href="/dashboard/host" label="Host dashboard" onClick={() => setMenuOpen(false)} />
                   <MenuLink href="/account" label={dict.nav.account} onClick={() => setMenuOpen(false)} />
                   <MenuLink href="/switch" label="Redormi Switch" onClick={() => setMenuOpen(false)} />
+                  {currentUser.isAdmin && <MenuLink href="/admin" label="Admin" onClick={() => setMenuOpen(false)} />}
                   <hr className="my-1 border-navy/10" />
                   <button
                     onClick={() => {
@@ -165,6 +166,11 @@ export default function Navbar() {
                 <Link href="/account" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
                   {dict.nav.account}
                 </Link>
+                {currentUser?.isAdmin && (
+                  <Link href="/admin" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
+                    Admin
+                  </Link>
+                )}
                 <button
                   onClick={() => {
                     logout();

@@ -17,6 +17,9 @@ export interface ProfileRow {
   is_switch_member: boolean;
   is_identity_verified: boolean;
   member_since: string;
+  is_admin: boolean;
+  suspended_at: string | null;
+  suspended_reason: string | null;
 }
 
 export function mapProfileToUser(row: ProfileRow): User {
@@ -35,6 +38,9 @@ export function mapProfileToUser(row: ProfileRow): User {
     memberSince: row.member_since?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
     city: row.city ?? undefined,
     country: row.country ?? undefined,
+    isAdmin: row.is_admin,
+    suspendedAt: row.suspended_at ?? undefined,
+    suspendedReason: row.suspended_reason ?? undefined,
   };
 }
 

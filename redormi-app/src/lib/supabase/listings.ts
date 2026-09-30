@@ -31,6 +31,8 @@ interface ListingRow {
   created_at: string;
   rating_avg: number | null;
   rating_count: number;
+  removed_at: string | null;
+  removed_reason: string | null;
 }
 
 export function mapDbListingToListing(row: ListingRow): Listing {
@@ -84,6 +86,8 @@ export function mapDbListingToListing(row: ListingRow): Listing {
     extraServiceIds: [],
     status: row.status,
     createdAt: row.created_at,
+    removedAt: row.removed_at ?? undefined,
+    removedReason: row.removed_reason ?? undefined,
   };
 }
 
@@ -99,6 +103,17 @@ export async function fetchPublishedListings(): Promise<Listing[]> {
     .select("*")
     .eq("status", "published")
     .order("created_at", { ascending: false });
+  if (error || !data) return [];
+  return attachBlockedDates((data as ListingRow[]).map(mapDbListingToListing));
+}
+
+/**
+ * Every listing regardless of status — relies on the "Admins can view
+ * every listing" RLS policy, so this returns nothing extra for a non-admin
+ * (they'd just get their own + published, same as fetchPublishedListings).
+ */
+export async function fetchAllListingsForAdmin(): Promise<Listing[]> {
+  const { data, error } = await supabase.from("listings").select("*").order("created_at", { ascending: false });
   if (error || !data) return [];
   return attachBlockedDates((data as ListingRow[]).map(mapDbListingToListing));
 }
