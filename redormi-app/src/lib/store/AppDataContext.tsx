@@ -114,11 +114,28 @@ function loadState(): AppState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return fresh;
     const parsed = JSON.parse(raw) as Partial<AppState>;
-    // listings/deals are never persisted (see the save effect below) — always
-    // take the freshly computed ones, so a visitor's browser can't keep
-    // resurrecting yesterday's seed inventory (or an old build's seed flag)
-    // after a real deploy changes what should be shown.
-    return { ...fresh, ...parsed, listings: fresh.listings, deals: fresh.deals };
+    // listings/deals/currentUserId/hasSupabaseSession are never persisted
+    // (see the save effect below) — always take the freshly computed ones.
+    // For listings/deals that's so a visitor's browser can't keep
+    // resurrecting yesterday's seed inventory after a real deploy changes
+    // what should be shown. For currentUserId it's a real account-mixup
+    // bug fix: a device that ever had a different account signed in here
+    // (e.g. tested with a demo login, or a previous real sign-in) would
+    // render as THAT account until the "real backend sync" effect's
+    // supabase.auth.getSession() call resolves and corrects it — and on
+    // some mobile flows (e.g. returning from an external redirect like
+    // Didit's identity verification) that call can be slow or race, so the
+    // wrong account's data would show, sometimes for the whole visit. The
+    // live Supabase session — never the cache — is now the only source of
+    // truth for who's signed in.
+    return {
+      ...fresh,
+      ...parsed,
+      listings: fresh.listings,
+      deals: fresh.deals,
+      currentUserId: fresh.currentUserId,
+      hasSupabaseSession: fresh.hasSupabaseSession,
+    };
   } catch {
     return fresh;
   }
@@ -192,10 +209,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated.current) return;
     try {
-      // listings/deals are never persisted — they're always freshly computed
-      // (seed data or real Supabase rows), so a stale copy can't resurrect
-      // old/fake inventory for a returning visitor. See loadState() above.
-      const { listings: _listings, deals: _deals, ...persisted } = state;
+      // listings/deals/currentUserId/hasSupabaseSession are never persisted
+      // — they're always freshly computed or read from the live Supabase
+      // session, never a stale copy. See loadState() above.
+      const {
+        listings: _listings,
+        deals: _deals,
+        currentUserId: _currentUserId,
+        hasSupabaseSession: _hasSupabaseSession,
+        ...persisted
+      } = state;
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
     } catch {
       // storage unavailable — ignore, state stays in-memory for this session
