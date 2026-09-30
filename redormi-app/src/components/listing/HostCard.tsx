@@ -11,12 +11,12 @@ export default function HostCard({ host, listingId }: { host: User; listingId: s
   const router = useRouter();
   const { currentUser, ensureThread } = useAppData();
 
-  function messageHost() {
+  async function messageHost() {
     if (!currentUser) {
       router.push("/login");
       return;
     }
-    const threadId = ensureThread(listingId, host.id, "rent");
+    const threadId = await ensureThread(listingId, host.id, "rent");
     if (threadId) router.push(`/messages/${threadId}`);
   }
 

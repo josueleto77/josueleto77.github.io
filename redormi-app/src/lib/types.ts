@@ -257,6 +257,8 @@ export interface Booking {
   fromOfferId?: string;
   extraServiceOrderIds: string[];
   createdAt: string;
+  paymentStatus: "unpaid" | "paid";
+  stripeCheckoutSessionId?: string;
 }
 
 export type SwapStatus =

@@ -10,6 +10,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import ListingCard from "@/components/listing/ListingCard";
 import OfferCard from "@/components/offers/OfferCard";
 import ExtraServiceCard from "@/components/services/ExtraServiceCard";
+import PayNowButton from "@/components/payments/PayNowButton";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDateShort, formatMoney } from "@/lib/utils/format";
 import { listingHref } from "@/lib/utils/listingHref";
@@ -82,9 +83,20 @@ export default function GuestDashboardClient() {
                         </p>
                         <p className="text-sm font-bold text-navy">{formatMoney(b.total)}</p>
                       </div>
-                      <Badge tone={STATUS_TONE[b.status]} className="capitalize">
-                        {b.status}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge tone={STATUS_TONE[b.status]} className="capitalize">
+                          {b.status}
+                        </Badge>
+                        {b.paymentStatus === "unpaid" && b.status !== "cancelled" ? (
+                          state.hasSupabaseSession ? (
+                            <PayNowButton bookingId={b.id} />
+                          ) : (
+                            <Badge tone="cream">Unpaid (demo)</Badge>
+                          )
+                        ) : (
+                          b.paymentStatus === "paid" && <Badge tone="sage">Paid</Badge>
+                        )}
+                      </div>
                     </div>
                     {services.length > 0 && (b.status === "held" || b.status === "confirmed") && (
                       <div className="mt-4 border-t border-navy/10 pt-4">

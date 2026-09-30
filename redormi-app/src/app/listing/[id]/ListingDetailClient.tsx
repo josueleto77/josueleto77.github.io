@@ -70,8 +70,8 @@ export default function ListingDetailClient({ listingId }: { listingId: string }
 
       <PhotoGallery photos={listing.photos} title={listing.title} />
 
-      <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px]">
-        <div className="flex flex-col gap-8">
+      <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="flex min-w-0 flex-col gap-8">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-navy/10 pb-6">
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-navy">
               <span>{PROPERTY_TYPE_LABEL[listing.propertyType]}</span>

@@ -22,7 +22,7 @@ export default function TermsPage() {
         .
       </p>
 
-      <div className="mt-8 grid gap-10 lg:grid-cols-[220px_1fr]">
+      <div className="mt-8 grid gap-10 lg:grid-cols-[220px_minmax(0,1fr)]">
         <nav aria-label="Policy sections" className="hidden lg:block">
           <ul className="sticky top-24 flex flex-col gap-1 text-sm">
             {docs.map((d) => (

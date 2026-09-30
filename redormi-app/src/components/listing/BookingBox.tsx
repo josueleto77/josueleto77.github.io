@@ -60,12 +60,12 @@ export default function BookingBox({ listing }: { listing: Listing }) {
     router.push("/dashboard/guest?tab=trips");
   }
 
-  function contactHost() {
+  async function contactHost() {
     if (!currentUser) {
       router.push("/login");
       return;
     }
-    const threadId = ensureThread(listing.id, listing.hostId, "rent");
+    const threadId = await ensureThread(listing.id, listing.hostId, "rent");
     router.push(`/messages?thread=${threadId}`);
   }
 
