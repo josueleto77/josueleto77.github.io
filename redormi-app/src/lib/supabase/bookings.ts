@@ -53,9 +53,15 @@ export async function fetchBookingsForUser(): Promise<Booking[]> {
   return (data as BookingRow[]).map(mapRowToBooking);
 }
 
+/**
+ * Creates a booking. A database trigger (prevent_booking_overlap) rejects
+ * overlapping dates for the same listing — see that migration — so this
+ * can fail with a real, user-facing reason ("those dates are no longer
+ * available") rather than just a generic error.
+ */
 export async function createBookingInSupabase(
   booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds" | "paymentStatus" | "stripeCheckoutSessionId">
-): Promise<Booking | null> {
+): Promise<{ booking: Booking | null; error: string | null }> {
   const { data, error } = await supabase
     .from("bookings")
     .insert({
@@ -75,8 +81,8 @@ export async function createBookingInSupabase(
     })
     .select("*")
     .maybeSingle();
-  if (error || !data) return null;
-  return mapRowToBooking(data as BookingRow);
+  if (error || !data) return { booking: null, error: error?.message ?? "Couldn't create that booking — try again." };
+  return { booking: mapRowToBooking(data as BookingRow), error: null };
 }
 
 export async function updateBookingStatusInSupabase(
