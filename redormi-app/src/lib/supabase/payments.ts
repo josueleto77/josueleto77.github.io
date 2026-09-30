@@ -7,27 +7,23 @@ export interface HostStripeStatus {
   detailsSubmitted: boolean;
 }
 
-interface HostStripeAccountRow {
-  stripe_account_id: string;
-  charges_enabled: boolean;
-  payouts_enabled: boolean;
-  details_submitted: boolean;
-}
-
-/** The signed-in host's own Stripe Connect status, if they've started onboarding. */
+/**
+ * The signed-in host's own Stripe Connect status. Calls Stripe directly
+ * (via the stripe-account-status edge function) rather than just reading
+ * host_stripe_accounts, since the "Connected accounts" webhook that would
+ * otherwise keep that row fresh sends v2 events our webhook can't verify
+ * (see the long comment in supabase/functions/stripe-account-status).
+ */
 export async function fetchHostStripeStatus(): Promise<HostStripeStatus | null> {
-  const { data, error } = await supabase
-    .from("host_stripe_accounts")
-    .select("stripe_account_id, charges_enabled, payouts_enabled, details_submitted")
-    .maybeSingle();
-  if (error || !data) return null;
-  const row = data as HostStripeAccountRow;
-  return {
-    stripeAccountId: row.stripe_account_id,
-    chargesEnabled: row.charges_enabled,
-    payoutsEnabled: row.payouts_enabled,
-    detailsSubmitted: row.details_submitted,
+  const { data, error } = await supabase.functions.invoke("stripe-account-status");
+  if (error || !data || data.error || !data.status) return null;
+  const row = data.status as {
+    stripeAccountId: string;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
+    detailsSubmitted: boolean;
   };
+  return row;
 }
 
 /** Starts (or resumes) Stripe Connect Express onboarding; returns the URL to redirect the host to. */
