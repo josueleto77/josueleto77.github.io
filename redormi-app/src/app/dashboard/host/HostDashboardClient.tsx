@@ -11,6 +11,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import OfferCard from "@/components/offers/OfferCard";
 import ExtraServicesManager from "@/components/services/ExtraServicesManager";
 import PayoutStatusCard from "@/components/host/PayoutStatusCard";
+import AvailabilityManager from "@/components/host/AvailabilityManager";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { addDays, formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { computeSwitchTier } from "@/lib/utils/tier";
@@ -143,20 +144,7 @@ export default function HostDashboardClient() {
               <div key={l.id} className="rounded-2xl border border-navy/10 bg-white p-4">
                 <p className="text-sm font-bold text-navy">{l.title}</p>
                 <p className="text-xs text-ink/50">Stays of {l.minNights}–{l.maxNights} nights.</p>
-                {l.availability.length === 0 ? (
-                  <p className="mt-2 flex items-center gap-1.5 text-sm text-sage-dark">
-                    <Icon name="check-circle" className="h-4 w-4" /> No blocked dates.
-                  </p>
-                ) : (
-                  <ul className="mt-2 flex flex-col gap-1 text-sm text-ink/70">
-                    {l.availability.map((w) => (
-                      <li key={w.start} className="flex items-center gap-1.5">
-                        <Icon name="x" className="h-3.5 w-3.5 text-coral" />
-                        {formatDateShort(w.start)} – {formatDateShort(w.end)}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <AvailabilityManager listingId={l.id} />
               </div>
             ))}
           </div>

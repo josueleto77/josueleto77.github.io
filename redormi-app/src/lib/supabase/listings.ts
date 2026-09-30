@@ -1,5 +1,6 @@
 import { supabase, LISTING_PHOTOS_BUCKET } from "@/lib/supabase/client";
 import type { Listing, Photo, PricingRule, PropertyType, CancellationPolicy } from "@/lib/types";
+import { fetchBlockedDatesForListings } from "@/lib/supabase/availability";
 
 interface ListingRow {
   id: string;
@@ -86,6 +87,12 @@ export function mapDbListingToListing(row: ListingRow): Listing {
   };
 }
 
+async function attachBlockedDates(listings: Listing[]): Promise<Listing[]> {
+  if (listings.length === 0) return listings;
+  const blockedByListing = await fetchBlockedDatesForListings(listings.map((l) => l.id));
+  return listings.map((l) => ({ ...l, availability: blockedByListing.get(l.id) ?? [] }));
+}
+
 export async function fetchPublishedListings(): Promise<Listing[]> {
   const { data, error } = await supabase
     .from("listings")
@@ -93,7 +100,7 @@ export async function fetchPublishedListings(): Promise<Listing[]> {
     .eq("status", "published")
     .order("created_at", { ascending: false });
   if (error || !data) return [];
-  return (data as ListingRow[]).map(mapDbListingToListing);
+  return attachBlockedDates((data as ListingRow[]).map(mapDbListingToListing));
 }
 
 export async function fetchListingsByHost(hostId: string): Promise<Listing[]> {
@@ -103,13 +110,14 @@ export async function fetchListingsByHost(hostId: string): Promise<Listing[]> {
     .eq("host_id", hostId)
     .order("created_at", { ascending: false });
   if (error || !data) return [];
-  return (data as ListingRow[]).map(mapDbListingToListing);
+  return attachBlockedDates((data as ListingRow[]).map(mapDbListingToListing));
 }
 
 export async function fetchListingById(id: string): Promise<Listing | null> {
   const { data, error } = await supabase.from("listings").select("*").eq("id", id).maybeSingle();
   if (error || !data) return null;
-  return mapDbListingToListing(data as ListingRow);
+  const [listing] = await attachBlockedDates([mapDbListingToListing(data as ListingRow)]);
+  return listing;
 }
 
 export async function uploadListingPhotos(files: File[], hostId: string): Promise<{ url: string; alt: string }[]> {
