@@ -9,6 +9,7 @@ import Toggle from "@/components/ui/Toggle";
 import RangeSlider from "@/components/ui/RangeSlider";
 import Icon, { type IconName } from "@/components/ui/icons";
 import ServiceForm, { type ServiceDraft } from "@/components/services/ServiceForm";
+import LocationPicker from "@/components/host/LocationPicker";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { amenities } from "@/lib/data/amenities";
 import { COMMON_RULES } from "@/lib/data/listings";
@@ -396,12 +397,15 @@ export default function HostWizard() {
               <Input label="City" value={form.city} onChange={(e) => patch({ city: e.target.value })} required />
               <Input label="Region / state" value={form.region} onChange={(e) => patch({ region: e.target.value })} />
               <Input label="Country" value={form.country} onChange={(e) => patch({ country: e.target.value })} required />
-              <div className="grid grid-cols-2 gap-2">
-                <Input label="Latitude" value={form.lat} onChange={(e) => patch({ lat: e.target.value })} />
-                <Input label="Longitude" value={form.lng} onChange={(e) => patch({ lng: e.target.value })} />
-              </div>
             </div>
-            <p className="mt-2 text-xs text-ink/50">Drop an approximate pin — exact coordinates aren&apos;t shared until a booking or swap is confirmed.</p>
+            <div className="mt-4">
+              <LocationPicker
+                query={[form.city, form.region, form.country].filter(Boolean).join(", ")}
+                lat={Number(form.lat)}
+                lng={Number(form.lng)}
+                onChange={(lat, lng) => patch({ lat: String(lat), lng: String(lng) })}
+              />
+            </div>
           </StepBlock>
         )}
 

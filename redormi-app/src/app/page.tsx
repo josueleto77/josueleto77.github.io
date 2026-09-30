@@ -7,11 +7,18 @@ import ListingCard from "@/components/listing/ListingCard";
 import DealCard from "@/components/listing/DealCard";
 import Icon from "@/components/ui/icons";
 import Button from "@/components/ui/Button";
-import { hotPlaces, getListing } from "@/lib/data/listings";
+import { hotPlaces as seedHotPlaces, getListing } from "@/lib/data/listings";
 import { lastMinuteDeals } from "@/lib/data/deals";
 
+// Curated "Hot Places" and "Special Offers" rows are sourced straight from
+// seed data (no real booking-velocity ranking or host-submitted deals exist
+// yet), so — like the rest of the seed listings — they're hidden on a real
+// production deployment. See the matching flag in AppDataContext.
+const SHOW_SEED_LISTINGS = process.env.NEXT_PUBLIC_SHOW_SEED_LISTINGS !== "false";
+
 export default function Home() {
-  const deals = lastMinuteDeals.slice(0, 4);
+  const hotPlaces = SHOW_SEED_LISTINGS ? seedHotPlaces : [];
+  const deals = SHOW_SEED_LISTINGS ? lastMinuteDeals.slice(0, 4) : [];
 
   return (
     <div>
@@ -50,48 +57,52 @@ export default function Home() {
 
       <TrustBar />
 
-      <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
-        <div className="mb-5 flex items-end justify-between gap-4">
-          <div>
-            <h2 className="flex items-center gap-2 text-2xl font-extrabold text-navy sm:text-3xl">
-              <Icon name="flame" className="h-6 w-6 text-coral" />
-              Hot Places
-            </h2>
-            <p className="mt-1 text-sm text-ink/60">Curated homes with rising demand and top reviews.</p>
-          </div>
-          <Link href="/hot-places" className="shrink-0 text-sm font-bold text-coral hover:text-coral-dark">
-            See all →
-          </Link>
-        </div>
-        <Carousel>
-          {hotPlaces.map((listing) => (
-            <div key={listing.id} className="w-72 shrink-0">
-              <ListingCard listing={listing} />
-            </div>
-          ))}
-        </Carousel>
-      </section>
-
-      <section className="bg-white/60 py-14">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+      {hotPlaces.length > 0 && (
+        <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
           <div className="mb-5 flex items-end justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-extrabold text-navy sm:text-3xl">Special Offers</h2>
-              <p className="mt-1 text-sm text-ink/60">Last-minute deals and host promotions, picked for you.</p>
+              <h2 className="flex items-center gap-2 text-2xl font-extrabold text-navy sm:text-3xl">
+                <Icon name="flame" className="h-6 w-6 text-coral" />
+                Hot Places
+              </h2>
+              <p className="mt-1 text-sm text-ink/60">Curated homes with rising demand and top reviews.</p>
             </div>
-            <Link href="/special-offers" className="shrink-0 text-sm font-bold text-coral hover:text-coral-dark">
+            <Link href="/hot-places" className="shrink-0 text-sm font-bold text-coral hover:text-coral-dark">
               See all →
             </Link>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {deals.map((deal) => {
-              const listing = getListing(deal.listingId);
-              if (!listing) return null;
-              return <DealCard key={deal.id} deal={deal} listing={listing} />;
-            })}
+          <Carousel>
+            {hotPlaces.map((listing) => (
+              <div key={listing.id} className="w-72 shrink-0">
+                <ListingCard listing={listing} />
+              </div>
+            ))}
+          </Carousel>
+        </section>
+      )}
+
+      {deals.length > 0 && (
+        <section className="bg-white/60 py-14">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6">
+            <div className="mb-5 flex items-end justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-extrabold text-navy sm:text-3xl">Special Offers</h2>
+                <p className="mt-1 text-sm text-ink/60">Last-minute deals and host promotions, picked for you.</p>
+              </div>
+              <Link href="/special-offers" className="shrink-0 text-sm font-bold text-coral hover:text-coral-dark">
+                See all →
+              </Link>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {deals.map((deal) => {
+                const listing = getListing(deal.listingId);
+                if (!listing) return null;
+                return <DealCard key={deal.id} deal={deal} listing={listing} />;
+              })}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
         <div className="grid items-center gap-10 rounded-3xl bg-sage/25 p-8 sm:p-12 lg:grid-cols-2">
