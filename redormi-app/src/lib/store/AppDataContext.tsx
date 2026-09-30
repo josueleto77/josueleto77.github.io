@@ -108,14 +108,19 @@ function initialState(): AppState {
 }
 
 function loadState(): AppState {
-  if (typeof window === "undefined") return initialState();
+  const fresh = initialState();
+  if (typeof window === "undefined") return fresh;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return initialState();
+    if (!raw) return fresh;
     const parsed = JSON.parse(raw) as Partial<AppState>;
-    return { ...initialState(), ...parsed };
+    // listings/deals are never persisted (see the save effect below) — always
+    // take the freshly computed ones, so a visitor's browser can't keep
+    // resurrecting yesterday's seed inventory (or an old build's seed flag)
+    // after a real deploy changes what should be shown.
+    return { ...fresh, ...parsed, listings: fresh.listings, deals: fresh.deals };
   } catch {
-    return initialState();
+    return fresh;
   }
 }
 
@@ -187,7 +192,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated.current) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      // listings/deals are never persisted — they're always freshly computed
+      // (seed data or real Supabase rows), so a stale copy can't resurrect
+      // old/fake inventory for a returning visitor. See loadState() above.
+      const { listings: _listings, deals: _deals, ...persisted } = state;
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
     } catch {
       // storage unavailable — ignore, state stays in-memory for this session
     }
