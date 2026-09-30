@@ -26,7 +26,8 @@ import { lastMinuteDeals as seedDeals } from "@/lib/data/deals";
 import { extraServices as seedExtraServices } from "@/lib/data/services";
 import { notifications as seedNotifications, savedListingIds } from "@/lib/data/notifications";
 import { makeId } from "@/lib/utils/ids";
-import { OFFER_EXPIRY_HOURS } from "@/lib/utils/pricing";
+import { OFFER_EXPIRY_HOURS, priceBreakdown } from "@/lib/utils/pricing";
+import { nightsBetween } from "@/lib/utils/format";
 import { useToast } from "@/lib/store/ToastContext";
 import { supabase } from "@/lib/supabase/client";
 import { signInWithEmail, signUpWithEmail, signOutSupabase, fetchProfile, upsertProfile } from "@/lib/supabase/auth";
@@ -536,20 +537,70 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [toast, state.hasSupabaseSession]);
 
-  const respondOffer = useCallback<AppDataApi["respondOffer"]>(async (offerId, status) => {
-    setState((s) => ({
-      ...s,
-      offers: s.offers.map((o) => (o.id === offerId ? { ...o, status } : o)),
-    }));
-    toast?.push({
-      tone: status === "accepted" ? "success" : "info",
-      text: status === "accepted" ? "Offer accepted — reservation held." : "Offer declined.",
-    });
+  const respondOffer = useCallback<AppDataApi["respondOffer"]>(
+    async (offerId, status) => {
+      if (state.hasSupabaseSession) {
+        // Not optimistic on purpose: accepting creates the booking
+        // server-side (create_booking_from_accepted_offer trigger), which
+        // can fail if the dates were booked out from under this offer
+        // while it sat pending.
+        const { offer, error } = await respondOfferInSupabase(offerId, status);
+        if (!offer) {
+          toast?.push({ tone: "error", text: error ?? "Couldn't update that offer — try again." });
+          return;
+        }
+        setState((s) => ({ ...s, offers: s.offers.map((o) => (o.id === offerId ? offer : o)) }));
+        toast?.push({
+          tone: status === "accepted" ? "success" : "info",
+          text: status === "accepted" ? "Offer accepted — reservation held." : "Offer declined.",
+        });
+        if (status === "accepted") {
+          const freshBookings = await fetchBookingsForUser();
+          setState((s) => ({ ...s, bookings: freshBookings }));
+        }
+        return;
+      }
 
-    if (state.hasSupabaseSession) {
-      await respondOfferInSupabase(offerId, status);
-    }
-  }, [toast, state.hasSupabaseSession]);
+      const offer = state.offers.find((o) => o.id === offerId);
+      setState((s) => ({
+        ...s,
+        offers: s.offers.map((o) => (o.id === offerId ? { ...o, status } : o)),
+      }));
+      if (status === "accepted" && offer) {
+        const listing = state.listings.find((l) => l.id === offer.listingId);
+        if (listing) {
+          const nights = nightsBetween(offer.checkIn, offer.checkOut);
+          const breakdown = priceBreakdown(listing.pricing, nights, offer.discountPercent);
+          const booking: Booking = {
+            id: makeId("bk"),
+            listingId: offer.listingId,
+            guestId: offer.guestId,
+            checkIn: offer.checkIn,
+            checkOut: offer.checkOut,
+            guests: 1,
+            nights,
+            nightlyRate: breakdown.nightlyRate,
+            subtotal: breakdown.subtotal,
+            cleaningFee: breakdown.cleaningFee,
+            serviceFee: breakdown.serviceFee,
+            taxes: breakdown.taxes,
+            total: breakdown.total,
+            status: "held",
+            fromOfferId: offer.id,
+            extraServiceOrderIds: [],
+            createdAt: new Date().toISOString(),
+            paymentStatus: "unpaid",
+          };
+          setState((s) => ({ ...s, bookings: [booking, ...s.bookings] }));
+        }
+      }
+      toast?.push({
+        tone: status === "accepted" ? "success" : "info",
+        text: status === "accepted" ? "Offer accepted — reservation held." : "Offer declined.",
+      });
+    },
+    [toast, state.hasSupabaseSession, state.offers, state.listings]
+  );
 
   const createSwap = useCallback<AppDataApi["createSwap"]>(async (swap) => {
     const tempId = makeId("sp");
