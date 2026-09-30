@@ -56,7 +56,9 @@ export default function SwitchLandingClient() {
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sage text-xs font-bold text-navy">
                 {i + 1}
               </span>
-              <Icon name={s.icon} className="mt-3 h-5 w-5 text-sage-dark" />
+              <span className="mt-3 flex h-9 w-9 items-center justify-center rounded-full bg-coral/10 text-coral">
+                <Icon name={s.icon} className="h-[18px] w-[18px]" />
+              </span>
               <h3 className="mt-2 text-sm font-bold text-navy">{s.title}</h3>
               <p className="mt-1 text-xs text-ink/60">{s.body}</p>
             </div>
