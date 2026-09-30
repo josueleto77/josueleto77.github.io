@@ -28,9 +28,11 @@ export default function ChatWindow({ threadId }: { threadId: string }) {
   const otherId = thread?.participantIds.find((p) => p !== currentUser?.id);
   const other = state.users.find((u) => u.id === otherId);
   const msgs = state.messages.filter((m) => m.threadId === threadId).sort((a, b) => (a.sentAt < b.sentAt ? -1 : 1));
-  const isConfirmedBooking = state.bookings.some(
-    (b) => b.listingId === thread?.listingId && (b.status === "confirmed" || b.status === "completed")
-  );
+  const threadBooking = state.bookings.find((b) => b.id === thread?.bookingId);
+  const threadSwap = state.swaps.find((s) => s.id === thread?.swapId);
+  const isConfirmedBooking =
+    (threadBooking && (threadBooking.status === "confirmed" || threadBooking.status === "completed" || threadBooking.paymentStatus === "paid")) ||
+    (threadSwap && (threadSwap.status === "confirmed" || threadSwap.status === "completed"));
 
   useEffect(() => {
     if (thread) markThreadRead(thread.id);
@@ -133,6 +135,12 @@ export default function ChatWindow({ threadId }: { threadId: string }) {
                     )}
                     {m.text}
                   </div>
+                  {m.isMasked && (
+                    <span className="flex items-center gap-1 text-[10px] text-ink/40">
+                      <Icon name="lock" className="h-2.5 w-2.5" />
+                      Contact info hidden to protect you
+                    </span>
+                  )}
                   <span className="flex items-center gap-1 text-[10px] text-ink/40">
                     {formatDate(m.sentAt, { hour: "numeric", minute: "2-digit" })}
                     {mine && (

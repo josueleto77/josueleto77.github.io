@@ -28,6 +28,7 @@ interface MessageRow {
   text: string;
   image_url: string | null;
   sent_at: string;
+  is_masked: boolean;
 }
 
 interface ThreadReadRow {
@@ -65,6 +66,7 @@ function mapMessage(m: MessageRow, reads: ThreadReadRow[]): Message {
     imageUrl: m.image_url ?? undefined,
     sentAt: m.sent_at,
     readBy,
+    isMasked: m.is_masked,
   };
 }
 
@@ -111,17 +113,20 @@ export async function sendMessageInSupabase(
   senderId: string,
   text: string,
   imageUrl?: string
-): Promise<Message | null> {
+): Promise<{ message: Message | null; error: string | null }> {
   const sentAt = new Date().toISOString();
   const { data, error } = await supabase
     .from("messages")
     .insert({ thread_id: threadId, sender_id: senderId, text, image_url: imageUrl ?? null, sent_at: sentAt })
     .select("*")
     .maybeSingle();
-  if (error || !data) return null;
+  if (error || !data) return { message: null, error: error?.message ?? "Couldn't send that message — try again." };
   // Best-effort: a failure here just leaves last_message_at stale, not fatal.
   await supabase.from("threads").update({ last_message_at: sentAt }).eq("id", threadId);
-  return mapMessage(data as MessageRow, [{ thread_id: threadId, user_id: senderId, last_read_at: sentAt }]);
+  return {
+    message: mapMessage(data as MessageRow, [{ thread_id: threadId, user_id: senderId, last_read_at: sentAt }]),
+    error: null,
+  };
 }
 
 export async function markThreadReadInSupabase(threadId: string, userId: string): Promise<void> {
