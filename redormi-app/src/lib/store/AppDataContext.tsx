@@ -73,6 +73,16 @@ interface AppState {
 
 const STORAGE_KEY = "redormi_state_v1";
 
+// Seed/mock listings and deals are publicly visible to every visitor (browse,
+// search, home, Hot Places, Special Offers) even logged out, unlike the rest
+// of the seed data (offers, bookings, messages, ...) which only ever shows up
+// once someone opts into the demo account. On a real production deployment
+// that's fake inventory mixed in with real hosts' listings, so it's gated
+// behind an env var that defaults to shown (preserves every other deploy's
+// current demo experience) and is set to "false" in Vercel's production
+// environment variables for redormi.com specifically.
+const SHOW_SEED_LISTINGS = process.env.NEXT_PUBLIC_SHOW_SEED_LISTINGS !== "false";
+
 function initialState(): AppState {
   return {
     // Logged out by default now that real accounts exist — visitors opt
@@ -81,14 +91,14 @@ function initialState(): AppState {
     currentUserId: null,
     hasSupabaseSession: false,
     users: seedUsers,
-    listings: seedListings,
+    listings: SHOW_SEED_LISTINGS ? seedListings : [],
     offers: seedOffers,
     threads: seedThreads,
     messages: seedMessages,
     swaps: seedSwaps,
     agreements: seedAgreements,
     bookings: seedBookings,
-    deals: seedDeals,
+    deals: SHOW_SEED_LISTINGS ? seedDeals : [],
     extraServices: seedExtraServices,
     serviceOrders: [],
     saved: savedListingIds,

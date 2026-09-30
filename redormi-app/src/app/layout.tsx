@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { Manrope, Fredoka } from "next/font/google";
+import { Manrope } from "next/font/google";
+import "leaflet/dist/leaflet.css";
 import "./globals.css";
 import Providers from "@/components/layout/Providers";
 import Navbar from "@/components/layout/Navbar";
@@ -10,14 +11,6 @@ const manrope = Manrope({
   variable: "--font-manrope",
   subsets: ["latin"],
   weight: ["400", "600", "800"],
-});
-
-// Wordmark-only display face — used solely by the Logo component, kept
-// separate from the Manrope UI font used everywhere else.
-const fredoka = Fredoka({
-  variable: "--font-fredoka",
-  subsets: ["latin"],
-  weight: ["700"],
 });
 
 export const metadata: Metadata = {
@@ -39,7 +32,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${manrope.variable} ${fredoka.variable} antialiased`}>
+      <body className={`${manrope.variable} antialiased`}>
         <Providers>
           <div className="flex min-h-screen flex-col">
             <Navbar />
