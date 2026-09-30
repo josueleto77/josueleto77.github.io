@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { notFound } from "next/navigation";
 import { useAppData } from "@/lib/store/AppDataContext";
+import type { Review } from "@/lib/types";
 import PhotoGallery from "@/components/listing/PhotoGallery";
 import HostCard from "@/components/listing/HostCard";
 import AmenityList from "@/components/listing/AmenityList";
@@ -15,6 +17,7 @@ import Badge from "@/components/ui/Badge";
 import Icon from "@/components/ui/icons";
 import Button from "@/components/ui/Button";
 import { reviewsForListing } from "@/lib/data/reviews";
+import { fetchReviewsForListing } from "@/lib/supabase/reviews";
 import { CANCELLATION_POLICY_TEXT } from "@/lib/utils/policy";
 import { computeSwitchTier } from "@/lib/utils/tier";
 import { formatDateShort } from "@/lib/utils/format";
@@ -22,11 +25,26 @@ import { PROPERTY_TYPE_LABEL } from "@/lib/utils/filters";
 
 export default function ListingDetailClient({ listingId }: { listingId: string }) {
   const { state } = useAppData();
+  const [realReviews, setRealReviews] = useState<Review[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchReviewsForListing(listingId).then((r) => {
+      if (!cancelled) setRealReviews(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [listingId]);
+
   const listing = state.listings.find((l) => l.id === listingId);
   if (!listing) return notFound();
 
   const host = state.users.find((u) => u.id === listing.hostId);
-  const reviews = reviewsForListing(listing.id);
+  // reviewsForListing() only ever returns seed reviews for seed listing ids
+  // (lst_1, lst_2, …), so this never double-counts a real listing's own
+  // reviews — real reviews always come from realReviews instead.
+  const reviews = [...realReviews, ...reviewsForListing(listing.id)];
   const services = state.extraServices.filter((s) => s.listingId === listing.id);
   const similar = state.listings.filter(
     (l) => l.id !== listing.id && (l.city === listing.city || l.propertyType === listing.propertyType)

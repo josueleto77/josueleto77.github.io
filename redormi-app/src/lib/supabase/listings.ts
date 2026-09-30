@@ -28,6 +28,8 @@ interface ListingRow {
   switch_enabled: boolean;
   status: "published" | "draft";
   created_at: string;
+  rating_avg: number | null;
+  rating_count: number;
 }
 
 export function mapDbListingToListing(row: ListingRow): Listing {
@@ -73,8 +75,8 @@ export function mapDbListingToListing(row: ListingRow): Listing {
     minNights: row.min_nights,
     maxNights: row.max_nights,
     availability: [],
-    ratingAvg: 0,
-    ratingCount: 0,
+    ratingAvg: row.rating_avg ?? 0,
+    ratingCount: row.rating_count,
     bookingVelocity: 0,
     repeatGuestRate: 0,
     switch: { enabled: row.switch_enabled },

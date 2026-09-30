@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Tabs from "@/components/ui/Tabs";
@@ -11,9 +11,11 @@ import ListingCard from "@/components/listing/ListingCard";
 import OfferCard from "@/components/offers/OfferCard";
 import ExtraServiceCard from "@/components/services/ExtraServiceCard";
 import PayNowButton from "@/components/payments/PayNowButton";
+import WriteReviewModal from "@/components/listing/WriteReviewModal";
 import { useAppData } from "@/lib/store/AppDataContext";
-import { formatDateShort, formatMoney } from "@/lib/utils/format";
+import { formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { listingHref } from "@/lib/utils/listingHref";
+import { fetchMyReviewedBookingIds } from "@/lib/supabase/reviews";
 
 const STATUS_TONE: Record<string, "coral" | "sage" | "navy" | "cream"> = {
   held: "coral",
@@ -26,6 +28,19 @@ export default function GuestDashboardClient() {
   const params = useSearchParams();
   const { state, currentUser } = useAppData();
   const [tab, setTab] = useState(params.get("tab") ?? "trips");
+  const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
+  const [reviewingBookingId, setReviewingBookingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!state.hasSupabaseSession) return;
+    let cancelled = false;
+    fetchMyReviewedBookingIds().then((ids) => {
+      if (!cancelled) setReviewedIds(ids);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.hasSupabaseSession]);
 
   if (!currentUser) {
     return (
@@ -69,6 +84,11 @@ export default function GuestDashboardClient() {
                 const listing = state.listings.find((l) => l.id === b.listingId);
                 if (!listing) return null;
                 const services = state.extraServices.filter((s) => s.listingId === listing.id);
+                const canReview =
+                  state.hasSupabaseSession &&
+                  b.paymentStatus === "paid" &&
+                  b.checkOut <= isoToday() &&
+                  !reviewedIds.has(b.id);
                 return (
                   <div key={b.id} className="rounded-2xl border border-navy/10 bg-white p-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -107,6 +127,22 @@ export default function GuestDashboardClient() {
                           ))}
                         </div>
                       </div>
+                    )}
+                    {canReview && (
+                      <div className="mt-4 border-t border-navy/10 pt-4">
+                        <Button size="sm" variant="outline" onClick={() => setReviewingBookingId(b.id)}>
+                          Leave a review
+                        </Button>
+                      </div>
+                    )}
+                    {reviewingBookingId === b.id && (
+                      <WriteReviewModal
+                        open
+                        onClose={() => setReviewingBookingId(null)}
+                        bookingId={b.id}
+                        listingId={listing.id}
+                        onSubmitted={() => setReviewedIds((ids) => new Set(ids).add(b.id))}
+                      />
                     )}
                   </div>
                 );
