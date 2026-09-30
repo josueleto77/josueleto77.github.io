@@ -96,11 +96,18 @@ export async function counterOfferInSupabase(
   return mapRowToOffer(data as OfferRow);
 }
 
+/**
+ * Accepting an offer creates its booking server-side (see the
+ * create_booking_from_accepted_offer trigger on offers), which reuses the
+ * same overlap protection as a direct reservation — so this can fail with
+ * a real reason ("those dates are no longer available") if the host
+ * accepts an offer whose dates got booked out from under it.
+ */
 export async function respondOfferInSupabase(
   offerId: string,
   status: Extract<OfferStatus, "accepted" | "declined">
-): Promise<Offer | null> {
+): Promise<{ offer: Offer | null; error: string | null }> {
   const { data, error } = await supabase.from("offers").update({ status }).eq("id", offerId).select("*").maybeSingle();
-  if (error || !data) return null;
-  return mapRowToOffer(data as OfferRow);
+  if (error || !data) return { offer: null, error: error?.message ?? "Couldn't update that offer — try again." };
+  return { offer: mapRowToOffer(data as OfferRow), error: null };
 }
