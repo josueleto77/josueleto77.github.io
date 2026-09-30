@@ -47,3 +47,11 @@ export async function startBookingCheckout(
   if (data?.error) return { error: data.error };
   return { url: data?.url };
 }
+
+/** Opens Stripe's hosted Billing Portal, where the user can add, change, or remove saved payment methods. */
+export async function startBillingPortal(returnUrl: string): Promise<{ url?: string; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("stripe-billing-portal", { body: { returnUrl } });
+  if (error) return { error: error.message };
+  if (data?.error) return { error: data.error };
+  return { url: data?.url };
+}

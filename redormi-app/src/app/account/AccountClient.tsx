@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Avatar from "@/components/ui/Avatar";
 import Input, { Textarea } from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
@@ -10,13 +10,21 @@ import Icon from "@/components/ui/icons";
 import IdentityVerificationCard from "@/components/account/IdentityVerificationCard";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { ALL_LEGAL_DOCS } from "@/lib/legal/registry";
-import { formatDate } from "@/lib/utils/format";
+import { formatDate, formatMoney } from "@/lib/utils/format";
+import { uploadAvatar, upsertProfile } from "@/lib/supabase/auth";
+import { startBillingPortal } from "@/lib/supabase/payments";
+import { useToast } from "@/lib/store/ToastContext";
 
 export default function AccountClient() {
   const { currentUser, updateUser, state } = useAppData();
+  const toast = useToast();
   const [name, setName] = useState(currentUser?.name ?? "");
   const [bio, setBio] = useState(currentUser?.bio ?? "");
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [openingPortal, setOpeningPortal] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   if (!currentUser) {
     return (
@@ -30,11 +38,53 @@ export default function AccountClient() {
   }
 
   const myAcceptances = state.acceptances.filter((a) => a.userId === currentUser.id);
+  const myTransactions = state.bookings
+    .filter((b) => b.guestId === currentUser.id && b.paymentStatus === "paid")
+    .slice()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  function save() {
-    updateUser(currentUser!.id, { name, bio });
+  async function save() {
+    setSaving(true);
+    const updated = await upsertProfile(currentUser!.id, { name, bio });
+    setSaving(false);
+    if (!updated) {
+      toast?.push({ tone: "error", text: "Couldn't save changes — try again." });
+      return;
+    }
+    updateUser(currentUser!.id, updated);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function onAvatarSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !currentUser) return;
+    setUploadingAvatar(true);
+    const url = await uploadAvatar(currentUser.id, file);
+    if (!url) {
+      toast?.push({ tone: "error", text: "Couldn't upload that photo — try again." });
+      setUploadingAvatar(false);
+      return;
+    }
+    const updated = await upsertProfile(currentUser.id, { avatar_url: url });
+    setUploadingAvatar(false);
+    if (!updated) {
+      toast?.push({ tone: "error", text: "Photo uploaded but couldn't save it to your profile — try again." });
+      return;
+    }
+    updateUser(currentUser.id, updated);
+  }
+
+  async function manageBilling() {
+    setOpeningPortal(true);
+    const { url, error } = await startBillingPortal(window.location.href);
+    if (error || !url) {
+      toast?.push({ tone: "error", text: error ?? "Couldn't open billing settings — try again." });
+      setOpeningPortal(false);
+      return;
+    }
+    window.location.href = url;
   }
 
   return (
@@ -44,17 +94,35 @@ export default function AccountClient() {
       <section className="mb-8 rounded-2xl border border-navy/10 bg-white p-6">
         <h2 className="mb-4 text-lg font-extrabold text-navy">Profile</h2>
         <div className="mb-4 flex items-center gap-4">
-          <Avatar src={currentUser.avatar} name={currentUser.name} size={64} />
+          <div className="relative">
+            <Avatar src={currentUser.avatar} name={currentUser.name} size={64} />
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              aria-label="Change profile picture"
+              className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-coral text-white shadow-sm transition-transform hover:scale-105 disabled:opacity-60"
+            >
+              <Icon name="camera" className="h-3.5 w-3.5" />
+            </button>
+            <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={onAvatarSelected} />
+          </div>
           <div className="text-sm text-ink/60">
-            Member since {formatDate(currentUser.memberSince)} · {currentUser.roles.join(", ")}
+            {uploadingAvatar ? (
+              "Uploading photo…"
+            ) : (
+              <>
+                Member since {formatDate(currentUser.memberSince)} · {currentUser.roles.join(", ")}
+              </>
+            )}
           </div>
         </div>
         <div className="flex flex-col gap-4">
           <Input label="Full name" value={name} onChange={(e) => setName(e.target.value)} />
           <Input label="Email" value={currentUser.email} disabled />
           <Textarea label="Bio" value={bio} onChange={(e) => setBio(e.target.value)} />
-          <Button onClick={save} className="w-fit">
-            {saved ? "Saved!" : "Save changes"}
+          <Button onClick={save} className="w-fit" disabled={saving}>
+            {saving ? "Saving…" : saved ? "Saved!" : "Save changes"}
           </Button>
         </div>
       </section>
@@ -83,15 +151,39 @@ export default function AccountClient() {
       </section>
 
       <section className="mb-8 rounded-2xl border border-navy/10 bg-white p-6">
-        <h2 className="mb-4 text-lg font-extrabold text-navy">Payment methods</h2>
-        <div className="flex flex-col gap-3 text-sm">
-          <div className="flex items-center justify-between rounded-xl bg-cream p-3">
-            <span className="flex items-center gap-2 text-navy">
-              <Icon name="credit-card" className="h-4 w-4" /> Visa •••• 4242
-            </span>
-            <span className="text-ink/50">Default</span>
-          </div>
-        </div>
+        <h2 className="mb-1 text-lg font-extrabold text-navy">Payment methods</h2>
+        <p className="mb-4 text-sm text-ink/60">Add, switch your default, or remove saved cards — handled securely by Stripe.</p>
+        <Button size="sm" onClick={manageBilling} disabled={openingPortal}>
+          {openingPortal ? "Opening…" : "Manage payment methods"}
+        </Button>
+      </section>
+
+      <section className="mb-8 rounded-2xl border border-navy/10 bg-white p-6">
+        <h2 className="mb-1 text-lg font-extrabold text-navy">Billing</h2>
+        <p className="mb-4 text-sm text-ink/60">Every payment you&apos;ve made on Redormi.</p>
+        {myTransactions.length === 0 ? (
+          <p className="text-sm text-ink/50">No payments yet.</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-navy/8">
+            {myTransactions.map((t) => {
+              const listing = state.listings.find((l) => l.id === t.listingId);
+              return (
+                <li key={t.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <div>
+                    <p className="font-semibold text-navy">{listing?.title ?? "Stay"}</p>
+                    <p className="text-xs text-ink/50">
+                      {formatDate(t.createdAt)} · {formatDate(t.checkIn)} – {formatDate(t.checkOut)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold text-navy">{formatMoney(t.total)}</p>
+                    <Badge tone="sage">Paid</Badge>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       <section className="rounded-2xl border border-navy/10 bg-white p-6">
