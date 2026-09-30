@@ -29,11 +29,15 @@ export default function LoginPage() {
   const demoUser = state.users.find((u) => u.id === DEMO_USER_ID);
 
   useEffect(() => {
-    // A password-reset email link lands back here with a recovery token in
-    // the URL hash — Supabase's client auto-exchanges it into a session
-    // (detectSessionInUrl: true), so all that's left is to prompt for a
-    // new password rather than showing the normal log-in form.
-    if (typeof window !== "undefined" && window.location.hash.includes("type=recovery")) {
+    // A password-reset or admin-invite email link lands back here with a
+    // recovery/invite token in the URL hash — Supabase's client
+    // auto-exchanges it into a session (detectSessionInUrl: true), so all
+    // that's left is to prompt for a new password rather than showing the
+    // normal log-in form.
+    if (
+      typeof window !== "undefined" &&
+      (window.location.hash.includes("type=recovery") || window.location.hash.includes("type=invite"))
+    ) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time URL-driven branch, not derivable from props/state.
       setStep("set-new-password");
     }

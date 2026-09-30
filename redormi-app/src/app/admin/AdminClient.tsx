@@ -8,8 +8,9 @@ import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/icons";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { useToast } from "@/lib/store/ToastContext";
+import Input from "@/components/ui/Input";
 import { fetchAllListingsForAdmin } from "@/lib/supabase/listings";
-import { fetchAllProfiles, moderate } from "@/lib/supabase/admin";
+import { fetchAllProfiles, inviteUser, moderate, updateUserPowers, type UserPowers } from "@/lib/supabase/admin";
 import { fetchAllDisputesForAdmin } from "@/lib/supabase/disputes";
 import { formatDate } from "@/lib/utils/format";
 import { listingHref } from "@/lib/utils/listingHref";
@@ -34,6 +35,10 @@ export default function AdminClient() {
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [invitePowers, setInvitePowers] = useState<UserPowers>({ isAdmin: false, isHost: false, isSwitchMember: false });
+  const [inviting, setInviting] = useState(false);
 
   useEffect(() => {
     if (!currentUser?.isAdmin) return;
@@ -121,6 +126,44 @@ export default function AdminClient() {
     }
     setUsers((us) => us.map((u) => (u.id === id ? { ...u, suspendedAt: undefined, suspendedReason: undefined } : u)));
     toast?.push({ tone: "success", text: "Account reinstated." });
+  }
+
+  async function submitInvite() {
+    if (!inviteEmail.includes("@")) {
+      toast?.push({ tone: "error", text: "Enter a valid email address." });
+      return;
+    }
+    setInviting(true);
+    const { user, error } = await inviteUser(inviteEmail, inviteName, invitePowers);
+    setInviting(false);
+    if (!user) {
+      toast?.push({ tone: "error", text: error ?? "Couldn't invite that user." });
+      return;
+    }
+    setUsers((us) => [user, ...us]);
+    setInviteEmail("");
+    setInviteName("");
+    setInvitePowers({ isAdmin: false, isHost: false, isSwitchMember: false });
+    toast?.push({ tone: "success", text: `Invited ${user.email}.` });
+  }
+
+  async function toggleUserPower(u: User, key: keyof UserPowers) {
+    const powers: UserPowers = {
+      isAdmin: u.isAdmin ?? false,
+      isHost: u.isHost,
+      isSwitchMember: u.isSwitchMember,
+      [key]: !(key === "isAdmin" ? (u.isAdmin ?? false) : u[key]),
+    };
+    setActingId(u.id);
+    const { error } = await updateUserPowers(u.id, powers);
+    setActingId(null);
+    if (error) {
+      toast?.push({ tone: "error", text: error });
+      return;
+    }
+    setUsers((us) =>
+      us.map((x) => (x.id === u.id ? { ...x, isAdmin: powers.isAdmin, isHost: powers.isHost, isSwitchMember: powers.isSwitchMember } : x))
+    );
   }
 
   async function markDisputeReviewing(id: string) {
@@ -278,53 +321,107 @@ export default function AdminClient() {
             })}
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {users.map((u) => {
-              const isSuspended = !!u.suspendedAt;
-              const isActing = actingId === u.id;
-              const isSelf = u.id === currentUser.id;
-              return (
-                <div key={u.id} className="rounded-2xl border border-navy/10 bg-white p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-navy">{u.name || u.email}</p>
-                      <p className="text-xs text-ink/60">
-                        {u.email} · Member since {formatDate(u.memberSince)}
-                      </p>
-                      {isSuspended && (
-                        <p className="mt-1 text-xs text-coral">
-                          Suspended {formatDate(u.suspendedAt!)}
-                          {u.suspendedReason && ` — ${u.suspendedReason}`}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {u.isAdmin && <Badge tone="navy">Admin</Badge>}
-                      {isSuspended ? (
-                        <Button size="sm" variant="outline" onClick={() => unsuspendUser(u.id)} disabled={isActing}>
-                          {isActing ? "…" : "Reinstate"}
-                        </Button>
-                      ) : (
-                        !isSelf && (
-                          <Button size="sm" variant="outline" onClick={() => suspendUser(u.id)} disabled={isActing}>
-                            {isActing ? "…" : "Suspend"}
-                          </Button>
-                        )
-                      )}
-                    </div>
-                  </div>
-                  {!isSuspended && !isSelf && (
+          <div className="flex flex-col gap-4">
+            <div className="rounded-2xl border border-navy/10 bg-white p-4">
+              <p className="mb-3 text-sm font-bold text-navy">Invite a new user</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <Input label="Email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+                <Input label="Name (optional)" value={inviteName} onChange={(e) => setInviteName(e.target.value)} />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-4 text-xs font-semibold text-navy">
+                {(
+                  [
+                    ["isAdmin", "Admin"],
+                    ["isHost", "Host"],
+                    ["isSwitchMember", "Switch member"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-1.5">
                     <input
-                      type="text"
-                      value={reasonDrafts[u.id] ?? ""}
-                      onChange={(e) => setReasonDrafts((d) => ({ ...d, [u.id]: e.target.value }))}
-                      placeholder="Reason for suspension (optional)"
-                      className="mt-2 w-full rounded-lg border border-navy/10 px-2 py-1 text-xs"
+                      type="checkbox"
+                      checked={invitePowers[key]}
+                      onChange={(e) => setInvitePowers((p) => ({ ...p, [key]: e.target.checked }))}
                     />
-                  )}
-                </div>
-              );
-            })}
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <Button size="sm" className="mt-3" onClick={submitInvite} disabled={inviting || !inviteEmail}>
+                {inviting ? "Inviting…" : "Send invite"}
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {users.map((u) => {
+                const isSuspended = !!u.suspendedAt;
+                const isActing = actingId === u.id;
+                const isSelf = u.id === currentUser.id;
+                return (
+                  <div key={u.id} className="rounded-2xl border border-navy/10 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-navy">{u.name || u.email}</p>
+                        <p className="text-xs text-ink/60">
+                          {u.email} · Member since {formatDate(u.memberSince)}
+                        </p>
+                        {isSuspended && (
+                          <p className="mt-1 text-xs text-coral">
+                            Suspended {formatDate(u.suspendedAt!)}
+                            {u.suspendedReason && ` — ${u.suspendedReason}`}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isSuspended ? (
+                          <Button size="sm" variant="outline" onClick={() => unsuspendUser(u.id)} disabled={isActing}>
+                            {isActing ? "…" : "Reinstate"}
+                          </Button>
+                        ) : (
+                          !isSelf && (
+                            <Button size="sm" variant="outline" onClick={() => suspendUser(u.id)} disabled={isActing}>
+                              {isActing ? "…" : "Suspend"}
+                            </Button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(
+                        [
+                          ["isAdmin", "Admin"],
+                          ["isHost", "Host"],
+                          ["isSwitchMember", "Switch member"],
+                        ] as const
+                      ).map(([key, label]) => {
+                        const active = key === "isAdmin" ? !!u.isAdmin : u[key];
+                        const disabled = isActing || (key === "isAdmin" && isSelf);
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => toggleUserPower(u, key)}
+                            disabled={disabled}
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${
+                              active ? "bg-navy text-white" : "border border-navy/15 text-navy/60"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {!isSuspended && !isSelf && (
+                      <input
+                        type="text"
+                        value={reasonDrafts[u.id] ?? ""}
+                        onChange={(e) => setReasonDrafts((d) => ({ ...d, [u.id]: e.target.value }))}
+                        placeholder="Reason for suspension (optional)"
+                        className="mt-2 w-full rounded-lg border border-navy/10 px-2 py-1 text-xs"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
