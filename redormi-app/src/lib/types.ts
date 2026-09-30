@@ -259,6 +259,8 @@ export interface Booking {
   createdAt: string;
   paymentStatus: "unpaid" | "paid";
   stripeCheckoutSessionId?: string;
+  refundAmount?: number;
+  cancelledAt?: string;
 }
 
 export type SwapStatus =

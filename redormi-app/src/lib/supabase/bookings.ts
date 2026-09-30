@@ -20,6 +20,8 @@ interface BookingRow {
   created_at: string;
   payment_status: Booking["paymentStatus"];
   stripe_checkout_session_id: string | null;
+  refund_amount: number | null;
+  cancelled_at: string | null;
 }
 
 function mapRowToBooking(row: BookingRow): Booking {
@@ -43,6 +45,8 @@ function mapRowToBooking(row: BookingRow): Booking {
     createdAt: row.created_at,
     paymentStatus: row.payment_status,
     stripeCheckoutSessionId: row.stripe_checkout_session_id ?? undefined,
+    refundAmount: row.refund_amount ?? undefined,
+    cancelledAt: row.cancelled_at ?? undefined,
   };
 }
 

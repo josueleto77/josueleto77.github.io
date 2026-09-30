@@ -27,13 +27,14 @@ import { extraServices as seedExtraServices } from "@/lib/data/services";
 import { notifications as seedNotifications, savedListingIds } from "@/lib/data/notifications";
 import { makeId } from "@/lib/utils/ids";
 import { OFFER_EXPIRY_HOURS, priceBreakdown } from "@/lib/utils/pricing";
-import { nightsBetween } from "@/lib/utils/format";
+import { nightsBetween, formatMoney } from "@/lib/utils/format";
 import { useToast } from "@/lib/store/ToastContext";
 import { supabase } from "@/lib/supabase/client";
 import { signInWithEmail, signUpWithEmail, signOutSupabase, fetchProfile, upsertProfile } from "@/lib/supabase/auth";
 import { fetchPublishedListings } from "@/lib/supabase/listings";
 import { fetchOffersForUser, createOfferInSupabase, counterOfferInSupabase, respondOfferInSupabase } from "@/lib/supabase/offers";
 import { fetchBookingsForUser, createBookingInSupabase } from "@/lib/supabase/bookings";
+import { cancelBooking as cancelBookingViaStripe } from "@/lib/supabase/payments";
 import { fetchSavedListingIds, saveListingInSupabase, unsaveListingInSupabase } from "@/lib/supabase/saved";
 import { fetchAcceptancesForUser, recordAcceptanceInSupabase } from "@/lib/supabase/legal";
 import { fetchMessagingForUser, createThreadInSupabase, sendMessageInSupabase, markThreadReadInSupabase } from "@/lib/supabase/messaging";
@@ -175,6 +176,7 @@ interface AppDataApi {
   createBooking: (
     booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds" | "paymentStatus" | "stripeCheckoutSessionId">
   ) => Promise<{ booking: Booking | null; error: string | null }>;
+  cancelBooking: (bookingId: string) => Promise<{ refundAmount?: number; error?: string }>;
   orderService: (order: Omit<ExtraServiceOrder, "id" | "createdAt" | "status">) => Promise<ExtraServiceOrder>;
 
   toggleSaved: (listingId: string) => Promise<void>;
@@ -779,6 +781,41 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [toast, state.hasSupabaseSession]
   );
 
+  const cancelBooking = useCallback<AppDataApi["cancelBooking"]>(
+    async (bookingId) => {
+      if (!state.hasSupabaseSession) {
+        // Demo/local fallback: nothing was really charged, so there's
+        // nothing to refund — just mark it cancelled.
+        setState((s) => ({
+          ...s,
+          bookings: s.bookings.map((b) =>
+            b.id === bookingId ? { ...b, status: "cancelled", refundAmount: 0, cancelledAt: new Date().toISOString() } : b
+          ),
+        }));
+        toast?.push({ tone: "info", text: "Booking cancelled." });
+        return { refundAmount: 0 };
+      }
+
+      const { refundAmount, error } = await cancelBookingViaStripe(bookingId);
+      if (error) {
+        toast?.push({ tone: "error", text: error });
+        return { error };
+      }
+      setState((s) => ({
+        ...s,
+        bookings: s.bookings.map((b) =>
+          b.id === bookingId ? { ...b, status: "cancelled", refundAmount, cancelledAt: new Date().toISOString() } : b
+        ),
+      }));
+      toast?.push({
+        tone: "success",
+        text: refundAmount && refundAmount > 0 ? `Booking cancelled — ${formatMoney(refundAmount)} refunded.` : "Booking cancelled — no refund under this policy.",
+      });
+      return { refundAmount };
+    },
+    [toast, state.hasSupabaseSession]
+  );
+
   const orderService = useCallback<AppDataApi["orderService"]>(async (order) => {
     const tempId = makeId("eso");
     const full: ExtraServiceOrder = { ...order, id: tempId, status: "confirmed", createdAt: new Date().toISOString() };
@@ -911,6 +948,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     ensureThread,
     markThreadRead,
     createBooking,
+    cancelBooking,
     orderService,
     toggleSaved,
     isSaved,
