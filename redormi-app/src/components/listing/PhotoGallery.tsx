@@ -16,7 +16,7 @@ export default function PhotoGallery({ photos, title }: { photos: Photo[]; title
 
   return (
     <>
-      <div className="grid grid-cols-4 gap-2 overflow-hidden rounded-2xl sm:h-[420px]">
+      <div className="relative grid grid-cols-4 gap-2 overflow-hidden rounded-2xl sm:h-[420px]">
         <button onClick={() => openAt(0)} className="relative col-span-4 row-span-2 sm:col-span-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={photos[0]?.url} alt={photos[0]?.alt ?? title} className="h-full w-full object-cover" />
