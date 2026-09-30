@@ -136,7 +136,9 @@ export default function Home() {
               { icon: "layers" as const, label: "Pre-arrival checklist" },
             ].map((f) => (
               <div key={f.label} className="rounded-2xl bg-white p-4 shadow-sm">
-                <Icon name={f.icon} className="h-5 w-5 text-sage-dark" />
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-coral/10 text-coral">
+                  <Icon name={f.icon} className="h-[18px] w-[18px]" />
+                </span>
                 <p className="mt-2 text-sm font-semibold text-navy">{f.label}</p>
               </div>
             ))}
