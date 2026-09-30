@@ -116,6 +116,12 @@ export default function HostDashboardClient() {
                         <Badge tone="coral">{l.availability.filter((w) => w.blocked).length} blocked window(s)</Badge>
                       )}
                     </div>
+                    {l.removedAt && (
+                      <p className="mt-1.5 flex items-center gap-1 text-xs text-coral">
+                        <Icon name="alert" className="h-3.5 w-3.5" />
+                        Removed by an admin{l.removedReason ? `: ${l.removedReason}` : ""}
+                      </p>
+                    )}
                   </div>
                   <button
                     onClick={() =>
