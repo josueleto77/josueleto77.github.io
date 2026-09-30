@@ -9,7 +9,13 @@ export async function fetchAllProfiles(): Promise<User[]> {
   return (data as ProfileRow[]).map(mapProfileToUser);
 }
 
-type ModerationAction = "remove_listing" | "restore_listing" | "suspend_user" | "unsuspend_user";
+type ModerationAction =
+  | "remove_listing"
+  | "restore_listing"
+  | "suspend_user"
+  | "unsuspend_user"
+  | "mark_dispute_reviewing"
+  | "resolve_dispute";
 
 /**
  * Every admin action re-verifies profiles.is_admin server-side (see

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Tabs from "@/components/ui/Tabs";
@@ -12,10 +12,13 @@ import OfferCard from "@/components/offers/OfferCard";
 import ExtraServicesManager from "@/components/services/ExtraServicesManager";
 import PayoutStatusCard from "@/components/host/PayoutStatusCard";
 import AvailabilityManager from "@/components/host/AvailabilityManager";
+import OpenDisputeModal from "@/components/shared/OpenDisputeModal";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { addDays, formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { computeSwitchTier } from "@/lib/utils/tier";
 import { listingHref } from "@/lib/utils/listingHref";
+import { fetchMyDisputes } from "@/lib/supabase/disputes";
+import type { Dispute } from "@/lib/types";
 
 const SWAP_STATUS_TONE: Record<string, "coral" | "sage" | "navy" | "cream"> = {
   proposed: "coral",
@@ -32,6 +35,19 @@ export default function HostDashboardClient() {
   const params = useSearchParams();
   const { state, currentUser, createDeal } = useAppData();
   const [tab, setTab] = useState(params.get("tab") ?? "listings");
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [disputingBookingId, setDisputingBookingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!state.hasSupabaseSession) return;
+    let cancelled = false;
+    fetchMyDisputes().then((d) => {
+      if (!cancelled) setDisputes(d);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.hasSupabaseSession]);
 
   if (!currentUser) {
     return (
@@ -164,20 +180,49 @@ export default function HostDashboardClient() {
               {myBookings.map((b) => {
                 const listing = myListings.find((l) => l.id === b.listingId);
                 const guest = state.users.find((u) => u.id === b.guestId);
+                const dispute = disputes.find((d) => d.bookingId === b.id);
                 return (
-                  <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-navy/10 bg-white p-4">
-                    <div>
-                      <p className="text-sm font-bold text-navy">{listing?.title}</p>
-                      <p className="text-xs text-ink/60">
-                        {guest?.name} · {formatDateShort(b.checkIn)} – {formatDateShort(b.checkOut)}
-                      </p>
+                  <div key={b.id} className="rounded-2xl border border-navy/10 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-navy">{listing?.title}</p>
+                        <p className="text-xs text-ink/60">
+                          {guest?.name} · {formatDateShort(b.checkIn)} – {formatDateShort(b.checkOut)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-bold text-navy">{formatMoney(b.total)}</span>
+                        <Badge tone={b.status === "confirmed" || b.status === "completed" ? "sage" : "coral"} className="capitalize">
+                          {b.status}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-navy">{formatMoney(b.total)}</span>
-                      <Badge tone={b.status === "confirmed" || b.status === "completed" ? "sage" : "coral"} className="capitalize">
-                        {b.status}
-                      </Badge>
-                    </div>
+                    {state.hasSupabaseSession && b.status !== "cancelled" && (
+                      <div className="mt-3 border-t border-navy/10 pt-3">
+                        {dispute ? (
+                          <p className="text-xs text-ink/60">
+                            Dispute {dispute.status}
+                            {dispute.resolutionNote && ` — ${dispute.resolutionNote}`}
+                          </p>
+                        ) : (
+                          <button
+                            onClick={() => setDisputingBookingId(b.id)}
+                            className="text-xs font-semibold text-ink/50 underline hover:text-coral"
+                          >
+                            Report a problem
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {disputingBookingId === b.id && (
+                      <OpenDisputeModal
+                        open
+                        onClose={() => setDisputingBookingId(null)}
+                        bookingId={b.id}
+                        againstId={b.guestId}
+                        onOpened={(d) => setDisputes((ds) => [d, ...ds])}
+                      />
+                    )}
                   </div>
                 );
               })}
