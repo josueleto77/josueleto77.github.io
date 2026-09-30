@@ -12,6 +12,7 @@ import OfferCard from "@/components/offers/OfferCard";
 import ExtraServiceCard from "@/components/services/ExtraServiceCard";
 import PayNowButton from "@/components/payments/PayNowButton";
 import WriteReviewModal from "@/components/listing/WriteReviewModal";
+import CancelBookingModal from "@/components/listing/CancelBookingModal";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { listingHref } from "@/lib/utils/listingHref";
@@ -30,6 +31,7 @@ export default function GuestDashboardClient() {
   const [tab, setTab] = useState(params.get("tab") ?? "trips");
   const [reviewedIds, setReviewedIds] = useState<Set<string>>(new Set());
   const [reviewingBookingId, setReviewingBookingId] = useState<string | null>(null);
+  const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!state.hasSupabaseSession) return;
@@ -89,6 +91,7 @@ export default function GuestDashboardClient() {
                   b.paymentStatus === "paid" &&
                   b.checkOut <= isoToday() &&
                   !reviewedIds.has(b.id);
+                const canCancel = (b.status === "held" || b.status === "confirmed") && b.checkIn > isoToday();
                 return (
                   <div key={b.id} className="rounded-2xl border border-navy/10 bg-white p-4">
                     <div className="flex flex-wrap items-center gap-4">
@@ -116,8 +119,22 @@ export default function GuestDashboardClient() {
                         ) : (
                           b.paymentStatus === "paid" && <Badge tone="sage">Paid</Badge>
                         )}
+                        {canCancel && (
+                          <button
+                            onClick={() => setCancellingBookingId(b.id)}
+                            className="text-xs font-semibold text-ink/50 underline hover:text-coral"
+                          >
+                            Cancel
+                          </button>
+                        )}
                       </div>
                     </div>
+                    {b.status === "cancelled" && b.cancelledAt && (
+                      <p className="mt-2 text-xs text-ink/50">
+                        Cancelled {formatDateShort(b.cancelledAt.slice(0, 10))}
+                        {b.refundAmount !== undefined && b.refundAmount > 0 && ` — ${formatMoney(b.refundAmount)} refunded`}
+                      </p>
+                    )}
                     {services.length > 0 && (b.status === "held" || b.status === "confirmed") && (
                       <div className="mt-4 border-t border-navy/10 pt-4">
                         <p className="mb-2 text-xs font-bold uppercase tracking-wide text-navy/50">Add extra services to this trip</p>
@@ -142,6 +159,14 @@ export default function GuestDashboardClient() {
                         bookingId={b.id}
                         listingId={listing.id}
                         onSubmitted={() => setReviewedIds((ids) => new Set(ids).add(b.id))}
+                      />
+                    )}
+                    {cancellingBookingId === b.id && (
+                      <CancelBookingModal
+                        open
+                        onClose={() => setCancellingBookingId(null)}
+                        booking={b}
+                        cancellationPolicy={listing.cancellationPolicy}
                       />
                     )}
                   </div>

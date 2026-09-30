@@ -55,3 +55,15 @@ export async function startBillingPortal(returnUrl: string): Promise<{ url?: str
   if (data?.error) return { error: data.error };
   return { url: data?.url };
 }
+
+/**
+ * Cancels a booking. If it was paid, issues a real Stripe refund computed
+ * from the listing's cancellation policy (see computeRefund in
+ * lib/utils/policy.ts, mirrored server-side in stripe-cancel-booking).
+ */
+export async function cancelBooking(bookingId: string): Promise<{ refundAmount?: number; refundPct?: number; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("stripe-cancel-booking", { body: { bookingId } });
+  if (error) return { error: error.message };
+  if (data?.error) return { error: data.error };
+  return { refundAmount: data?.refundAmount, refundPct: data?.refundPct };
+}
