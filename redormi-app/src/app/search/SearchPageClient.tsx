@@ -70,12 +70,12 @@ export default function SearchPageClient() {
         </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[260px_1fr_380px]">
+      <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)_380px]">
         <aside className="hidden lg:block">
           <FilterSidebar filters={filters} onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))} />
         </aside>
 
-        <div className={showMap ? "hidden lg:block" : ""}>
+        <div className={`min-w-0 ${showMap ? "hidden lg:block" : ""}`}>
           {results.length === 0 ? (
             <EmptyState
               icon="search"
