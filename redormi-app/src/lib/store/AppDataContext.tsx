@@ -173,7 +173,7 @@ interface AppDataApi {
 
   createBooking: (
     booking: Omit<Booking, "id" | "createdAt" | "status" | "extraServiceOrderIds" | "paymentStatus" | "stripeCheckoutSessionId">
-  ) => Promise<Booking>;
+  ) => Promise<{ booking: Booking | null; error: string | null }>;
   orderService: (order: Omit<ExtraServiceOrder, "id" | "createdAt" | "status">) => Promise<ExtraServiceOrder>;
 
   toggleSaved: (listingId: string) => Promise<void>;
@@ -697,28 +697,36 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.currentUserId, state.hasSupabaseSession]);
 
-  const createBooking = useCallback<AppDataApi["createBooking"]>(async (booking) => {
-    const tempId = makeId("bk");
-    const full: Booking = {
-      ...booking,
-      id: tempId,
-      status: "held",
-      extraServiceOrderIds: [],
-      createdAt: new Date().toISOString(),
-      paymentStatus: "unpaid",
-    };
-    setState((s) => ({ ...s, bookings: [full, ...s.bookings] }));
-    toast?.push({ tone: "success", text: "Reservation held! Check your trips for details." });
-
-    if (state.hasSupabaseSession) {
-      const real = await createBookingInSupabase(booking);
-      if (real) {
-        setState((s) => ({ ...s, bookings: s.bookings.map((b) => (b.id === tempId ? real : b)) }));
-        return real;
+  const createBooking = useCallback<AppDataApi["createBooking"]>(
+    async (booking) => {
+      // Not optimistic on purpose: a database trigger can reject this (the
+      // dates were just taken by someone else), so we only add it to local
+      // state — and only tell the guest it's held — once we know it's real.
+      if (state.hasSupabaseSession) {
+        const { booking: real, error } = await createBookingInSupabase(booking);
+        if (!real) {
+          toast?.push({ tone: "error", text: error ?? "Couldn't create that booking — try again." });
+          return { booking: null, error: error ?? "Couldn't create that booking — try again." };
+        }
+        setState((s) => ({ ...s, bookings: [real, ...s.bookings] }));
+        toast?.push({ tone: "success", text: "Reservation held! Check your trips for details." });
+        return { booking: real, error: null };
       }
-    }
-    return full;
-  }, [toast, state.hasSupabaseSession]);
+
+      const full: Booking = {
+        ...booking,
+        id: makeId("bk"),
+        status: "held",
+        extraServiceOrderIds: [],
+        createdAt: new Date().toISOString(),
+        paymentStatus: "unpaid",
+      };
+      setState((s) => ({ ...s, bookings: [full, ...s.bookings] }));
+      toast?.push({ tone: "success", text: "Reservation held! Check your trips for details." });
+      return { booking: full, error: null };
+    },
+    [toast, state.hasSupabaseSession]
+  );
 
   const orderService = useCallback<AppDataApi["orderService"]>(async (order) => {
     const tempId = makeId("eso");

@@ -15,6 +15,7 @@ import { dealForListing } from "@/lib/data/deals";
 export default function BookingBox({ listing }: { listing: Listing }) {
   const router = useRouter();
   const { currentUser, createBooking, ensureThread } = useAppData();
+  const [reserving, setReserving] = useState(false);
   // Seeded placeholders keep the first client render identical to the
   // statically-prerendered HTML; the real "today"-based default (which
   // would otherwise differ from build time) is swapped in right after
@@ -38,12 +39,13 @@ export default function BookingBox({ listing }: { listing: Listing }) {
     [listing.pricing, nights, deal]
   );
 
-  function reserve() {
+  async function reserve() {
     if (!currentUser) {
       router.push("/login");
       return;
     }
-    createBooking({
+    setReserving(true);
+    const { booking } = await createBooking({
       listingId: listing.id,
       guestId: currentUser.id,
       checkIn,
@@ -57,6 +59,10 @@ export default function BookingBox({ listing }: { listing: Listing }) {
       taxes: breakdown.taxes,
       total: breakdown.total,
     });
+    setReserving(false);
+    // On failure (e.g. someone just took these dates) createBooking already
+    // showed the error toast — stay put so the guest can pick new dates.
+    if (!booking) return;
     router.push("/dashboard/guest?tab=trips");
   }
 
@@ -117,8 +123,8 @@ export default function BookingBox({ listing }: { listing: Listing }) {
         />
       </label>
 
-      <Button onClick={reserve} size="lg" fullWidth>
-        Reserve
+      <Button onClick={reserve} size="lg" fullWidth disabled={reserving}>
+        {reserving ? "Reserving…" : "Reserve"}
       </Button>
       {listing.acceptsOffers && (
         <Button onClick={() => setOfferOpen(true)} variant="outline" size="lg" fullWidth>
