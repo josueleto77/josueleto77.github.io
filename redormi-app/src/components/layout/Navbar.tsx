@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Logo from "@/components/logo/Logo";
 import Icon from "@/components/ui/icons";
 import Avatar from "@/components/ui/Avatar";
@@ -21,7 +21,13 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
   const { currentUser, isLoggedIn, logout, state } = useAppData();
+
+  async function handleLogout() {
+    await logout();
+    router.push("/");
+  }
   const { dict, locale, setLocale } = useI18n();
 
   const unread = currentUser
@@ -103,7 +109,7 @@ export default function Navbar() {
                   <hr className="my-1 border-navy/10" />
                   <button
                     onClick={() => {
-                      logout();
+                      handleLogout();
                       setMenuOpen(false);
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-coral-dark hover:bg-coral/10"
@@ -173,7 +179,7 @@ export default function Navbar() {
                 )}
                 <button
                   onClick={() => {
-                    logout();
+                    handleLogout();
                     setOpen(false);
                   }}
                   className="rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-coral-dark hover:bg-coral/10"
