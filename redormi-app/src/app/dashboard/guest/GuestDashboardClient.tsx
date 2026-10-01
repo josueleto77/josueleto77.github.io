@@ -14,6 +14,7 @@ import PayNowButton from "@/components/payments/PayNowButton";
 import WriteReviewModal from "@/components/listing/WriteReviewModal";
 import CancelBookingModal from "@/components/listing/CancelBookingModal";
 import OpenDisputeModal from "@/components/shared/OpenDisputeModal";
+import IdentityVerificationBanner from "@/components/shared/IdentityVerificationBanner";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { listingHref } from "@/lib/utils/listingHref";
@@ -70,6 +71,7 @@ export default function GuestDashboardClient() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      {state.hasSupabaseSession && <IdentityVerificationBanner userId={currentUser.id} />}
       <h1 className="mb-1 text-2xl font-extrabold text-navy">Welcome back, {currentUser.name.split(" ")[0]}</h1>
       <p className="mb-6 text-sm text-ink/60">Your trips, offers, saved homes, and messages.</p>
 

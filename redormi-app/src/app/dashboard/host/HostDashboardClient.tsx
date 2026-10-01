@@ -11,8 +11,10 @@ import EmptyState from "@/components/ui/EmptyState";
 import OfferCard from "@/components/offers/OfferCard";
 import ExtraServicesManager from "@/components/services/ExtraServicesManager";
 import PayoutStatusCard from "@/components/host/PayoutStatusCard";
+import PayoutSetupBanner from "@/components/host/PayoutSetupBanner";
 import AvailabilityManager from "@/components/host/AvailabilityManager";
 import OpenDisputeModal from "@/components/shared/OpenDisputeModal";
+import IdentityVerificationBanner from "@/components/shared/IdentityVerificationBanner";
 import { useAppData } from "@/lib/store/AppDataContext";
 import { addDays, formatDateShort, formatMoney, isoToday } from "@/lib/utils/format";
 import { computeSwitchTier } from "@/lib/utils/tier";
@@ -73,6 +75,12 @@ export default function HostDashboardClient() {
   if (myListings.length === 0) {
     return (
       <div className="mx-auto max-w-xl px-4 py-20 text-center">
+        {state.hasSupabaseSession && (
+          <div className="mb-8 text-left">
+            <IdentityVerificationBanner userId={currentUser.id} />
+            <PayoutSetupBanner />
+          </div>
+        )}
         <Icon name="home" className="mx-auto h-8 w-8 text-navy/40" />
         <h1 className="mt-3 text-xl font-extrabold text-navy">You haven&apos;t listed a home yet</h1>
         <p className="mt-2 text-sm text-ink/60">Publish your first listing to start hosting on Redormi Rent or Switch.</p>
@@ -85,6 +93,12 @@ export default function HostDashboardClient() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      {state.hasSupabaseSession && (
+        <>
+          <IdentityVerificationBanner userId={currentUser.id} />
+          <PayoutSetupBanner />
+        </>
+      )}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold text-navy">Host dashboard</h1>

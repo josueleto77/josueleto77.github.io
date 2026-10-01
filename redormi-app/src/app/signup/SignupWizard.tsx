@@ -15,7 +15,7 @@ import { useToast } from "@/lib/store/ToastContext";
 import type { Role } from "@/lib/types";
 import { AVATAR_OPTIONS, avatarById } from "@/lib/utils/avatarIcons";
 
-const STEPS = ["Account", "Roles", "Phone", "About you", "Photo", "Verify ID", "Payment", "Review"];
+const STEPS = ["Account", "Roles", "Phone", "About you", "Photo", "Review"];
 
 const ROLE_OPTIONS: { value: Role; label: string; body: string; icon: "users" | "home" | "sparkles" }[] = [
   { value: "traveler", label: "Traveler", body: "Book rentals and browse Switch homes.", icon: "users" },
@@ -33,9 +33,6 @@ interface FormState {
   city: string;
   country: string;
   avatarId: string;
-  idUploaded: boolean;
-  cardNumber: string;
-  payoutAccount: string;
   roles: Role[];
   /** Honeypot: real users never see or fill this in; bots that blindly fill every field do. */
   website: string;
@@ -57,9 +54,6 @@ export default function SignupWizard() {
     city: "",
     country: "",
     avatarId: AVATAR_OPTIONS[0].id,
-    idUploaded: false,
-    cardNumber: "",
-    payoutAccount: "",
     roles: ["traveler"],
     website: "",
   });
@@ -83,15 +77,6 @@ export default function SignupWizard() {
         return form.roles.length > 0;
       case 3:
         return form.dob !== "" && form.address.trim().length > 3;
-      case 4:
-        return true;
-      case 5:
-        return form.idUploaded;
-      case 6: {
-        const travelerOk = !form.roles.includes("traveler") || form.cardNumber.length >= 12;
-        const hostOk = !form.roles.includes("host") || form.payoutAccount.length >= 4;
-        return travelerOk && hostOk;
-      }
       default:
         return true;
     }
@@ -248,52 +233,6 @@ export default function SignupWizard() {
 
         {step === 5 && (
           <div className="flex flex-col gap-4">
-            <h1 className="text-xl font-extrabold text-navy">Verify your identity</h1>
-            <p className="text-sm text-ink/60">
-              Government-ID verification helps keep Redormi Rent and Switch safe for everyone.
-            </p>
-            <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-navy/20 p-8 text-center hover:border-coral">
-              <Icon name="upload" className="h-6 w-6 text-navy/50" />
-              <span className="text-sm font-semibold text-navy">
-                {form.idUploaded ? "ID uploaded — pending review" : "Upload a photo of your government ID"}
-              </span>
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files?.length) patch({ idUploaded: true });
-                }}
-              />
-            </label>
-          </div>
-        )}
-
-        {step === 6 && (
-          <div className="flex flex-col gap-5">
-            <h1 className="text-xl font-extrabold text-navy">Payment details</h1>
-            {form.roles.includes("traveler") && (
-              <Input
-                label="Card number (for bookings)"
-                value={form.cardNumber}
-                onChange={(e) => patch({ cardNumber: e.target.value.replace(/\D/g, "").slice(0, 16) })}
-                placeholder="4242 4242 4242 4242"
-              />
-            )}
-            {form.roles.includes("host") && (
-              <Input
-                label="Payout account (for hosting income)"
-                value={form.payoutAccount}
-                onChange={(e) => patch({ payoutAccount: e.target.value })}
-                placeholder="Bank account or linked payout method"
-              />
-            )}
-            <p className="text-xs text-ink/50">Payments are simulated in this demo — no real card is charged.</p>
-          </div>
-        )}
-
-        {step === 7 && (
-          <div className="flex flex-col gap-4">
             <h1 className="text-xl font-extrabold text-navy">Review & finish</h1>
             <dl className="grid grid-cols-2 gap-3 text-sm">
               <dt className="text-ink/50">Name</dt>
@@ -309,6 +248,13 @@ export default function SignupWizard() {
               Last step: review and accept the Redormi agreements
               {form.roles.includes("switch_member") ? ", including the Home Exchange Agreement" : ""}.
             </p>
+            {(form.roles.includes("host") || form.roles.includes("traveler")) && (
+              <p className="text-xs text-ink/50">
+                {form.roles.includes("host")
+                  ? "Once you're in, verify your identity and connect a payout method from your dashboard to start hosting."
+                  : "You can verify your identity anytime from your account — some bookings may ask for it."}
+              </p>
+            )}
           </div>
         )}
 
