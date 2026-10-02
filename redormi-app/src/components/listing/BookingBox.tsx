@@ -7,14 +7,17 @@ import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/icons";
 import MakeOfferModal from "@/components/offers/MakeOfferModal";
 import { useAppData } from "@/lib/store/AppDataContext";
+import { useToast } from "@/lib/store/ToastContext";
 import { priceBreakdown } from "@/lib/utils/pricing";
 import { formatMoney, isoToday, nightsBetween } from "@/lib/utils/format";
 import { seedToday } from "@/lib/utils/seedClock";
 import { dealForListing } from "@/lib/data/deals";
+import { fetchIdentityVerificationStatus, startIdentityVerification } from "@/lib/supabase/identity";
 
 export default function BookingBox({ listing }: { listing: Listing }) {
   const router = useRouter();
-  const { currentUser, createBooking, ensureThread } = useAppData();
+  const toast = useToast();
+  const { state, currentUser, createBooking, ensureThread } = useAppData();
   const [reserving, setReserving] = useState(false);
   // Seeded placeholders keep the first client render identical to the
   // statically-prerendered HTML; the real "today"-based default (which
@@ -45,6 +48,20 @@ export default function BookingBox({ listing }: { listing: Listing }) {
       return;
     }
     setReserving(true);
+    if (state.hasSupabaseSession) {
+      const identity = await fetchIdentityVerificationStatus(currentUser.id);
+      if (!identity?.isVerified) {
+        const { url, error } = await startIdentityVerification(window.location.href);
+        setReserving(false);
+        if (error || !url) {
+          toast?.push({ tone: "error", text: error ?? "Couldn't start identity verification — try again." });
+          return;
+        }
+        toast?.push({ tone: "info", text: "Verify your identity to complete your first booking." });
+        window.location.href = url;
+        return;
+      }
+    }
     const { booking } = await createBooking({
       listingId: listing.id,
       guestId: currentUser.id,

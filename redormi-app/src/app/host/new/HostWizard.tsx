@@ -11,6 +11,7 @@ import Icon, { type IconName } from "@/components/ui/icons";
 import ServiceForm, { type ServiceDraft } from "@/components/services/ServiceForm";
 import LocationPicker from "@/components/host/LocationPicker";
 import { useAppData } from "@/lib/store/AppDataContext";
+import { useToast } from "@/lib/store/ToastContext";
 import { amenities } from "@/lib/data/amenities";
 import { COMMON_RULES } from "@/lib/data/listings";
 import { PROPERTY_TYPE_LABEL } from "@/lib/utils/filters";
@@ -19,6 +20,8 @@ import { seededPhoto } from "@/lib/utils/ids";
 import { formatMoney, isoToday } from "@/lib/utils/format";
 import { supabase } from "@/lib/supabase/client";
 import { createListingInSupabase, uploadListingPhotos } from "@/lib/supabase/listings";
+import { fetchIdentityVerificationStatus, startIdentityVerification } from "@/lib/supabase/identity";
+import { fetchHostStripeStatus, startConnectOnboarding } from "@/lib/supabase/payments";
 
 const STEPS = [
   "Property type",
@@ -117,7 +120,8 @@ function defaultWizardState(): WizardState {
 
 export default function HostWizard() {
   const router = useRouter();
-  const { currentUser, createListing, createExtraService } = useAppData();
+  const toast = useToast();
+  const { state, currentUser, createListing, createExtraService } = useAppData();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<WizardState>(defaultWizardState);
   const [photoDraftId, setPhotoDraftId] = useState(1);
@@ -126,6 +130,45 @@ export default function HostWizard() {
   const [photoFiles, setPhotoFiles] = useState<Record<string, File>>({});
   const [publishing, setPublishing] = useState(false);
   const [loadedDraft, setLoadedDraft] = useState(false);
+  const [identityVerified, setIdentityVerified] = useState<boolean | null>(null);
+  const [payoutConnected, setPayoutConnected] = useState<boolean | null>(null);
+  const [checkingRequirements, setCheckingRequirements] = useState(false);
+
+  useEffect(() => {
+    if (!state.hasSupabaseSession || !currentUser || step !== STEPS.length - 1) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- kicks off an async fetch; the loading flag can't be derived from props/state.
+    setCheckingRequirements(true);
+    Promise.all([fetchIdentityVerificationStatus(currentUser.id), fetchHostStripeStatus()]).then(([identity, stripeStatus]) => {
+      if (cancelled) return;
+      setIdentityVerified(identity?.isVerified ?? false);
+      setPayoutConnected(stripeStatus?.chargesEnabled ?? false);
+      setCheckingRequirements(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.hasSupabaseSession, currentUser, step]);
+
+  async function verifyIdentity() {
+    const { url, error } = await startIdentityVerification(window.location.href);
+    if (error || !url) {
+      toast?.push({ tone: "error", text: error ?? "Couldn't start identity verification — try again." });
+      return;
+    }
+    window.location.href = url;
+  }
+
+  async function connectPayout() {
+    const { url, error } = await startConnectOnboarding(window.location.href);
+    if (error || !url) {
+      toast?.push({ tone: "error", text: error ?? "Couldn't start Stripe onboarding — try again." });
+      return;
+    }
+    window.location.href = url;
+  }
+
+  const requirementsMet = !state.hasSupabaseSession || (identityVerified === true && payoutConnected === true);
 
   useEffect(() => {
     // Intentional: renders the blank default wizard first (matching the
@@ -230,6 +273,10 @@ export default function HostWizard() {
   async function publish() {
     if (!currentUser) {
       router.push("/login");
+      return;
+    }
+    if (state.hasSupabaseSession && (!identityVerified || !payoutConnected)) {
+      toast?.push({ tone: "error", text: "Verify your identity and connect a payout method before publishing." });
       return;
     }
 
@@ -667,6 +714,19 @@ export default function HostWizard() {
                 {form.switchEnabled && <Tag tone="sage">Switch enabled</Tag>}
                 {form.services.length > 0 && <Tag>{form.services.length} extra service{form.services.length > 1 ? "s" : ""}</Tag>}
               </div>
+              {state.hasSupabaseSession && (
+                <div className="rounded-xl border border-navy/10 bg-cream/60 p-4">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-navy/50">Before you publish</p>
+                  {checkingRequirements ? (
+                    <p className="text-sm text-ink/50">Checking your account…</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <RequirementRow done={!!identityVerified} label="Identity verified" actionLabel="Verify now" onAction={verifyIdentity} />
+                      <RequirementRow done={!!payoutConnected} label="Payout method connected" actionLabel="Connect Stripe" onAction={connectPayout} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </StepBlock>
         )}
@@ -676,7 +736,7 @@ export default function HostWizard() {
             Back
           </Button>
           {step === STEPS.length - 1 ? (
-            <Button onClick={publish} size="lg" disabled={publishing}>
+            <Button onClick={publish} size="lg" disabled={publishing || checkingRequirements || !requirementsMet}>
               {publishing ? "Publishing…" : "Publish listing"}
             </Button>
           ) : (
@@ -686,6 +746,32 @@ export default function HostWizard() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RequirementRow({
+  done,
+  label,
+  actionLabel,
+  onAction,
+}: {
+  done: boolean;
+  label: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className={`flex items-center gap-1.5 text-sm ${done ? "text-sage-dark" : "text-ink/70"}`}>
+        <Icon name={done ? "check-circle" : "alert"} className="h-4 w-4" />
+        {label}
+      </span>
+      {!done && (
+        <Button size="sm" variant="outline" onClick={onAction}>
+          {actionLabel}
+        </Button>
+      )}
     </div>
   );
 }
