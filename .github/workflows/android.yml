@@ -37,10 +37,14 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Install the Android SDK platform this app targets
-        run: sdkmanager --install "platform-tools" "platforms;android-36"
+      # ubuntu-latest runners ship with the Android SDK preinstalled
+      # (ANDROID_HOME already set) -- no need for a third-party setup
+      # action, which was trying (and failing) to install the long-removed
+      # legacy "tools" package on its own, before our own steps even ran.
+      - name: Accept SDK licenses and install the platform this app targets
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36"
 
       - name: Build debug APK
         working-directory: redormi-app/android
