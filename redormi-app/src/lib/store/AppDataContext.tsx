@@ -283,42 +283,46 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
       ]);
       if (cancelled) return;
       setState((s) => {
-        const offerIds = new Set(s.offers.map((o) => o.id));
-        const bookingIds = new Set(s.bookings.map((b) => b.id));
+        // The real server rows are authoritative for anything that can change
+        // status after creation (a booking getting cancelled, an offer getting
+        // accepted, ...) -- the id-sets below come from the REAL data, not the
+        // possibly-stale localStorage copy, so a local row is only kept when
+        // there's no fresher server row for that same id to replace it with.
+        const realOfferIds = new Set(realOffers.map((o) => o.id));
+        const realBookingIds = new Set(realBookings.map((b) => b.id));
         const localSaved = new Set(s.saved[userId] ?? []);
         const mergedSaved = new Set([...localSaved, ...realSavedIds]);
         const acceptanceKeys = new Set(s.acceptances.map((a) => `${a.userId}:${a.documentSlug}:${a.version}`));
-        const threadIds = new Set(s.threads.map((t) => t.id));
+        const realThreadIds = new Set(realMessaging.threads.map((t) => t.id));
         const messageIds = new Set(s.messages.map((m) => m.id));
-        const swapIds = new Set(s.swaps.map((sw) => sw.id));
-        const agreementSwapIds = new Set(s.agreements.map((a) => a.swapId));
-        const extraServiceIds = new Set(s.extraServices.map((es) => es.id));
-        const serviceOrderIds = new Set(s.serviceOrders.map((o) => o.id));
-        const notificationIds = new Set(s.notifications.map((n) => n.id));
+        const realSwapIds = new Set(realSwaps.swaps.map((sw) => sw.id));
+        const realExtraServiceIds = new Set(realExtraServices.map((es) => es.id));
+        const realServiceOrderIds = new Set(realServiceOrders.map((o) => o.id));
+        const realNotificationIds = new Set(realNotifications.map((n) => n.id));
         return {
           ...s,
-          offers: [...realOffers.filter((o) => !offerIds.has(o.id)), ...s.offers],
-          bookings: [...realBookings.filter((b) => !bookingIds.has(b.id)), ...s.bookings],
+          offers: [...realOffers, ...s.offers.filter((o) => !realOfferIds.has(o.id))],
+          bookings: [...realBookings, ...s.bookings.filter((b) => !realBookingIds.has(b.id))],
           saved: { ...s.saved, [userId]: Array.from(mergedSaved) },
-          swaps: [...realSwaps.swaps.filter((sw) => !swapIds.has(sw.id)), ...s.swaps],
+          swaps: [...realSwaps.swaps, ...s.swaps.filter((sw) => !realSwapIds.has(sw.id))],
           agreements: [
-            ...s.agreements,
-            ...realSwaps.agreements.filter((a) => !agreementSwapIds.has(a.swapId)),
+            ...s.agreements.filter((a) => !realSwaps.agreements.some((ra) => ra.swapId === a.swapId)),
+            ...realSwaps.agreements,
           ],
-          extraServices: [...s.extraServices, ...realExtraServices.filter((es) => !extraServiceIds.has(es.id))],
+          extraServices: [...realExtraServices, ...s.extraServices.filter((es) => !realExtraServiceIds.has(es.id))],
           serviceOrders: [
-            ...realServiceOrders.filter((o) => !serviceOrderIds.has(o.id)),
-            ...s.serviceOrders,
+            ...realServiceOrders,
+            ...s.serviceOrders.filter((o) => !realServiceOrderIds.has(o.id)),
           ],
           notifications: [
-            ...realNotifications.filter((n) => !notificationIds.has(n.id)),
-            ...s.notifications,
+            ...realNotifications,
+            ...s.notifications.filter((n) => !realNotificationIds.has(n.id)),
           ],
           acceptances: [
             ...s.acceptances,
             ...realAcceptances.filter((a) => !acceptanceKeys.has(`${a.userId}:${a.documentSlug}:${a.version}`)),
           ],
-          threads: [...realMessaging.threads.filter((t) => !threadIds.has(t.id)), ...s.threads],
+          threads: [...realMessaging.threads, ...s.threads.filter((t) => !realThreadIds.has(t.id))],
           messages: [...s.messages, ...realMessaging.messages.filter((m) => !messageIds.has(m.id))],
         };
       });
