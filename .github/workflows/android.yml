@@ -1,0 +1,53 @@
+name: Android build
+
+# Builds a debug APK of the Redormi mobile app (Capacitor wrapper around the
+# static web export). Runs on GitHub's runners because the Android SDK's
+# platform/build-tools packages (hosted on dl.google.com) aren't reachable
+# from the sandbox this project is normally developed in.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "redormi-app/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: redormi-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the web export + sync into the native Android project
+        run: npm run cap:sync
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the Android SDK platform this app targets
+        run: sdkmanager --install "platform-tools" "platforms;android-36"
+
+      - name: Build debug APK
+        working-directory: redormi-app/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redormi-debug-apk
+          path: redormi-app/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
