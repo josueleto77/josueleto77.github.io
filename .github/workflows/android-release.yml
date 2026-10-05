@@ -1,0 +1,70 @@
+name: Android release (signed AAB)
+
+# Builds a signed Android App Bundle (.aab) for Google Play Store, using the
+# release keystore stored as repo secrets. Unlike android.yml (debug APK,
+# builds on every push to main), this only runs when explicitly asked for,
+# since each run produces a real, signable-for-production release artifact.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   ANDROID_KEYSTORE_BASE64    base64 of the .keystore file
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-aab:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: redormi-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the web export + sync into the native Android project
+        run: npm run cap:sync
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Accept SDK licenses and install the platform this app targets
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36"
+
+      - name: Decode release keystore
+        working-directory: redormi-app/android/app
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
+
+      - name: Build signed release AAB
+        working-directory: redormi-app/android
+        env:
+          ANDROID_KEYSTORE_FILE: release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease --no-daemon
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f redormi-app/android/app/release.keystore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: redormi-release-aab
+          path: redormi-app/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
