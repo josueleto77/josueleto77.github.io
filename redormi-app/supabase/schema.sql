@@ -552,6 +552,31 @@ create policy "Users can record their own acceptances"
   on public.legal_acceptances for insert
   with check (user_id = auth.uid());
 
+-- The client never sends an ip -- this fills it in from the real request,
+-- so the audit trail records who actually e-signed, not a guess the
+-- client could spoof.
+create or replace function public.capture_acceptance_ip()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  forwarded text;
+begin
+  forwarded := nullif(split_part(coalesce(current_setting('request.headers', true), '')::json->>'x-forwarded-for', ',', 1), '');
+  if forwarded is not null then
+    new.ip := trim(forwarded);
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists set_acceptance_ip on public.legal_acceptances;
+create trigger set_acceptance_ip
+  before insert on public.legal_acceptances
+  for each row execute function public.capture_acceptance_ip();
+
 -- ------------------------------------------------------------
 -- last_minute_deals: host-published discounted windows, surfaced on
 -- the Special Offers feed.

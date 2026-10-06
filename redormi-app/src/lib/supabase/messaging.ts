@@ -1,12 +1,5 @@
-// Service layer for real threads/messages (see supabase/schema.sql).
-//
-// Not yet wired into AppDataContext: ensureThread() currently returns a
-// thread id synchronously (three call sites immediately navigate to
-// `/messages?thread=<id>`), while creating a real thread is necessarily
-// async. Wiring this up needs those three callers converted to
-// await ensureThread(...) first so the id in the URL always matches what
-// ends up in state — rather than do that as a drive-by, these functions
-// are ready to use once that's done.
+// Service layer for real threads/messages (see supabase/schema.sql),
+// wired into AppDataContext's ensureThread/sendMessage/markThreadRead.
 import { supabase } from "@/lib/supabase/client";
 import type { Message, MessageThread } from "@/lib/types";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "@/components/ui/icons";
 import EmptyState from "@/components/ui/EmptyState";
 import DealCard from "@/components/listing/DealCard";
@@ -8,13 +8,32 @@ import { useAppData } from "@/lib/store/AppDataContext";
 import { haversineKm } from "@/lib/utils/rank";
 import type { LastMinuteDeal } from "@/lib/types";
 
-const YOU = { lat: 47.6062, lng: -122.3321 }; // simulated "your location": Seattle, WA
+// Fallback origin for "closest" sorting when the browser's real location
+// isn't available (denied, unsupported, or not requested yet): Seattle, WA.
+const FALLBACK_LOCATION = { lat: 47.6062, lng: -122.3321 };
 
 type Sort = "biggest" | "soonest" | "closest";
 
 export default function SpecialOffersClient() {
   const { state } = useAppData();
   const [sort, setSort] = useState<Sort>("biggest");
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationDenied, setLocationDenied] = useState(false);
+
+  const requestLocation = useCallback(() => {
+    if (userLocation || locationDenied || typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => setLocationDenied(true),
+      { timeout: 8000 }
+    );
+  }, [userLocation, locationDenied]);
+
+  useEffect(() => {
+    if (sort === "closest") requestLocation();
+  }, [sort, requestLocation]);
+
+  const origin = userLocation ?? FALLBACK_LOCATION;
 
   const offerDeals: LastMinuteDeal[] = useMemo(() => {
     const covered = new Set(state.deals.map((d) => d.listingId));
@@ -44,10 +63,12 @@ export default function SpecialOffersClient() {
         return [...withListing].sort((a, b) => new Date(a.deal.expiresAt).getTime() - new Date(b.deal.expiresAt).getTime());
       case "closest":
         return [...withListing].sort(
-          (a, b) => haversineKm(YOU, { lat: a.listing.lat, lng: a.listing.lng }) - haversineKm(YOU, { lat: b.listing.lat, lng: b.listing.lng })
+          (a, b) =>
+            haversineKm(origin, { lat: a.listing.lat, lng: a.listing.lng }) -
+            haversineKm(origin, { lat: b.listing.lat, lng: b.listing.lng })
         );
     }
-  }, [offerDeals, state.listings, sort]);
+  }, [offerDeals, state.listings, sort, origin]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -75,7 +96,11 @@ export default function SpecialOffersClient() {
             {opt.label}
           </button>
         ))}
-        {sort === "closest" && <span className="text-xs text-ink/40">(simulated from Seattle, WA)</span>}
+        {sort === "closest" && !userLocation && (
+          <span className="text-xs text-ink/40">
+            {locationDenied ? "(from Seattle, WA — enable location for accuracy)" : "(getting your location…)"}
+          </span>
+        )}
       </div>
 
       {sorted.length === 0 ? (
