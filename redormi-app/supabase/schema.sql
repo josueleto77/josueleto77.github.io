@@ -608,3 +608,39 @@ create policy "Hosts can view their own Stripe account status"
 alter table public.bookings add column if not exists stripe_checkout_session_id text;
 alter table public.bookings add column if not exists stripe_payment_intent_id text;
 alter table public.bookings add column if not exists payment_status text not null default 'unpaid';
+
+-- ============================================================
+-- Account deletion requests (Google Play / App Store data-deletion
+-- requirement). Submitted from the public /account/delete page, which
+-- works for both signed-in and signed-out visitors -- so inserts are
+-- open to anon/authenticated and only admins can read/resolve them.
+-- ============================================================
+create table if not exists public.account_deletion_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  email text not null,
+  reason text,
+  status text not null default 'pending' check (status in ('pending', 'completed', 'rejected')),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+alter table public.account_deletion_requests enable row level security;
+
+drop policy if exists "Anyone can submit a deletion request" on public.account_deletion_requests;
+create policy "Anyone can submit a deletion request"
+  on public.account_deletion_requests for insert
+  to anon, authenticated
+  with check (true);
+
+drop policy if exists "Admins can view deletion requests" on public.account_deletion_requests;
+create policy "Admins can view deletion requests"
+  on public.account_deletion_requests for select
+  to authenticated
+  using (exists (select 1 from public.profiles where id = auth.uid() and is_admin = true));
+
+drop policy if exists "Admins can update deletion requests" on public.account_deletion_requests;
+create policy "Admins can update deletion requests"
+  on public.account_deletion_requests for update
+  to authenticated
+  using (exists (select 1 from public.profiles where id = auth.uid() and is_admin = true));
