@@ -142,35 +142,24 @@ export default function Navbar() {
         </button>
       </div>
 
+      {/* Rent/Switch/Messages/Account live in the bottom tab bar on mobile
+          now -- this panel only holds what doesn't fit there. */}
       {open && (
         <nav className="border-t border-navy/10 bg-cream px-4 py-3 lg:hidden" aria-label="Mobile">
           <div className="flex flex-col gap-1">
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8"
-              >
-                {dict.nav[link.key]}
-              </Link>
-            ))}
+            <Link href="/hot-places" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
+              {dict.nav.hotPlaces}
+            </Link>
+            <Link href="/special-offers" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
+              {dict.nav.specialOffers}
+            </Link>
             <Link href="/host/new" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
               {dict.nav.listYourHome}
             </Link>
             {isLoggedIn ? (
               <>
-                <Link href="/messages" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
-                  {dict.nav.messages} {unread > 0 && <span className="ml-1 rounded-full bg-coral px-1.5 text-xs text-white">{unread}</span>}
-                </Link>
-                <Link href="/dashboard/guest" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
-                  Guest dashboard
-                </Link>
                 <Link href="/dashboard/host" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
                   Host dashboard
-                </Link>
-                <Link href="/account" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
-                  {dict.nav.account}
                 </Link>
                 {currentUser?.isAdmin && (
                   <Link href="/admin" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-sm font-semibold text-navy hover:bg-navy/8">
