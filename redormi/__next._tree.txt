@@ -1,5 +1,5 @@
-:HL["/redormi/_next/static/chunks/0fbp8lz7kp2sq.css","style"]
+:HL["/redormi/_next/static/chunks/3gixc2l9gj_m7.css","style"]
 :HL["/redormi/_next/static/media/a343f882a40d2cc9-s.p.1sj6eobyi31rd.woff2","font",{"crossOrigin":"","type":"font/woff2"}]
 :HL["/redormi/logo-redormi.png","image"]
 :HL["https://picsum.photos/seed/redormi-hero/1800/900","image"]
-0:{"tree":{"name":"","param":null,"prefetchHints":4180,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":4256,"slots":null}}},"staleTime":300,"buildId":"cJSg-k1hoHXVrs2lst-OK"}
+0:{"tree":{"name":"","param":null,"prefetchHints":4180,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":4256,"slots":null}}},"staleTime":300,"buildId":"2Zl1ciXLYT7T3orMDs8lk"}
