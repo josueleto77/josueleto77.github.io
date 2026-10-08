@@ -828,7 +828,7 @@ function ReviewStat({ label, value }: { label: string; value: string | number })
 function Tag({ children, tone = "coral" }: { children: React.ReactNode; tone?: "coral" | "sage" }) {
   const icon: IconName = tone === "sage" ? "sparkles" : "check";
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${tone === "sage" ? "bg-sage text-navy" : "bg-coral text-white"}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${tone === "sage" ? "bg-sage text-white" : "bg-coral text-white"}`}>
       <Icon name={icon} className="h-3 w-3" />
       {children}
     </span>

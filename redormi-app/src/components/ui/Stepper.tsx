@@ -10,7 +10,7 @@ export default function Stepper({ steps, current }: { steps: string[]; current: 
           <li key={step} className="flex shrink-0 items-center gap-1">
             <span
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                done ? "bg-sage text-navy" : active ? "bg-coral text-white" : "bg-navy/10 text-ink/50"
+                done ? "bg-sage text-white" : active ? "bg-coral text-white" : "bg-navy/10 text-ink/50"
               }`}
               aria-current={active ? "step" : undefined}
             >

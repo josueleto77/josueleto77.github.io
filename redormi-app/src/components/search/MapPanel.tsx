@@ -9,7 +9,7 @@ import { listingHref } from "@/lib/utils/listingHref";
 
 const BUBBLE_CLASSES = {
   default: "border-coral-dark bg-coral text-white",
-  switch: "border-sage-dark bg-sage text-navy",
+  switch: "border-sage-dark bg-sage text-white",
   active: "border-navy bg-navy text-cream",
 };
 
