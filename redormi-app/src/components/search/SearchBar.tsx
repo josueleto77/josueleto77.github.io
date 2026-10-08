@@ -53,7 +53,7 @@ export default function SearchBar({
           type="button"
           onClick={() => setMode("switch")}
           className={`rounded-full px-4 py-1.5 text-sm font-bold transition-colors ${
-            mode === "switch" ? "bg-sage text-navy" : "text-navy/60"
+            mode === "switch" ? "bg-sage text-white" : "text-navy/60"
           }`}
         >
           {dict.search.switchMode}

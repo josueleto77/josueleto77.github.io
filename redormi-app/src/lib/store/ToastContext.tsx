@@ -47,7 +47,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             role="status"
             className={`animate-fade-in pointer-events-auto rounded-xl border px-4 py-3 text-sm font-semibold shadow-lg ${
               t.tone === "success"
-                ? "border-sage-dark/30 bg-sage text-navy"
+                ? "border-sage-dark/30 bg-sage text-white"
                 : t.tone === "error"
                   ? "border-coral-dark/30 bg-coral text-white"
                   : "border-navy/10 bg-navy text-cream"

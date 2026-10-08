@@ -99,7 +99,7 @@ export default function Home() {
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
         <div className="grid items-center gap-10 rounded-3xl bg-sage/25 p-8 sm:p-12 lg:grid-cols-2">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-sage px-3 py-1 text-xs font-bold text-navy">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-sage px-3 py-1 text-xs font-bold text-white">
               <Icon name="sparkles" className="h-3.5 w-3.5" />
               Redormi Switch
             </span>

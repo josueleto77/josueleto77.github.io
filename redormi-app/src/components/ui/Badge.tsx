@@ -4,7 +4,7 @@ type Tone = "coral" | "sage" | "navy" | "cream" | "outline";
 
 const TONE_CLASSES: Record<Tone, string> = {
   coral: "bg-coral text-white",
-  sage: "bg-sage text-navy",
+  sage: "bg-sage text-white",
   navy: "bg-navy text-cream",
   cream: "bg-cream text-navy border border-navy/15",
   outline: "bg-transparent text-navy border border-navy/25",

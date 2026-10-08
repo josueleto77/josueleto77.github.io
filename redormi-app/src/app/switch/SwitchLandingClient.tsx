@@ -53,7 +53,7 @@ export default function SwitchLandingClient() {
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-5">
           {STEPS.map((s, i) => (
             <div key={s.title} className="rounded-2xl border border-navy/10 bg-white p-5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sage text-xs font-bold text-navy">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sage text-xs font-bold text-white">
                 {i + 1}
               </span>
               <span className="mt-3 flex h-9 w-9 items-center justify-center rounded-full bg-coral/10 text-coral">

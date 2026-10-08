@@ -10,8 +10,11 @@
   --coral-dark: #a63d22;
   --coral-bright: #e97858;
   --cream: #f7f4ee;
-  --sage: #a8b5a2;
-  --sage-dark: #7f9078;
+  /* Switch's accent -- was a muted sage green, too close to --coral-bright's
+     warm family to read as distinct. Teal reads cooler and pairs with
+     light text, unlike sage which was light enough for navy text. */
+  --sage: #2f6f6a;
+  --sage-dark: #1f4f4b;
   --ink: #242424;
 
   --background: var(--cream);

@@ -54,7 +54,7 @@ export default function SearchPageClient() {
           <button
             onClick={() => setFilters((f) => ({ ...f, mode: "switch", switchOnly: true }))}
             className={`rounded-full px-4 py-1.5 text-sm font-bold ${
-              filters.mode === "switch" ? "bg-sage text-navy" : "text-navy/60"
+              filters.mode === "switch" ? "bg-sage text-white" : "text-navy/60"
             }`}
           >
             Switch

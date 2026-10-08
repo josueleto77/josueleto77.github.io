@@ -35,7 +35,7 @@ export default function Tabs({
             {item.count !== undefined && (
               <span
                 className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${
-                  isActive ? (tone === "coral" ? "bg-coral text-white" : "bg-sage text-navy") : "bg-navy/8 text-ink/60"
+                  isActive ? (tone === "coral" ? "bg-coral text-white" : "bg-sage text-white") : "bg-navy/8 text-ink/60"
                 }`}
               >
                 {item.count}
