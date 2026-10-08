@@ -38,6 +38,10 @@
 
 html {
   scroll-behavior: smooth;
+  /* Scales every rem-based Tailwind utility (text, spacing, icon sizes)
+     proportionally, site-wide -- the simplest lever for "feels bigger and
+     easier to read" without hand-editing every className. */
+  font-size: 110%;
 }
 
 body {

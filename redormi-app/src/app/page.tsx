@@ -23,32 +23,24 @@ export default function Home() {
   return (
     <div>
       <section className="relative">
-        <div className="relative h-[56vh] min-h-[380px] w-full overflow-hidden sm:h-[62vh] sm:max-h-[600px]">
+        <div className="relative h-44 w-full overflow-hidden sm:h-56">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="https://picsum.photos/seed/redormi-hero/1800/900"
             alt=""
             className="h-full w-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-navy/80 via-navy/25 to-navy/10" />
-          <div className="absolute inset-0 flex items-center">
+          <div className="absolute inset-0 bg-gradient-to-t from-navy/85 via-navy/35 to-navy/10" />
+          <div className="absolute inset-0 flex items-end pb-7 sm:items-center sm:pb-0">
             <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-              <p className="mb-3 text-sm font-bold uppercase tracking-[0.2em] text-white">
-                Stay. Rest. Redormi.
-              </p>
-              <h1 className="max-w-2xl text-4xl font-extrabold text-white sm:text-5xl lg:text-6xl">
-                Rent the classic way, or swap homes and pay nothing for the stay.
-              </h1>
-              <p className="mt-4 max-w-xl text-base text-white/85 sm:text-lg">
-                Redormi is a full accommodation marketplace — plus Redormi Switch, reciprocal home exchanges
-                between verified owners. No rent, just a home for a home.
-              </p>
+              <h1 className="text-3xl font-extrabold text-white sm:text-5xl">Stay. Rest. Redormi.</h1>
+              <p className="mt-1.5 text-base text-white/85 sm:text-lg">Rent a home, or swap one — no rent, ever.</p>
             </div>
           </div>
         </div>
 
         {/* search card floats over the seam between the hero photo and the page */}
-        <div className="relative z-10 mx-auto -mt-8 max-w-5xl px-4 sm:-mt-10 sm:px-6">
+        <div className="relative z-10 mx-auto -mt-7 max-w-5xl px-4 sm:-mt-10 sm:px-6">
           <SearchBar variant="hero" />
         </div>
       </section>
