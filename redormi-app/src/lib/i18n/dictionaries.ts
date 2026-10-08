@@ -16,6 +16,9 @@ export interface Dictionary {
     account: string;
     dashboard: string;
     logout: string;
+    explore: string;
+    trips: string;
+    profile: string;
   };
   trustBar: {
     curated: string;
@@ -77,6 +80,9 @@ export const dictionaries: Record<Locale, Dictionary> = {
       account: "Account",
       dashboard: "Dashboard",
       logout: "Log out",
+      explore: "Explore",
+      trips: "Trips",
+      profile: "Profile",
     },
     trustBar: {
       curated: "Curated Places",
@@ -136,6 +142,9 @@ export const dictionaries: Record<Locale, Dictionary> = {
       account: "Cuenta",
       dashboard: "Panel",
       logout: "Cerrar sesión",
+      explore: "Explorar",
+      trips: "Viajes",
+      profile: "Perfil",
     },
     trustBar: {
       curated: "Lugares curados",

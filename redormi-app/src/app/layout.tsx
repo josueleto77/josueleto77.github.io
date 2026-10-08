@@ -5,6 +5,7 @@ import "./globals.css";
 import Providers from "@/components/layout/Providers";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
+import BottomTabBar from "@/components/layout/BottomTabBar";
 import SupportBotWidget from "@/components/support/SupportBotWidget";
 
 const manrope = Manrope({
@@ -36,11 +37,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <div className="flex min-h-screen flex-col">
             <Navbar />
-            <main id="main-content" className="flex-1">
+            <main id="main-content" className="flex-1 pb-20 lg:pb-0">
               {children}
             </main>
             <Footer />
           </div>
+          <BottomTabBar />
           <SupportBotWidget />
         </Providers>
       </body>
