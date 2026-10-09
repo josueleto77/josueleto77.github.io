@@ -259,10 +259,23 @@ Connect.
 membership ($99/year), an App Store Connect listing (screenshots, description, privacy policy URL, App
 Privacy questionnaire), and to submit the archived build for App Review.
 
-## What's not real
+## What's real, and what's not
 
-This is explicitly the "mock data" path from the build brief. No Stripe, no Prisma/Postgres, no NextAuth, no
-Mapbox, no real email/SMS. Payments, ID verification, OAuth, and 2FA are all simulated with toasts and fake
-delays; the `/search` map is a stylized, non-geographic placeholder (see `MapPanel.tsx`) rather than a real
-Mapbox/Google Maps embed. Everything is written behind named service functions/context actions specifically
-so a real backend can be swapped in without touching the components that call them.
+Started as a mock-data build, but most of the stack behind it is real now:
+
+- **Backend**: Supabase Postgres with RLS, not mock in-memory state — see `supabase/schema.sql`.
+- **Auth**: Supabase Auth (email/password), not simulated.
+- **Payments**: Stripe, running in live mode — real checkouts, payouts, and host Connect onboarding.
+- **Identity verification**: Didit, a real hosted ID-check flow (required for hosts before publishing, and
+  for guests before their first booking).
+- **Email**: Resend, for real transactional email (booking confirmations, cancellations, etc.).
+- **Map**: a real Leaflet + OpenStreetMap embed in `MapPanel.tsx`, not a placeholder.
+
+Still not built:
+
+- **Phone verification / SMS / 2FA** — phone number is collected but never verified; see the note in
+  `SignupWizard.tsx`.
+- **OAuth / social sign-in** — email + password only, no Google/Apple login.
+
+Seed/demo listings and deals (the ones with `lst_`-style IDs) are separate from this and controlled by
+`NEXT_PUBLIC_SHOW_SEED_LISTINGS` — on for the GitHub Pages demo, off for redormi.com.

@@ -669,3 +669,65 @@ create policy "Admins can update deletion requests"
   on public.account_deletion_requests for update
   to authenticated
   using (exists (select 1 from public.profiles where id = auth.uid() and is_admin = true));
+
+-- ============================================================
+-- Hardening pass: every trigger function below is meant to run only as
+-- part of a trigger, invoked internally by Postgres -- which doesn't
+-- check EXECUTE privilege on the triggering role. The default PUBLIC
+-- grant on newly created functions made them directly callable over
+-- PostgREST at /rest/v1/rpc/<fn>, though, where none of them do
+-- anything useful (they all read NEW/OLD/TG_* trigger-only variables).
+-- Revoking from PUBLIC closes that unauthenticated RPC surface without
+-- touching the triggers themselves.
+-- ============================================================
+revoke execute on function public.capture_acceptance_ip() from public;
+revoke execute on function public.create_booking_from_accepted_offer() from public;
+revoke execute on function public.enforce_dispute_rate_limit() from public;
+revoke execute on function public.enforce_message_rate_limit() from public;
+revoke execute on function public.enforce_offer_rate_limit() from public;
+revoke execute on function public.handle_new_user() from public;
+revoke execute on function public.mask_message_contact_info() from public;
+revoke execute on function public.prevent_blocking_confirmed_dates() from public;
+revoke execute on function public.prevent_booking_overlap() from public;
+revoke execute on function public.protect_identity_verified() from public;
+revoke execute on function public.protect_review_fields() from public;
+revoke execute on function public.recompute_listing_rating() from public;
+revoke execute on function public.require_identity_verification_for_booking() from public;
+
+-- Covering indexes for every foreign key that lacked one -- cheap to add,
+-- and avoids sequential scans on the referenced side of a delete/update
+-- or a join through these columns as tables grow.
+create index if not exists idx_account_deletion_requests_user_id on public.account_deletion_requests(user_id);
+create index if not exists idx_bookings_from_offer_id on public.bookings(from_offer_id);
+create index if not exists idx_bookings_guest_id on public.bookings(guest_id);
+create index if not exists idx_bookings_listing_id on public.bookings(listing_id);
+create index if not exists idx_disputes_against_id on public.disputes(against_id);
+create index if not exists idx_disputes_booking_id on public.disputes(booking_id);
+create index if not exists idx_disputes_raised_by_id on public.disputes(raised_by_id);
+create index if not exists idx_disputes_resolved_by on public.disputes(resolved_by);
+create index if not exists idx_disputes_swap_id on public.disputes(swap_id);
+create index if not exists idx_extra_service_orders_booking_id on public.extra_service_orders(booking_id);
+create index if not exists idx_extra_service_orders_guest_id on public.extra_service_orders(guest_id);
+create index if not exists idx_extra_service_orders_service_id on public.extra_service_orders(service_id);
+create index if not exists idx_extra_service_orders_swap_id on public.extra_service_orders(swap_id);
+create index if not exists idx_extra_services_host_id on public.extra_services(host_id);
+create index if not exists idx_extra_services_listing_id on public.extra_services(listing_id);
+create index if not exists idx_last_minute_deals_listing_id on public.last_minute_deals(listing_id);
+create index if not exists idx_legal_acceptances_user_id on public.legal_acceptances(user_id);
+create index if not exists idx_listing_blocked_dates_listing_id on public.listing_blocked_dates(listing_id);
+create index if not exists idx_listings_host_id on public.listings(host_id);
+create index if not exists idx_messages_sender_id on public.messages(sender_id);
+create index if not exists idx_messages_thread_id on public.messages(thread_id);
+create index if not exists idx_notifications_user_id on public.notifications(user_id);
+create index if not exists idx_offers_guest_id on public.offers(guest_id);
+create index if not exists idx_offers_listing_id on public.offers(listing_id);
+create index if not exists idx_reviews_author_id on public.reviews(author_id);
+create index if not exists idx_reviews_listing_id on public.reviews(listing_id);
+create index if not exists idx_saved_listings_listing_id on public.saved_listings(listing_id);
+create index if not exists idx_swaps_from_listing_id on public.swaps(from_listing_id);
+create index if not exists idx_swaps_from_owner_id on public.swaps(from_owner_id);
+create index if not exists idx_swaps_to_listing_id on public.swaps(to_listing_id);
+create index if not exists idx_swaps_to_owner_id on public.swaps(to_owner_id);
+create index if not exists idx_thread_reads_user_id on public.thread_reads(user_id);
+create index if not exists idx_threads_booking_id on public.threads(booking_id);
+create index if not exists idx_threads_listing_id on public.threads(listing_id);
