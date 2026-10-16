@@ -22,7 +22,7 @@ export default function Logo({ className = "", variant = "dark", withTagline = f
       {withTagline && (
         <span
           className="mt-0.5 text-[11px] font-semibold tracking-wide"
-          style={{ color: variant === "dark" ? "#c24b2e" : "#e97858" }}
+          style={{ color: variant === "dark" ? "#b84d37" : "#d1664a" }}
         >
           Stay. Rest. Redormi.
         </span>

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Manrope } from "next/font/google";
+import { Manrope, DM_Sans } from "next/font/google";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
 import Providers from "@/components/layout/Providers";
@@ -12,6 +12,12 @@ const manrope = Manrope({
   variable: "--font-manrope",
   subsets: ["latin"],
   weight: ["400", "600", "800"],
+});
+
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -33,7 +39,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${manrope.variable} antialiased`}>
+      <body className={`${manrope.variable} ${dmSans.variable} antialiased`}>
         <Providers>
           <div className="flex min-h-screen flex-col">
             <Navbar />
