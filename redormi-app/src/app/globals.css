@@ -1,21 +1,27 @@
 @import "tailwindcss";
 
 :root {
-  --navy: #172a3a;
-  /* Brand swatch #E97858 is reserved for the logo mark and large decorative
+  /* v2 brand (2026): warm terracotta + deep forest + ivory, replacing the
+     original navy/coral/cream system. Variable names kept stable (--navy,
+     --coral, etc.) so the ~70 files already using bg-navy/text-coral/etc.
+     pick up the new palette without a repo-wide rename. */
+  --navy: #243e3b;
+  /* Brand swatch #D1664A is reserved for the logo mark and large decorative
      accents (see --coral-bright). Everywhere else — buttons, links, badges —
-     uses this deeper, WCAG AA-safe coral so text/icon contrast holds at
+     uses this deeper, WCAG AA-safe terracotta so text/icon contrast holds at
      normal sizes; it reads as the same hue, just accessible at 14px. */
-  --coral: #c24b2e;
-  --coral-dark: #a63d22;
-  --coral-bright: #e97858;
-  --cream: #f7f4ee;
-  /* Switch's accent -- was a muted sage green, too close to --coral-bright's
-     warm family to read as distinct. Teal reads cooler and pairs with
-     light text, unlike sage which was light enough for navy text. */
+  --coral: #b84d37;
+  --coral-dark: #9d3e2c;
+  --coral-bright: #d1664a;
+  --cream: #faf7f2;
+  --sand: #e9dccb;
+  /* Switch's accent -- a muted teal, distinct from both the warm
+     terracotta/sand family and the forest neutral. Untouched by the v2
+     palette refresh: it already reads fine against ivory and is used
+     site-wide as the generic "positive/verified" tone, not just on Switch. */
   --sage: #2f6f6a;
   --sage-dark: #1f4f4b;
-  --ink: #242424;
+  --ink: #202926;
 
   --background: var(--cream);
   --foreground: var(--ink);
@@ -27,16 +33,20 @@
   --color-coral-dark: var(--coral-dark);
   --color-coral-bright: var(--coral-bright);
   --color-cream: var(--cream);
+  --color-sand: var(--sand);
   --color-sage: var(--sage);
   --color-sage-dark: var(--sage-dark);
   --color-ink: var(--ink);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-manrope);
+  --font-sans: var(--font-dm-sans);
+  --font-display: var(--font-manrope);
+  --radius-2xl: 1.25rem;
+  --radius-3xl: 1.75rem;
 }
 
 * {
-  border-color: rgba(36, 36, 36, 0.1);
+  border-color: rgba(32, 41, 38, 0.1);
 }
 
 html {
@@ -50,10 +60,11 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-manrope), system-ui, sans-serif;
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
 }
 
 h1, h2, h3, h4 {
+  font-family: var(--font-manrope), system-ui, sans-serif;
   font-weight: 800;
   letter-spacing: -0.02em;
 }
@@ -101,7 +112,7 @@ select:focus-visible,
   100% { background-position: 400px 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #eae6dc 25%, #f3f0e8 37%, #eae6dc 63%);
+  background: linear-gradient(90deg, #ebe3d6 25%, #f5efe4 37%, #ebe3d6 63%);
   background-size: 400px 100%;
   animation: shimmer 1.4s ease infinite;
 }
@@ -111,6 +122,6 @@ select:focus-visible,
   height: 6px;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(23, 42, 58, 0.25);
+  background: rgba(36, 62, 59, 0.25);
   border-radius: 999px;
 }

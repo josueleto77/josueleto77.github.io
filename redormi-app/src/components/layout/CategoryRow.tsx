@@ -23,7 +23,7 @@ export default function CategoryRow() {
             href={c.href}
             className="group flex shrink-0 flex-col items-center gap-2 text-navy/60 transition-colors hover:text-navy"
           >
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-cream text-navy/70 transition-colors group-hover:bg-coral/10 group-hover:text-coral">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-sand/70 text-navy/70 transition-colors group-hover:bg-coral/10 group-hover:text-coral">
               <Icon name={c.icon} className="h-5 w-5" />
             </span>
             <span className="whitespace-nowrap text-xs font-semibold">{c.label}</span>

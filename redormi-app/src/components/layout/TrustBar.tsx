@@ -13,7 +13,7 @@ const ITEMS: { key: "curated" | "secure" | "authentic" | "support"; icon: IconNa
 export default function TrustBar({ className = "" }: { className?: string }) {
   const { dict } = useI18n();
   return (
-    <div className={`border-y border-navy/10 bg-white/60 ${className}`}>
+    <div className={`border-y border-navy/10 bg-sand/35 ${className}`}>
       <div className="mx-auto grid max-w-7xl grid-cols-2 gap-4 px-4 py-6 sm:grid-cols-4 sm:px-6">
         {ITEMS.map((item) => (
           <div key={item.key} className="flex items-center gap-2.5">

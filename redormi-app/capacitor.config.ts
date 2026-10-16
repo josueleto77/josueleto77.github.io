@@ -4,12 +4,12 @@ const config: CapacitorConfig = {
   appId: "com.redormi.app",
   appName: "Redormi",
   webDir: "capacitor-www",
-  backgroundColor: "#F7F4EE",
+  backgroundColor: "#FAF7F2",
   android: {
-    backgroundColor: "#F7F4EE",
+    backgroundColor: "#FAF7F2",
   },
   ios: {
-    backgroundColor: "#F7F4EE",
+    backgroundColor: "#FAF7F2",
   },
 };
 

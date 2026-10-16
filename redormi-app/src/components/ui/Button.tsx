@@ -32,7 +32,7 @@ type LinkButtonProps = CommonProps & { href: string; target?: string; rel?: stri
 
 function classes(variant: Variant, size: Size, fullWidth: boolean | undefined, className: string | undefined) {
   return [
-    "inline-flex items-center justify-center font-semibold transition-colors cursor-pointer whitespace-nowrap",
+    "inline-flex items-center justify-center font-semibold transition-colors cursor-pointer whitespace-nowrap font-display",
     VARIANT_CLASSES[variant],
     SIZE_CLASSES[size],
     fullWidth ? "w-full" : "",
