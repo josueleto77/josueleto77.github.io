@@ -20,6 +20,7 @@
     </div>
     <nav id="nav"></nav>
     <div class="sidebar-foot">
+      <div id="userBox"></div>
       <button class="btn ghost sm full" id="themeBtn">◐ Tema</button>
     </div>
   </aside>
@@ -28,6 +29,7 @@
       <button class="icon-btn mobile-only" id="menuBtn" aria-label="Menú">☰</button>
       <button class="search" id="searchBtn"><span>⌕</span> Buscar clientes, trabajos, facturas… <kbd>Ctrl K</kbd></button>
       <div class="division-filter" id="divFilter"></div>
+      <span class="sync" id="syncStatus" title="Estado de sincronización"></span>
       <div class="new-wrap">
         <button class="btn primary" id="newBtn">＋ Nuevo</button>
         <div class="dropdown" id="newMenu">
@@ -42,8 +44,11 @@
     <main id="view" tabindex="-1"></main>
   </div>
 </div>
+<div id="auth" hidden></div>
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

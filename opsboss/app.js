@@ -189,9 +189,105 @@ function load() {
   try { const raw = localStorage.getItem(STORE_KEY); if (raw) return JSON.parse(raw); } catch (e) { /* sin acceso */ }
   return seed();
 }
-function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) { toast('No se pudo guardar localmente (almacenamiento lleno o bloqueado).'); } }
-function log(text) { db.activity.unshift({ id: uid(), text, ts: iso(new Date()) }); db.activity = db.activity.slice(0, 200); }
-db = load();
+function save() {
+  if (cloud.on) { setSync('saving'); clearTimeout(cloud.timer); cloud.timer = setTimeout(sync, 450); return; }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) { toast('No se pudo guardar localmente (almacenamiento lleno o bloqueado).'); }
+}
+function log(text) { db.activity.unshift({ id: uid(), text, ts: iso(new Date()), by: cloud.user ? cloud.user.email : undefined }); db.activity = db.activity.slice(0, 200); }
+function blankDb() { const d = seed(); return { ...d, techs: [], customers: [], leads: [], estimates: [], jobs: [], invoices: [], plans: [], permits: [], activity: [] }; }
+
+/* ───────────── Nube (Supabase) ───────────── */
+const CFG = window.OPSBOSS_CONFIG || {};
+const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity'];
+const TABLE = 'opsboss_records';
+const ROLE_LABEL = { owner: 'Dueño', admin: 'Administrador', office: 'Oficina', tech: 'Técnico' };
+const cloud = { on: false, sb: null, user: null, role: null, shadow: new Map(), timer: null, busy: false, again: false, pendingRender: false };
+const canon = v => JSON.stringify(v, (k, val) => val && typeof val === 'object' && !Array.isArray(val) ? Object.keys(val).sort().reduce((o, key) => (o[key] = val[key], o), {}) : val);
+const SEP = '\u0001';
+function snapshot() {
+  const m = new Map();
+  COLLS.forEach(c => (db[c] || []).forEach(r => { if (r && r.id) m.set(c + SEP + r.id, canon(r)); }));
+  if (db.settings) m.set('settings' + SEP + 'main', canon(db.settings));
+  return m;
+}
+function setSync(st, msg) {
+  const el = $('#syncStatus'); if (!el) return;
+  const txt = { ok: 'Sincronizado', saving: 'Guardando…', error: 'Error de sincronización', local: 'Modo local', offline: 'Sin conexión' }[st];
+  el.className = 'sync ' + st; el.textContent = txt; el.title = msg || txt;
+}
+async function sync() {
+  if (!cloud.on) return;
+  if (cloud.busy) { cloud.again = true; return; }
+  cloud.busy = true; setSync('saving');
+  try {
+    const cur = snapshot(), ups = [], dels = {};
+    for (const [k, v] of cur) if (cloud.shadow.get(k) !== v) { const [coll, id] = k.split(SEP); ups.push({ coll, id, data: JSON.parse(v), _k: k, _v: v }); }
+    for (const k of cloud.shadow.keys()) if (!cur.has(k)) { const [coll, id] = k.split(SEP); (dels[coll] = dels[coll] || []).push(id); }
+    for (let i = 0; i < ups.length; i += 200) {
+      const chunk = ups.slice(i, i + 200);
+      const { error } = await cloud.sb.from(TABLE).upsert(chunk.map(({ coll, id, data }) => ({ coll, id, data })));
+      if (error) throw error;
+      chunk.forEach(u => cloud.shadow.set(u._k, u._v));
+    }
+    for (const [coll, ids] of Object.entries(dels)) for (let i = 0; i < ids.length; i += 200) {
+      const part = ids.slice(i, i + 200);
+      const { error } = await cloud.sb.from(TABLE).delete().eq('coll', coll).in('id', part);
+      if (error) throw error;
+      part.forEach(id => cloud.shadow.delete(coll + SEP + id));
+    }
+    setSync('ok');
+  } catch (e) {
+    console.error('OpsBoss sync', e);
+    setSync(navigator.onLine === false ? 'offline' : 'error', e.message || String(e));
+    clearTimeout(cloud.timer); cloud.timer = setTimeout(sync, 5000);
+  } finally {
+    cloud.busy = false;
+    if (cloud.again) { cloud.again = false; sync(); }
+  }
+}
+async function cloudLoad() {
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await cloud.sb.from(TABLE).select('coll,id,data').order('coll').order('id').range(from, from + 999);
+    if (error) throw error;
+    rows.push(...data); if (data.length < 1000) break;
+  }
+  const d = { settings: null }; COLLS.forEach(c => d[c] = []);
+  rows.forEach(r => { if (r.coll === 'settings') d.settings = r.data; else if (d[r.coll]) d[r.coll].push(r.data); });
+  const by = k => (a, b) => String(b[k] || '').localeCompare(String(a[k] || ''));
+  ['customers', 'leads', 'estimates', 'jobs', 'invoices'].forEach(c => d[c].sort(by('createdAt')));
+  d.activity.sort(by('ts'));
+  d.pricebook.sort((a, b) => a.division.localeCompare(b.division) || a.name.localeCompare(b.name));
+  d.techs.sort((a, b) => a.name.localeCompare(b.name));
+  return { d, count: rows.length };
+}
+function applyRemote(p) {
+  const rec = p.eventType === 'DELETE' ? p.old : p.new; if (!rec || !rec.coll) return;
+  const { coll, id } = rec, key = coll + SEP + id;
+  if (p.eventType === 'DELETE') {
+    if (!cloud.shadow.has(key)) return;
+    cloud.shadow.delete(key);
+    if (coll !== 'settings' && db[coll]) db[coll] = db[coll].filter(x => x.id !== id);
+  } else {
+    const v = canon(p.new.data); if (cloud.shadow.get(key) === v) return;
+    cloud.shadow.set(key, v);
+    if (coll === 'settings') db.settings = p.new.data;
+    else if (db[coll]) { const i = db[coll].findIndex(x => x.id === id); if (i >= 0) db[coll][i] = p.new.data; else db[coll].unshift(p.new.data); }
+  }
+  remoteRender();
+}
+function remoteRender() {
+  const busy = $('#modalRoot').children.length || (document.activeElement && document.activeElement.closest('#view') && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
+  if (busy) { clearTimeout(cloud.rr); cloud.rr = setTimeout(remoteRender, 1500); return; }
+  render();
+}
+function subscribe() {
+  if (cloud.channel) cloud.sb.removeChannel(cloud.channel);
+  cloud.channel = cloud.sb.channel('opsboss-records')
+    .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, applyRemote)
+    .subscribe(st => { if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setSync('error', 'Tiempo real desconectado; los cambios de otros se verán al recargar.'); });
+}
+
 
 /* ───────────── Cálculos ───────────── */
 const cust = id => db.customers.find(c => c.id === id) || { name: '(cliente eliminado)', id: '' };
@@ -219,7 +315,7 @@ const divOK = x => state.div === 'all' || x.division === state.div;
 const custLTV = id => db.invoices.filter(i => i.customerId === id && i.status !== 'void').reduce((s, i) => s + invPaid(i), 0);
 const custBal = id => db.invoices.filter(i => i.customerId === id && !['void', 'draft'].includes(i.status)).reduce((s, i) => s + invBal(i), 0);
 const allPayments = () => db.invoices.flatMap(i => (i.payments || []).map(p => ({ ...p, division: i.division, inv: i })));
-const nextNum = k => { const p = { est: 'E-', job: 'J-', inv: 'F-' }[k]; return p + (++db.settings.counters[k]); };
+const nextNum = k => { const p = { est: 'E-', job: 'J-', inv: 'F-' }[k], coll = { est: 'estimates', job: 'jobs', inv: 'invoices' }[k]; const max = Math.max(db.settings.counters[k] || 0, ...db[coll].map(x => parseInt(String(x.number || '').replace(/\D/g, ''), 10) || 0)); db.settings.counters[k] = max + 1; return p + (max + 1); };
 
 /* ───────────── Estado UI ───────────── */
 const state = { div: 'all', week: weekStart(new Date()), tabs: {}, filters: {} };
@@ -821,6 +917,20 @@ function techModal(t) {
 }
 
 /* ───────────── CONFIGURACIÓN ───────────── */
+const canAdmin = () => !cloud.on || ['owner', 'admin'].includes(cloud.role);
+ROUTES['settings:after'] = async () => {
+  const box = $('#acl'); if (!box) return;
+  const [{ data: mem, error: e1 }, inv] = await Promise.all([cloud.sb.from('opsboss_members').select('*').order('created_at'), canAdmin() ? cloud.sb.from('opsboss_invites').select('*').order('created_at') : Promise.resolve({ data: [] })]);
+  if (!$('#acl')) return;
+  if (e1) { box.innerHTML = `<div class="auth-msg bad">${esc(e1.message)}</div>`; return; }
+  const roles = Object.entries(ROLE_LABEL).filter(([k]) => k !== 'owner' || cloud.role === 'owner');
+  box.innerHTML = `${mem.map(m => `<div class="list-item"><span class="avatar" style="background:#6366f1">${initials(m.name || m.email)}</span><div style="flex:1;min-width:0"><div class="b">${esc(m.name || '')}</div><div class="small muted">${esc(m.email)}</div></div>${canAdmin() && m.user_id !== cloud.user.id && (m.role !== 'owner' || cloud.role === 'owner') ? `<select class="inp" style="width:auto;padding:5px 8px" data-act-input="memberRole" data-id="${m.user_id}">${roles.map(([k, v]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn ghost sm danger" data-act="removeMember" data-id="${m.user_id}" title="Quitar acceso">✕</button>` : `<span class="pill">${ROLE_LABEL[m.role]}</span>`}</div>`).join('')}
+  ${canAdmin() ? `${(inv.data || []).map(i => `<div class="list-item"><span class="pill warn">Invitado</span><div style="flex:1;min-width:0" class="small">${esc(i.email)} · ${ROLE_LABEL[i.role]}</div><button class="btn ghost sm danger" data-act="removeInvite" data-email="${esc(i.email)}">✕</button></div>`).join('')}
+  <form class="row mt" id="inviteForm"><input class="inp" type="email" name="email" required placeholder="email@nexispower.com" style="flex:1;min-width:180px"><select class="inp" name="role" style="width:auto">${roles.map(([k, v]) => `<option value="${k}" ${k === 'office' ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn primary">Invitar</button></form>
+  <p class="small muted">La persona invitada entra en <b>${esc(location.origin + location.pathname)}</b> con ese email (si ya tiene cuenta de Nexis Academy, con la misma contraseña; si no, con "Crear cuenta").</p>` : ''}`;
+  const f = $('#inviteForm');
+  if (f) f.onsubmit = async ev => { ev.preventDefault(); const email = f.email.value.trim().toLowerCase(), role = f.role.value; const { error } = await cloud.sb.from('opsboss_invites').upsert({ email, role, invited_by: cloud.user.id }); if (error) toast(error.message); else { toast('Invitación creada para ' + email); ROUTES['settings:after'](); } };
+};
 ROUTES.settings = () => {
   const s = db.settings;
   const f = (k, l, type = 'text', step) => `<label class="f">${l}<input class="inp" type="${type}" ${step ? `step="${step}"` : ''} data-act-input="setting" data-k="${k}" value="${esc(s[k])}"></label>`;
@@ -829,7 +939,8 @@ ROUTES.settings = () => {
     <div class="card"><div class="card-h"><h3>Empresa</h3></div><div class="card-b form">${f('company', 'Nombre comercial')}${f('license', 'Licencias')}${f('phone', 'Teléfono')}${f('email', 'Email', 'email')}<div class="full">${f('address', 'Dirección')}</div><label class="f full">Términos en documentos<textarea class="inp" data-act-input="setting" data-k="terms">${esc(s.terms)}</textarea></label></div></div>
     <div>
       <div class="card"><div class="card-h"><h3>Impuestos y financiamiento</h3></div><div class="card-b form">${f('taxRate', 'Impuesto de venta (%)', 'number', '0.01')}${f('apr', 'APR de financiamiento (%)', 'number', '0.01')}${f('term', 'Plazo (meses)', 'number')}</div></div>
-      <div class="card mt"><div class="card-h"><h3>Datos y respaldo</h3></div><div class="card-b"><p class="small muted">Los datos se guardan en este navegador. Exporta un respaldo con frecuencia o para moverlos a otro equipo.</p><div class="row"><button class="btn" data-act="exportJson">⇩ Exportar respaldo (JSON)</button><label class="btn">⇧ Importar respaldo<input type="file" accept="application/json" hidden data-act-input="importJson"></label><button class="btn danger" data-act="resetDemo">Restablecer datos demo</button><button class="btn danger" data-act="wipe">Empezar en blanco</button></div></div></div>
+      <div class="card mt"><div class="card-h"><h3>Datos y respaldo</h3></div><div class="card-b"><p class="small muted">${cloud.on ? 'Los datos se guardan en Supabase y se comparten en tiempo real con tu equipo. Exporta un respaldo de vez en cuando.' : 'Modo local: los datos se guardan solo en este navegador. Exporta un respaldo con frecuencia.'}</p><div class="row"><button class="btn" data-act="exportJson">⇩ Exportar respaldo (JSON)</button>${canAdmin() ? `<label class="btn">⇧ Importar respaldo<input type="file" accept="application/json" hidden data-act-input="importJson"></label><button class="btn danger" data-act="resetDemo">Restablecer datos demo</button><button class="btn danger" data-act="wipe">Empezar en blanco</button>` : ''}</div></div></div>
+      ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>Equipo y acceso</h3><span class="pill brand">Tu rol: ${ROLE_LABEL[cloud.role] || cloud.role}</span></div><div class="card-b" id="acl"><span class="muted small">Cargando…</span></div></div>` : ''}
     </div>
   </div>`;
 };
@@ -935,6 +1046,10 @@ const ACT = {
     download(`opsboss-${w}-${ymd(new Date())}.csv`, '﻿' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   },
   exportJson: () => download(`opsboss-respaldo-${ymd(new Date())}.json`, JSON.stringify(db, null, 2), 'application/json'),
+  removeMember: el => confirmDlg('¿Quitar el acceso de esta persona a OpsBoss?', async () => { const { error } = await cloud.sb.from('opsboss_members').delete().eq('user_id', el.dataset.id); toast(error ? error.message : 'Acceso eliminado'); render(); }),
+  removeInvite: async el => { const { error } = await cloud.sb.from('opsboss_invites').delete().eq('email', el.dataset.email); toast(error ? error.message : 'Invitación eliminada'); ROUTES['settings:after'](); },
+  signOut: async () => { if (cloud.on) { clearTimeout(cloud.timer); await sync(); } await cloud.sb.auth.signOut(); location.reload(); },
+  exitDemo: () => { try { localStorage.removeItem('opsboss.mode'); } catch (e) { /* ignore */ } location.href = location.pathname; },
   resetDemo: () => confirmDlg('Esto reemplaza todos los datos con datos de demostración. ¿Continuar?', () => { db = seed(); toast('Datos demo restablecidos'); }),
   wipe: () => confirmDlg('Esto borra todos los clientes, trabajos, estimados y facturas (se conservan configuración, equipo y lista de precios). ¿Continuar?', () => { Object.assign(db, { customers: [], leads: [], estimates: [], jobs: [], invoices: [], plans: [], permits: [], activity: [] }); toast('Listo — empieza a cargar tus datos'); }),
 };
@@ -951,6 +1066,7 @@ const INPUT = {
   invDue: el => { byId('invoices', el.dataset.id).due = el.value; save(); render(); },
   permitSt: el => { const p = byId('permits', el.dataset.id); p.status = el.value; p.updated = ymd(new Date()); if (el.value === 'submitted' && !p.submitted) p.submitted = ymd(new Date()); log(`Permiso ${p.type} → ${PERMIT_ST[p.status][0]}`); save(); render(); },
   range: el => { state.filters.range = +el.value; render(); },
+  memberRole: async el => { const { error } = await cloud.sb.from('opsboss_members').update({ role: el.value }).eq('user_id', el.dataset.id); toast(error ? error.message : 'Rol actualizado'); },
   setting: el => { db.settings[el.dataset.k] = el.type === 'number' ? num(el.value) : el.value; save(); },
   calc: el => { const [g, k] = el.dataset.k.split('.'); state.tools[g][k] = num(el.value); const pos = el.dataset.k; render(); const n = $(`[data-k="${pos}"]`); if (n) { n.focus(); } },
   photos: async el => { const j = byId('jobs', el.dataset.id); for (const f of el.files) { const d = await compressImage(f); if (d) j.photos.push(d); } save(); render(); toast('Fotos agregadas'); },
@@ -993,6 +1109,98 @@ document.addEventListener('keydown', e => {
 });
 try { const th = localStorage.getItem('opsboss.theme'); if (th) document.documentElement.dataset.theme = th; } catch (e) { /* ignore */ }
 
-save();
-render();
+/* ───────────── Arranque y login ───────────── */
+function renderUserBox() {
+  const b = $('#userBox'); if (!b) return;
+  if (cloud.on) b.innerHTML = `<div class="em" title="${esc(cloud.user.email)}">${esc(cloud.user.email)}</div><div>${ROLE_LABEL[cloud.role] || ''} · <button data-act="signOut">Cerrar sesión</button></div>`;
+  else if (CFG.url) b.innerHTML = `<div>Modo demo local · <button data-act="exitDemo">Iniciar sesión</button></div>`;
+  else b.innerHTML = '';
+}
+function start() { renderUserBox(); render(); }
+function authScreen(mode = 'login', msg = '', kind = 'bad') {
+  const el = $('#auth'); el.hidden = false;
+  const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
+  const note = msg ? `<div class="auth-msg ${kind}">${msg}</div>` : '';
+  if (mode === 'loading') { el.innerHTML = `<div class="auth-card">${logo}<h1>OpsBoss</h1><p>Cargando tus datos…</p></div>`; return; }
+  if (mode === 'noaccess' || mode === 'setup') {
+    el.innerHTML = `<div class="auth-card">${logo}<h1>${mode === 'setup' ? 'Falta configurar la base de datos' : 'Sin acceso todavía'}</h1>${note}<p>${mode === 'setup' ? 'Ejecuta <code>opsboss/supabase/schema.sql</code> en el SQL Editor de Supabase y recarga esta página.' : `Tu cuenta <b>${esc(cloud.user && cloud.user.email)}</b> aún no está invitada a OpsBoss. Pide a un administrador que te invite desde Configuración → Equipo y acceso, y vuelve a entrar.`}</p><div class="row"><button class="btn" id="aRetry">Reintentar</button><button class="btn" id="aOut">Cerrar sesión</button><button class="btn ghost" id="aDemo">Ver demo</button></div></div>`;
+    $('#aRetry').onclick = () => location.reload();
+    $('#aOut').onclick = async () => { await cloud.sb.auth.signOut(); location.reload(); };
+    $('#aDemo').onclick = enterDemo;
+    return;
+  }
+  const titles = { login: ['Inicia sesión', 'Entra con tu cuenta de Nexis.', 'Entrar'], signup: ['Crear cuenta', 'Usa el email con el que te invitaron.', 'Crear cuenta'], magic: ['Enlace mágico', 'Te enviamos un enlace para entrar sin contraseña.', 'Enviar enlace'], reset: ['Recuperar contraseña', 'Te enviamos un enlace para crear una nueva.', 'Enviar enlace'], newpass: ['Nueva contraseña', 'Escribe tu nueva contraseña.', 'Guardar'] }[mode];
+  const needEmail = mode !== 'newpass', needPass = ['login', 'signup', 'newpass'].includes(mode);
+  el.innerHTML = `<div class="auth-card">${logo}<h1>${titles[0]}</h1><p>${titles[1]}</p>${note}<form id="aForm">
+    ${mode === 'signup' ? '<label class="f">Nombre<input name="name" autocomplete="name" required></label>' : ''}
+    ${needEmail ? '<label class="f">Email<input name="email" type="email" autocomplete="email" required></label>' : ''}
+    ${needPass ? `<label class="f">Contraseña<input name="password" type="password" minlength="8" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" required></label>` : ''}
+    <button class="btn primary full" id="aSubmit">${titles[2]}</button></form>
+    <div class="links">${mode !== 'login' ? '<button data-m="login">← Iniciar sesión</button>' : '<button data-m="signup">Crear cuenta</button>'}${mode === 'login' ? '<button data-m="magic">Enlace mágico</button><button data-m="reset">¿Olvidaste tu contraseña?</button>' : ''}</div>
+    <div class="links" style="border-top:1px solid var(--border);padding-top:12px"><button id="aDemo">Probar con datos de demostración →</button></div></div>`;
+  $$('[data-m]', el).forEach(b => b.onclick = () => authScreen(b.dataset.m));
+  $('#aDemo').onclick = enterDemo;
+  $('#aForm').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = ev.target, btn = $('#aSubmit'), redirect = location.origin + location.pathname;
+    btn.disabled = true; btn.textContent = 'Un momento…';
+    const email = f.email ? f.email.value.trim() : '', password = f.password ? f.password.value : '';
+    let r;
+    if (mode === 'login') r = await cloud.sb.auth.signInWithPassword({ email, password });
+    if (mode === 'signup') r = await cloud.sb.auth.signUp({ email, password, options: { data: { name: f.name.value.trim() }, emailRedirectTo: redirect } });
+    if (mode === 'magic') r = await cloud.sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect, shouldCreateUser: false } });
+    if (mode === 'reset') r = await cloud.sb.auth.resetPasswordForEmail(email, { redirectTo: redirect });
+    if (mode === 'newpass') r = await cloud.sb.auth.updateUser({ password });
+    if (r.error) { authScreen(mode, esc(r.error.message === 'Invalid login credentials' ? 'Email o contraseña incorrectos.' : /fetch|network/i.test(r.error.message) ? 'No se pudo conectar con el servidor. Revisa tu conexión a internet.' : r.error.message)); return; }
+    if (mode === 'signup' && !r.data.session) { authScreen('login', 'Cuenta creada. Revisa tu email para confirmarla y luego inicia sesión.', 'ok'); return; }
+    if (mode === 'magic' || mode === 'reset') { authScreen('login', 'Listo: revisa tu email y abre el enlace.', 'ok'); return; }
+    if (mode === 'newpass') toast('Contraseña actualizada');
+    const { data } = await cloud.sb.auth.getUser(); if (data.user) enter(data.user);
+  };
+}
+function enterDemo() {
+  try { localStorage.setItem('opsboss.mode', 'demo'); } catch (e) { /* ignore */ }
+  cloud.on = false; db = load(); $('#auth').hidden = true; setSync('local', 'Modo demo: los datos se guardan solo en este navegador.'); start();
+}
+async function enter(user) {
+  if (cloud.entering || cloud.on) return; cloud.entering = true;
+  cloud.user = user; authScreen('loading');
+  try {
+    const { data: role, error } = await cloud.sb.rpc('opsboss_claim');
+    if (error) { authScreen('setup', esc(error.message)); return; }
+    if (!role) { authScreen('noaccess'); return; }
+    cloud.role = role;
+    const { d, count } = await cloudLoad();
+    db = d;
+    cloud.shadow = snapshot();
+    if (!db.settings) { const b = blankDb(); db.settings = b.settings; if (!db.pricebook.length) db.pricebook = b.pricebook; }
+    cloud.on = true; $('#auth').hidden = true; setSync('ok');
+    subscribe(); start(); sync();
+    if (!count && canAdmin()) firstRun();
+  } catch (e) { authScreen('setup', esc(e.message || String(e))); } finally { cloud.entering = false; }
+}
+function firstRun() {
+  let local = null; try { const raw = localStorage.getItem(STORE_KEY); if (raw) local = JSON.parse(raw); } catch (e) { /* ignore */ }
+  modal({ title: 'Bienvenido a OpsBoss en la nube', body: `<p>La base de datos está vacía. ¿Cómo quieres empezar?</p><div class="grid" style="gap:10px">
+    ${local && local.customers ? `<button class="btn" data-fr="local" style="justify-content:flex-start">⇧ Subir los datos de este navegador <span class="muted small">(${local.customers.length} clientes, ${local.jobs.length} trabajos)</span></button>` : ''}
+    <button class="btn" data-fr="blank" style="justify-content:flex-start">✦ Empezar en blanco <span class="muted small">(con lista de precios base)</span></button>
+    <button class="btn" data-fr="demo" style="justify-content:flex-start">◧ Cargar datos de demostración <span class="muted small">(para probar con el equipo)</span></button></div>`,
+    onMount(bg, close) { bg.addEventListener('click', e => { const b = e.target.closest('[data-fr]'); if (!b) return; const k = b.dataset.fr; db = k === 'local' ? local : k === 'demo' ? seed() : { ...blankDb(), settings: db.settings, pricebook: db.pricebook }; COLLS.forEach(c => db[c] = db[c] || []); log('Base de datos inicializada'); close(); save(); render(); toast('Listo ✓'); }); },
+  });
+}
+async function boot() {
+  let demo = false; try { demo = localStorage.getItem('opsboss.mode') === 'demo' || new URLSearchParams(location.search).has('demo'); } catch (e) { /* ignore */ }
+  if (!CFG.url || !window.supabase || !window.supabase.createClient) { cloud.on = false; db = load(); setSync('local', 'Modo local: los datos se guardan solo en este navegador.'); start(); return; }
+  cloud.sb = window.supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'opsboss-auth' } });
+  if (demo) { enterDemo(); return; }
+  cloud.sb.auth.onAuthStateChange((ev, session) => {
+    if (ev === 'PASSWORD_RECOVERY') { setTimeout(() => authScreen('newpass'), 0); return; }
+    if (ev === 'SIGNED_IN' && session && !cloud.on) setTimeout(() => enter(session.user), 0);
+  });
+  const { data: { session } } = await cloud.sb.auth.getSession();
+  if (session) enter(session.user); else if (!cloud.entering) authScreen('login');
+  window.addEventListener('beforeunload', e => { if (cloud.on && (cloud.busy || $('#syncStatus').classList.contains('saving'))) { e.preventDefault(); e.returnValue = ''; } });
+  window.addEventListener('online', () => cloud.on && sync());
+}
+boot();
 })();
