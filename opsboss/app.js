@@ -290,6 +290,7 @@ function applyRemote(p) {
     else if (db[coll]) { const i = db[coll].findIndex(x => x.id === id); if (i >= 0) db[coll][i] = p.new.data; else db[coll].unshift(p.new.data); }
   }
   remoteRender();
+  clearTimeout(cloud.pp); cloud.pp = setTimeout(processPortal, 800);
 }
 function remoteRender() {
   const busy = $('#modalRoot').children.length || (document.activeElement && document.activeElement.closest('#view') && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
@@ -672,7 +673,8 @@ ROUTES.estimate = id => {
   const editable = e.status !== 'approved';
   const c = cust(e.customerId);
   return `<div class="small muted mb"><a href="#/estimates">Estimados</a> / ${e.number}</div>` + head(`${e.number} · ${esc(e.title)}`, `${custLink(e.customerId)} · ${divPill(e.division)} · Creado ${fDate(e.createdAt)} · Válido hasta ${fDate(parseLocal(e.validUntil))}`,
-    `${pill(EST_ST, e.status)}<button class="btn" data-act="previewEst" data-id="${e.id}">⎙ Vista cliente / PDF</button>${e.status === 'draft' ? `<button class="btn primary" data-act="sendEst" data-id="${e.id}">Enviar al cliente</button>` : ''}${['sent', 'draft'].includes(e.status) ? `<button class="btn ok" data-act="approveEst" data-id="${e.id}" data-k="${k}">✓ Aprobar "${esc(opt.name)}"</button><button class="btn danger" data-act="declineEst" data-id="${e.id}">Rechazar</button>` : ''}${e.status === 'approved' ? `<span class="small muted">Opción aprobada: <b>${esc(e.options[e.selected].name)}</b></span>` : ''}${e.status === 'declined' ? `<button class="btn" data-act="reopenEst" data-id="${e.id}">Reabrir</button>` : ''}`) + `
+    `${pill(EST_ST, e.status)}<button class="btn" data-act="previewEst" data-id="${e.id}">⎙ Vista / PDF</button>${e.status !== 'declined' ? `<button class="btn primary" data-act="portalLink" data-kind="estimate" data-id="${e.id}">🔗 Enviar link para firmar</button>` : ''}${e.status === 'draft' ? `<button class="btn" data-act="sendEst" data-id="${e.id}">Marcar enviado</button>` : ''}${['sent', 'draft'].includes(e.status) ? `<button class="btn ok" data-act="approveEst" data-id="${e.id}" data-k="${k}">✓ Aprobar "${esc(opt.name)}"</button><button class="btn danger" data-act="declineEst" data-id="${e.id}">Rechazar</button>` : ''}${e.status === 'approved' ? `<span class="small muted">Opción aprobada: <b>${esc(e.options[e.selected].name)}</b>${e.signedBy ? ` · ✍ firmado en línea por <b>${esc(e.signedBy)}</b>` : ''}</span>` : ''}${e.status === 'declined' && e.declineReason ? `<span class="small muted">Motivo: ${esc(e.declineReason)}</span>` : ''}${e.status === 'declined' ? `<button class="btn" data-act="reopenEst" data-id="${e.id}">Reabrir</button>` : ''}`) + `
+  <div id="portalInfo" class="mb" hidden></div>
   <div class="opt-tabs">${e.options.map((o, i) => `<button data-act="optTab" data-id="${e.id}" data-k="${i}" class="${i === k ? 'on' : ''}"><div class="b">${esc(o.name)} ${e.selected === i ? '✓' : ''}</div><div class="small muted">${money(totalOf(o.items))} · ${o.items.length} conceptos</div></button>`).join('')}${editable && e.options.length < 3 ? `<button data-act="addOpt" data-id="${e.id}"><div class="b">＋ Opción</div><div class="small muted">Duplica la actual</div></button>` : ''}</div>
   <div class="grid g-2-1">
     <div class="card"><div class="card-h"><h3>${editable ? `<input class="inp" style="width:220px;padding:6px 9px" data-act-input="optName" data-id="${e.id}" data-k="${k}" value="${esc(opt.name)}">` : esc(opt.name)}</h3>${editable && e.options.length > 1 ? `<button class="btn sm danger" data-act="delOpt" data-id="${e.id}" data-k="${k}">Eliminar opción</button>` : ''}</div><div class="card-b">${itemsTable(opt.items, editable, `est:${e.id}:${k}`)}</div></div>
@@ -700,6 +702,72 @@ function previewEstimate(e) {
   const html = docHTML({ kind: 'ESTIMADO', number: e.number, date: 'Fecha: ' + fDate(e.createdAt), extraMeta: `<br>Válido hasta: ${fDate(parseLocal(e.validUntil))}`, customerId: e.customerId, items: [], notes: e.notes, bodyHTML: `<h2 style="margin:0">${esc(e.title)}</h2>${blocks}` });
   modal({ title: 'Vista del cliente', wide: true, body: html + `<div style="margin-top:20px;display:flex;gap:40px;flex-wrap:wrap"><div style="flex:1;min-width:200px;border-top:1px solid #cbd5e1;padding-top:6px;font-size:12px;color:#64748b">Firma del cliente</div><div style="width:160px;border-top:1px solid #cbd5e1;padding-top:6px;font-size:12px;color:#64748b">Fecha</div></div>`, foot: `<button class="btn" data-dismiss>Cerrar</button><button class="btn" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href);">Copiar enlace</button><button class="btn primary" onclick="window.print()">⎙ Imprimir / PDF</button>` });
 }
+
+function jobFromEstimate(e) {
+  const k = e.selected ?? 0, items = e.options[k].items.map(x => ({ ...x, id: uid() }));
+  const j = { id: uid(), number: nextNum('job'), customerId: e.customerId, division: e.division, title: e.title, techIds: [], start: null, duration: e.division === 'hvac' ? 6 : 8, status: 'unscheduled', items, checklist: CHECKLISTS[e.division].map(t => ({ id: uid(), t, done: false })), photos: [], notes: e.notes, estimateId: e.id, createdAt: iso(new Date()) };
+  db.jobs.unshift(j); e.jobId = j.id;
+  const lead = db.leads.find(l => l.estimateId === e.id || (l.customerId === e.customerId && l.division === e.division && !['won', 'lost'].includes(l.stage)));
+  if (lead && lead.stage !== 'won') { lead.stage = 'won'; lead.stageAt = iso(new Date()); emit('lead.stage', 'lead', lead, { to: 'won' }); }
+  return j;
+}
+
+/* ───────────── PORTAL DEL CLIENTE ───────────── */
+const portalUrl = token => location.origin + location.pathname.replace(/[^/]*$/, '') + 'portal.html?t=' + token;
+const portalSeen = new Set();
+// Procesa lo que el cliente hizo en el portal (firmas, rechazos, pagos). Un candado en el servidor
+// evita que dos personas del equipo creen el mismo trabajo.
+async function processPortal() {
+  if (!cloud.on || cloud.portalBusy) return; cloud.portalBusy = true;
+  let changed = false;
+  try {
+    for (const e of db.estimates) {
+      if (e.status === 'approved' && e.approvedVia === 'portal' && !e.jobId && !portalSeen.has('a' + e.id)) {
+        portalSeen.add('a' + e.id);
+        const { data: mine } = await cloud.sb.rpc('opsboss_lock', { p_key: 'est-approved:' + e.id });
+        if (!mine) continue;
+        const j = jobFromEstimate(e);
+        log(`✍ ${cust(e.customerId).name} firmó y aprobó en línea el estimado ${e.number} — ${money(estTotal(e))}`);
+        emit('estimate.approved', 'estimate', e); emit('job.created', 'job', j);
+        toast(`✍ ${cust(e.customerId).name} aprobó ${e.number} en línea. Trabajo ${j.number} creado.`); changed = true;
+      }
+      if (e.status === 'declined' && e.declinedVia === 'portal' && !e.declineSeen && !portalSeen.has('d' + e.id)) {
+        portalSeen.add('d' + e.id);
+        const { data: mine } = await cloud.sb.rpc('opsboss_lock', { p_key: 'est-declined:' + e.id });
+        e.declineSeen = true; changed = true;
+        if (!mine) continue;
+        log(`${cust(e.customerId).name} rechazó en línea el estimado ${e.number}${e.declineReason ? ': ' + e.declineReason : ''}`);
+        emit('estimate.declined', 'estimate', e); toast(`${cust(e.customerId).name} rechazó ${e.number}`);
+      }
+    }
+    for (const i of db.invoices) for (const pay of i.payments || []) {
+      if (!pay.online || pay.seen || portalSeen.has('p' + pay.id)) continue;
+      portalSeen.add('p' + pay.id);
+      const { data: mine } = await cloud.sb.rpc('opsboss_lock', { p_key: 'pay:' + (pay.ref || pay.id) });
+      pay.seen = true; changed = true;
+      if (!mine) continue;
+      log(`💳 Pago en línea de ${money2(pay.amount)} — ${cust(i.customerId).name} (${i.number})`);
+      toast(`💳 ${cust(i.customerId).name} pagó ${money2(pay.amount)} en línea`);
+      emit('payment.received', 'invoice', i); if (invBal(i) <= 0.009) emit('invoice.paid', 'invoice', i);
+    }
+  } catch (err) { console.error('portal', err); }
+  finally { cloud.portalBusy = false; }
+  if (changed) { save(); remoteRender(); }
+}
+async function portalInfo(kind, id) {
+  const box = $('#portalInfo'); if (!box || !cloud.on) return;
+  const [{ data: links }, { data: evs }] = await Promise.all([
+    cloud.sb.from('opsboss_portal_links').select('token,view_count,first_viewed_at,last_viewed_at,created_at,revoked').eq('kind', kind).eq('record_id', id).order('created_at', { ascending: false }),
+    cloud.sb.from('opsboss_portal_events').select('id,event,signer_name,option_index,amount,reason,ip,created_at').eq('kind', kind).eq('record_id', id).order('created_at', { ascending: false }),
+  ]);
+  if (!$('#portalInfo') || (!links?.length && !evs?.length)) return;
+  const views = (links || []).reduce((a, l) => a + l.view_count, 0), lastView = (links || []).map(l => l.last_viewed_at).filter(Boolean).sort().pop();
+  const evTxt = { approved: '✍ Firmó y aprobó', declined: '✕ Rechazó', paid: '💳 Pagó en línea' };
+  box.hidden = false;
+  box.innerHTML = `<div class="card"><div class="card-b row" style="gap:16px;justify-content:space-between"><div class="row" style="gap:16px"><span class="pill ${views ? 'brand' : ''}">👁 ${views ? `Visto ${views} ${views === 1 ? 'vez' : 'veces'} · última hace ${ago(lastView)}` : 'El cliente aún no abre el link'}</span>${(evs || []).map(ev => `<span class="small">${evTxt[ev.event] || ev.event}${ev.signer_name ? ' — ' + esc(ev.signer_name) : ''}${ev.amount ? ' · ' + money2(ev.amount) : ''} · ${fDate(ev.created_at)}${ev.event === 'approved' ? ` <button class="btn sm" data-act="viewSig" data-ev="${ev.id}">Ver firma</button>` : ''}</span>`).join('')}</div>${links?.length ? `<button class="btn sm" data-act="portalCopy" data-url="${esc(portalUrl(links[0].token))}">Copiar link</button>` : ''}</div></div>`;
+}
+ROUTES['estimate:after'] = id => portalInfo('estimate', id);
+ROUTES['invoice:after'] = id => portalInfo('invoice', id);
 
 /* ───────────── TRABAJOS ───────────── */
 function jobModal(j, preset = {}) {
@@ -790,7 +858,8 @@ ROUTES.invoice = id => {
   const i = db.invoices.find(x => x.id === id); if (!i) return '<div class="empty">Factura no encontrada</div>';
   const st = invStatus(i), editable = !i.payments.length && st !== 'void';
   return `<div class="small muted mb"><a href="#/invoices">Facturas</a> / ${i.number}</div>` + head(`Factura ${i.number}`, `${custLink(i.customerId)} · ${divPill(i.division)} · Emitida ${fDate(i.createdAt)} · Vence ${fDate(parseLocal(i.due))}`,
-    `${pill(INV_ST, st)}<button class="btn" data-act="previewInv" data-id="${i.id}">⎙ Vista / PDF</button>${st === 'draft' ? `<button class="btn primary" data-act="sendInv" data-id="${i.id}">Enviar factura</button>` : ''}${!['paid', 'void'].includes(st) ? `<button class="btn ok" data-act="payInv" data-id="${i.id}">$ Registrar pago</button>` : ''}${st === 'overdue' ? `<button class="btn" data-act="remindInv" data-id="${i.id}">✉ Recordatorio</button>` : ''}`) + `
+    `${pill(INV_ST, st)}<button class="btn" data-act="previewInv" data-id="${i.id}">⎙ Vista / PDF</button>${!['paid', 'void'].includes(st) ? `<button class="btn primary" data-act="portalLink" data-kind="invoice" data-id="${i.id}">🔗 Link de pago</button>` : ''}${st === 'draft' ? `<button class="btn primary" data-act="sendInv" data-id="${i.id}">Enviar factura</button>` : ''}${!['paid', 'void'].includes(st) ? `<button class="btn ok" data-act="payInv" data-id="${i.id}">$ Registrar pago</button>` : ''}${st === 'overdue' ? `<button class="btn" data-act="remindInv" data-id="${i.id}">✉ Recordatorio</button>` : ''}`) + `
+  <div id="portalInfo" class="mb" hidden></div>
   <div class="grid g-2-1">
     <div class="card"><div class="card-h"><h3>Conceptos</h3>${i.jobId ? `<a class="small" href="#/job/${i.jobId}">Trabajo →</a>` : ''}</div><div class="card-b">${itemsTable(i.items, editable, `inv:${i.id}`)}</div></div>
     <div>
@@ -957,6 +1026,11 @@ ROUTES.settings = () => {
   <div class="grid g2">
     <div class="card"><div class="card-h"><h3>Empresa</h3></div><div class="card-b form">${f('company', 'Nombre comercial')}${f('license', 'Licencias')}${f('phone', 'Teléfono')}${f('email', 'Email', 'email')}<div class="full">${f('address', 'Dirección')}</div><label class="f full">Términos en documentos<textarea class="inp" data-act-input="setting" data-k="terms">${esc(s.terms)}</textarea></label></div></div>
     <div>
+      <div class="card mb"><div class="card-h"><h3>Portal del cliente y pagos en línea</h3></div><div class="card-b">
+        <label class="check"><input type="checkbox" data-act-input="settingBool" data-k="paymentsEnabled" ${s.paymentsEnabled ? 'checked' : ''}><span><b>Aceptar pagos con tarjeta / ACH (Stripe)</b> en el portal</span></label>
+        <p class="small muted">Requiere configurar Stripe una vez (ver instrucciones en el README de OpsBoss). Si está apagado, el cliente igual puede ver, firmar y aprobar; solo no verá el botón de pago.</p>
+        <label class="f">Otras formas de pago (se muestran en el portal)<textarea class="inp" data-act-input="setting" data-k="payInstructions" placeholder="Ej. Zelle: pagos@nexispower.com · Cheque a nombre de Nexis Power">${esc(s.payInstructions || '')}</textarea></label>
+      </div></div>
       <div class="card"><div class="card-h"><h3>Impuestos y financiamiento</h3></div><div class="card-b form">${f('taxRate', 'Impuesto de venta (%)', 'number', '0.01')}${f('apr', 'APR de financiamiento (%)', 'number', '0.01')}${f('term', 'Plazo (meses)', 'number')}</div></div>
       <div class="card mt"><div class="card-h"><h3>Datos y respaldo</h3></div><div class="card-b"><p class="small muted">${cloud.on ? 'Los datos se guardan en Supabase y se comparten en tiempo real con tu equipo. Exporta un respaldo de vez en cuando.' : 'Modo local: los datos se guardan solo en este navegador. Exporta un respaldo con frecuencia.'}</p><div class="row"><button class="btn" data-act="exportJson">⇩ Exportar respaldo (JSON)</button>${canAdmin() ? `<label class="btn">⇧ Importar respaldo<input type="file" accept="application/json" hidden data-act-input="importJson"></label><button class="btn danger" data-act="resetDemo">Restablecer datos demo</button><button class="btn danger" data-act="wipe">Empezar en blanco</button>` : ''}</div></div></div>
       ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>Equipo y acceso</h3><span class="pill brand">Tu rol: ${ROLE_LABEL[cloud.role] || cloud.role}</span></div><div class="card-b" id="acl"><span class="muted small">Cargando…</span></div></div>` : ''}
@@ -1072,7 +1146,7 @@ function wfTimers() {
 }
 function invoiceFromJob(j) {
   const est = j.estimateId && byId('estimates', j.estimateId);
-  const deps = est ? db.invoices.filter(i => i.customerId === j.customerId && i.items.some(it => it.name.includes(est.number))) : [];
+  const deps = est ? db.invoices.filter(i => i.status !== 'void' && (i.estimateId === est.id || (i.customerId === j.customerId && i.items.some(it => it.name.includes(est.number))))) : [];
   const items = j.items.map(x => ({ ...x, id: uid() }));
   deps.forEach(d => items.push({ id: uid(), name: `Menos depósito (${d.number})`, qty: 1, price: -subtotal(d.items), cost: 0 }));
   const inv = createInvoice({ customerId: j.customerId, jobId: j.id, division: j.division, items }); j.invoiceId = inv.id; return inv;
@@ -1223,11 +1297,9 @@ const ACT = {
   approveEst: el => {
     const e = byId('estimates', el.dataset.id), k = +el.dataset.k; e.status = 'approved'; e.selected = k; e.approvedAt = iso(new Date());
     const items = e.options[k].items.map(x => ({ ...x, id: uid() }));
-    const j = { id: uid(), number: nextNum('job'), customerId: e.customerId, division: e.division, title: e.title, techIds: [], start: null, duration: e.division === 'hvac' ? 6 : 8, status: 'unscheduled', items, checklist: CHECKLISTS[e.division].map(t => ({ id: uid(), t, done: false })), photos: [], notes: e.notes, estimateId: e.id, createdAt: iso(new Date()) };
-    db.jobs.unshift(j);
-    const lead = db.leads.find(l => l.estimateId === e.id || (l.customerId === e.customerId && l.division === e.division && !['won', 'lost'].includes(l.stage))); if (lead && lead.stage !== 'won') { lead.stage = 'won'; lead.stageAt = iso(new Date()); emit('lead.stage', 'lead', lead, { to: 'won' }); }
+    const j = jobFromEstimate(e);
     let msg = `Estimado aprobado. Trabajo ${j.number} creado.`;
-    if (num(e.deposit)) { const dep = totalOf(items) * num(e.deposit) / 100; const inv = createInvoice({ customerId: e.customerId, jobId: null, division: e.division, items: [{ id: uid(), name: `Depósito ${e.deposit}% — ${e.number} ${e.title}`, qty: 1, price: Math.round(dep * 100) / 100 / (1 + num(db.settings.taxRate) / 100), cost: 0 }] }); inv.status = 'sent'; msg += ` Factura de depósito ${inv.number}.`; }
+    if (num(e.deposit)) { const dep = totalOf(items) * num(e.deposit) / 100; const inv = createInvoice({ customerId: e.customerId, jobId: null, division: e.division, items: [{ id: uid(), name: `Depósito ${e.deposit}% — ${e.number} ${e.title}`, qty: 1, price: Math.round(dep * 100) / 100 / (1 + num(db.settings.taxRate) / 100), cost: 0 }] }); inv.status = 'sent'; inv.kind = 'deposit'; inv.estimateId = e.id; e.depositInvoiceId = inv.id; msg += ` Factura de depósito ${inv.number}.`; }
     log(`Estimado ${e.number} aprobado (${e.options[k].name}) — ${money(totalOf(items))}`); emit('estimate.approved', 'estimate', e); emit('job.created', 'job', j); save(); toast(msg); location.hash = '#/job/' + j.id;
   },
   declineEst: el => { const e = byId('estimates', el.dataset.id); e.status = 'declined'; log(`Estimado ${e.number} rechazado`); emit('estimate.declined', 'estimate', e); save(); render(); },
@@ -1271,6 +1343,26 @@ const ACT = {
     download(`opsboss-${w}-${ymd(new Date())}.csv`, '﻿' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   },
   exportJson: () => download(`opsboss-respaldo-${ymd(new Date())}.json`, JSON.stringify(db, null, 2), 'application/json'),
+  portalLink: async el => {
+    if (!cloud.on) { toast('El portal del cliente requiere iniciar sesión (modo nube).'); return; }
+    const kind = el.dataset.kind, rec = byId(kind === 'estimate' ? 'estimates' : 'invoices', el.dataset.id), c = cust(rec.customerId);
+    el.disabled = true;
+    await sync();
+    const { data: token, error } = await cloud.sb.rpc('opsboss_portal_link', { p_kind: kind, p_id: rec.id });
+    el.disabled = false;
+    if (error) { toast('No se pudo crear el link: ' + error.message); return; }
+    const url = portalUrl(token), co = db.settings.company;
+    if (kind === 'estimate' && rec.status === 'draft') { rec.status = 'sent'; rec.sentAt = iso(new Date()); log(`Estimado ${rec.number} enviado a ${c.name} (portal)`); emit('estimate.sent', 'estimate', rec); }
+    if (kind === 'invoice' && rec.status === 'draft') { rec.status = 'sent'; log(`Factura ${rec.number} enviada a ${c.name} (portal)`); emit('invoice.sent', 'invoice', rec); }
+    save(); render();
+    const first = String(c.name || '').split(' ')[0];
+    const smsTxt = kind === 'estimate' ? `Hola ${first}, aquí está su estimado ${rec.number} de ${co}. Puede revisar las opciones, firmar y aprobar desde su teléfono: ${url}` : `Hola ${first}, aquí puede ver y pagar su ${rec.kind === 'deposit' ? 'depósito' : 'factura'} ${rec.number} de ${co}: ${url}`;
+    const subj = kind === 'estimate' ? `Su estimado ${rec.number} — ${co}` : `${rec.kind === 'deposit' ? 'Depósito' : 'Factura'} ${rec.number} — ${co}`;
+    const body = kind === 'estimate' ? `Hola ${c.name},\n\nGracias por la oportunidad. Puede revisar su estimado ${rec.number} (${rec.title}), comparar las opciones y aprobarlo con su firma electrónica aquí:\n\n${url}\n\nQuedamos a sus órdenes,\n${co}\n${db.settings.phone}` : `Hola ${c.name},\n\nPuede ver y pagar su ${rec.kind === 'deposit' ? 'depósito' : 'factura'} ${rec.number} por ${money2(invBal(rec))} aquí:\n\n${url}\n\nGracias,\n${co}\n${db.settings.phone}`;
+    modal({ title: kind === 'estimate' ? 'Link para revisar y firmar' : 'Link de pago', body: `<p class="muted">El cliente no necesita cuenta. El link es privado y vence en 90 días; verás aquí cuando lo abra.</p><input class="inp" readonly value="${esc(url)}" onclick="this.select()"><div class="row mt"><button class="btn" data-act="portalCopy" data-url="${esc(url)}">Copiar</button><a class="btn" href="sms:${esc(c.phone)}?body=${encodeURIComponent(smsTxt)}">✉ SMS</a><a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}">@ Email</a><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Ver como cliente ↗</a></div>`, foot: '<button class="btn primary" data-dismiss>Listo</button>' });
+  },
+  portalCopy: el => { try { navigator.clipboard.writeText(el.dataset.url); toast('Link copiado'); } catch (e) { toast(el.dataset.url); } },
+  viewSig: async el => { const { data } = await cloud.sb.from('opsboss_portal_events').select('signer_name,signature,created_at,ip,user_agent,option_index,amount').eq('id', el.dataset.ev).single(); if (!data) return; modal({ title: 'Firma electrónica', body: `<div class="doc" style="padding:16px"><img src="${esc(data.signature)}" alt="Firma" style="width:100%;max-width:520px;border-bottom:1px solid #cbd5e1"><div class="small" style="margin-top:8px"><b>${esc(data.signer_name)}</b> · ${new Date(data.created_at).toLocaleString('es-US')}<br>Monto aprobado: ${money2(data.amount)} · Opción #${(data.option_index ?? 0) + 1}<br>IP: ${esc(data.ip || '—')}<br><span style="color:#94a3b8">${esc(data.user_agent || '')}</span></div></div>`, foot: '<button class="btn" data-dismiss>Cerrar</button><button class="btn primary" onclick="window.print()">⎙ Imprimir</button>' }); },
   wfNew: () => wfEditor(null),
   wfEdit: el => wfEditor(byId('workflows', el.dataset.id)),
   wfToggle: el => { const w = byId('workflows', el.dataset.id); w.active = !w.active; if (w.active) w.activatedAt = iso(new Date()); save(); render(); toast(w.active ? 'Workflow activado' : 'Workflow pausado'); if (w.active) wfTimers(); },
@@ -1300,6 +1392,7 @@ const INPUT = {
   invDue: el => { byId('invoices', el.dataset.id).due = el.value; save(); render(); },
   permitSt: el => { const p = byId('permits', el.dataset.id); p.status = el.value; p.updated = ymd(new Date()); if (el.value === 'submitted' && !p.submitted) p.submitted = ymd(new Date()); log(`Permiso ${p.type} → ${PERMIT_ST[p.status][0]}`); save(); render(); },
   range: el => { state.filters.range = +el.value; render(); },
+  settingBool: el => { db.settings[el.dataset.k] = el.checked; save(); toast(el.checked ? 'Pagos en línea activados' : 'Pagos en línea desactivados'); },
   taskDone: el => { const t = byId('tasks', el.dataset.id); t.done = el.checked; t.doneAt = el.checked ? iso(new Date()) : null; save(); render(); },
   taskWho: el => { state.filters.taskWho = el.value; render(); },
   memberRole: async el => { const { error } = await cloud.sb.from('opsboss_members').update({ role: el.value }).eq('user_id', el.dataset.id); toast(error ? error.message : 'Rol actualizado'); },
@@ -1352,7 +1445,7 @@ function renderUserBox() {
   else if (CFG.url) b.innerHTML = `<div>Modo demo local · <button data-act="exitDemo">Iniciar sesión</button></div>`;
   else b.innerHTML = '';
 }
-function start() { renderUserBox(); render(); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
+function start() { renderUserBox(); render(); setTimeout(processPortal, 1200); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
 function authScreen(mode = 'login', msg = '', kind = 'bad') {
   const el = $('#auth'); el.hidden = false;
   const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
