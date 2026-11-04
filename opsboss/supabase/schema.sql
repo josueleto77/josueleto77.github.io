@@ -1,15 +1,16 @@
 -- ============================================================
 -- OpsBoss — esquema de Supabase
--- Se instala en el MISMO proyecto que Nexis Academy, sin tocar sus
--- tablas: todo lleva el prefijo opsboss_ y su propio control de acceso.
--- Comparte los usuarios de auth: una cuenta de la Academy puede entrar
--- a OpsBoss solo si está invitada en opsboss_invites / opsboss_members.
+-- Proyecto dedicado: "opsboss" (organización Nexis, ref nkmgpsbqmqwlsaxtbgaq).
+-- Ya está instalado. Este archivo sirve para reinstalar o crear otro
+-- entorno: Supabase → SQL Editor → pegar todo → Run. Se puede ejecutar
+-- más de una vez sin problema.
 --
--- Cómo instalar: Supabase → SQL Editor → pegar todo → Run.
--- Es seguro ejecutarlo más de una vez.
+-- Acceso: solo quien esté en opsboss_members. Se entra por invitación
+-- (opsboss_invites); al iniciar sesión, opsboss_claim() convierte la
+-- invitación en membresía.
 -- ============================================================
 
--- ---------- Miembros del equipo de OpsBoss ----------
+-- ---------- Tablas ----------
 create table if not exists public.opsboss_members (
   user_id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
@@ -18,7 +19,6 @@ create table if not exists public.opsboss_members (
   created_at timestamptz not null default now()
 );
 
--- ---------- Invitaciones (quién puede unirse) ----------
 create table if not exists public.opsboss_invites (
   email text primary key,
   role text not null default 'office' check (role in ('owner', 'admin', 'office', 'tech')),
@@ -26,7 +26,6 @@ create table if not exists public.opsboss_invites (
   created_at timestamptz not null default now()
 );
 
--- ---------- Registros del CRM ----------
 -- Un registro = un cliente, trabajo, estimado, factura, etc. (JSON).
 create table if not exists public.opsboss_records (
   coll text not null check (coll in ('settings', 'customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity')),
@@ -37,29 +36,35 @@ create table if not exists public.opsboss_records (
   primary key (coll, id)
 );
 create index if not exists opsboss_records_updated_idx on public.opsboss_records (updated_at desc);
+create index if not exists opsboss_records_updated_by_idx on public.opsboss_records (updated_by);
+create index if not exists opsboss_invites_invited_by_idx on public.opsboss_invites (invited_by);
 
 alter table public.opsboss_members enable row level security;
 alter table public.opsboss_invites enable row level security;
 alter table public.opsboss_records enable row level security;
 
--- ---------- Funciones auxiliares ----------
-create or replace function public.opsboss_role() returns text
+-- ---------- Funciones auxiliares (esquema privado, no expuesto por la API) ----------
+create schema if not exists opsboss_private;
+revoke all on schema opsboss_private from public, anon;
+grant usage on schema opsboss_private to authenticated;
+
+create or replace function opsboss_private.opsboss_role() returns text
 language sql stable security definer set search_path = public as $$
   select role from public.opsboss_members where user_id = auth.uid();
 $$;
 
-create or replace function public.opsboss_is_member() returns boolean
+create or replace function opsboss_private.opsboss_is_member() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.opsboss_members where user_id = auth.uid());
 $$;
 
-create or replace function public.opsboss_is_admin() returns boolean
+create or replace function opsboss_private.opsboss_is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
   select coalesce((select role in ('owner', 'admin') from public.opsboss_members where user_id = auth.uid()), false);
 $$;
 
--- Al iniciar sesión: devuelve el rol del usuario; si tiene una invitación
--- pendiente (y su email está confirmado), lo convierte en miembro.
+-- Al iniciar sesión: devuelve el rol; si hay invitación pendiente (y el
+-- email está confirmado), crea la membresía. Pública a propósito (la app la llama).
 create or replace function public.opsboss_claim() returns text
 language plpgsql security definer set search_path = public as $$
 declare
@@ -87,12 +92,12 @@ $$;
 
 revoke all on function public.opsboss_claim() from public, anon;
 grant execute on function public.opsboss_claim() to authenticated;
-revoke all on function public.opsboss_role() from public, anon;
-grant execute on function public.opsboss_role() to authenticated;
-revoke all on function public.opsboss_is_member() from public, anon;
-grant execute on function public.opsboss_is_member() to authenticated;
-revoke all on function public.opsboss_is_admin() from public, anon;
-grant execute on function public.opsboss_is_admin() to authenticated;
+revoke all on function opsboss_private.opsboss_role() from public, anon;
+grant execute on function opsboss_private.opsboss_role() to authenticated;
+revoke all on function opsboss_private.opsboss_is_member() from public, anon;
+grant execute on function opsboss_private.opsboss_is_member() to authenticated;
+revoke all on function opsboss_private.opsboss_is_admin() from public, anon;
+grant execute on function opsboss_private.opsboss_is_admin() to authenticated;
 
 -- Marca de tiempo y autor en cada cambio
 create or replace function public.opsboss_touch() returns trigger
@@ -108,32 +113,32 @@ create trigger opsboss_records_touch before insert or update on public.opsboss_r
   for each row execute function public.opsboss_touch();
 
 -- ---------- Políticas (RLS) ----------
--- Registros: cualquier miembro del equipo lee y escribe.
+-- Registros: cualquier miembro lee y escribe.
 drop policy if exists "opsboss_records_rw" on public.opsboss_records;
 create policy "opsboss_records_rw" on public.opsboss_records for all to authenticated
-  using ((select public.opsboss_is_member()))
-  with check ((select public.opsboss_is_member()));
+  using ((select opsboss_private.opsboss_is_member()))
+  with check ((select opsboss_private.opsboss_is_member()));
 
--- Miembros: el equipo ve la lista; solo owner/admin cambian roles o quitan
--- miembros, y solo un owner puede crear/quitar otro owner.
+-- Miembros: el equipo ve la lista; owner/admin cambian roles o quitan;
+-- solo un owner gestiona a otro owner; nadie se quita a sí mismo.
 drop policy if exists "opsboss_members_select" on public.opsboss_members;
 create policy "opsboss_members_select" on public.opsboss_members for select to authenticated
-  using ((select public.opsboss_is_member()));
+  using ((select opsboss_private.opsboss_is_member()));
 drop policy if exists "opsboss_members_update" on public.opsboss_members;
 create policy "opsboss_members_update" on public.opsboss_members for update to authenticated
-  using ((select public.opsboss_is_admin()) and (role <> 'owner' or (select public.opsboss_role()) = 'owner'))
-  with check ((select public.opsboss_is_admin()) and (role <> 'owner' or (select public.opsboss_role()) = 'owner'));
+  using ((select opsboss_private.opsboss_is_admin()) and (role <> 'owner' or (select opsboss_private.opsboss_role()) = 'owner'))
+  with check ((select opsboss_private.opsboss_is_admin()) and (role <> 'owner' or (select opsboss_private.opsboss_role()) = 'owner'));
 drop policy if exists "opsboss_members_delete" on public.opsboss_members;
 create policy "opsboss_members_delete" on public.opsboss_members for delete to authenticated
-  using ((select public.opsboss_is_admin()) and (role <> 'owner' or (select public.opsboss_role()) = 'owner') and user_id <> (select auth.uid()));
+  using ((select opsboss_private.opsboss_is_admin()) and (role <> 'owner' or (select opsboss_private.opsboss_role()) = 'owner') and user_id <> (select auth.uid()));
 
 -- Invitaciones: solo owner/admin.
 drop policy if exists "opsboss_invites_admin" on public.opsboss_invites;
 create policy "opsboss_invites_admin" on public.opsboss_invites for all to authenticated
-  using ((select public.opsboss_is_admin()))
-  with check ((select public.opsboss_is_admin()) and (role <> 'owner' or (select public.opsboss_role()) = 'owner'));
+  using ((select opsboss_private.opsboss_is_admin()))
+  with check ((select opsboss_private.opsboss_is_admin()) and (role <> 'owner' or (select opsboss_private.opsboss_role()) = 'owner'));
 
--- ---------- Tiempo real (cambios en vivo entre usuarios) ----------
+-- ---------- Tiempo real ----------
 do $$
 begin
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'opsboss_records') then
@@ -141,10 +146,6 @@ begin
   end if;
 end $$;
 
--- ============================================================
--- PRIMER DUEÑO: cambia el email por el tuyo y ejecuta esta línea.
--- Luego entra a OpsBoss con ese email (si ya tienes cuenta en la
--- Academy, usa la misma contraseña; si no, "Crear cuenta").
--- ============================================================
--- insert into public.opsboss_invites (email, role) values ('TU_EMAIL@nexispower.com', 'owner')
+-- ---------- Primer dueño (cambia el email si reinstalas) ----------
+-- insert into public.opsboss_invites (email, role) values ('TU_EMAIL@empresa.com', 'owner')
 --   on conflict (email) do update set role = 'owner';
