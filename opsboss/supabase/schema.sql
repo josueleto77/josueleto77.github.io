@@ -28,7 +28,7 @@ create table if not exists public.opsboss_invites (
 
 -- Un registro = un cliente, trabajo, estimado, factura, etc. (JSON).
 create table if not exists public.opsboss_records (
-  coll text not null check (coll in ('settings', 'customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity')),
+  coll text not null constraint opsboss_records_coll_check check (coll in ('settings', 'customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks')),
   id text not null,
   data jsonb not null,
   updated_at timestamptz not null default now(),

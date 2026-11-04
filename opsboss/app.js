@@ -39,8 +39,11 @@ const JOB_ST = { unscheduled: ['Sin programar', 'warn'], scheduled: ['Programado
 const JOB_FLOW = ['unscheduled', 'scheduled', 'enroute', 'inprogress', 'completed'];
 const EST_ST = { draft: ['Borrador', ''], sent: ['Enviado', 'info'], approved: ['Aprobado', 'ok'], declined: ['Rechazado', 'bad'] };
 const INV_ST = { draft: ['Borrador', ''], sent: ['Enviada', 'info'], partial: ['Pago parcial', 'warn'], paid: ['Pagada', 'ok'], overdue: ['Vencida', 'bad'], void: ['Anulada', ''] };
-const STAGES = [['new', 'Nuevo'], ['contacted', 'Contactado'], ['visit', 'Visita agendada'], ['proposal', 'Propuesta enviada'], ['won', 'Ganado'], ['lost', 'Perdido']];
+const STAGES = [['new', 'New'], ['contacted', 'Contacted'], ['visit', 'Appointment Set'], ['proposal', 'Proposal Sent'], ['won', 'Won'], ['lost', 'Lost']];
 const SOURCES = ['Google', 'Referido', 'Facebook/Instagram', 'Puerta a puerta', 'Sitio web', 'Yelp', 'Evento', 'Cliente recurrente'];
+// Etiquetas en inglés para el pipeline (los valores guardados no cambian)
+const SOURCE_EN = { 'Referido': 'Referral', 'Puerta a puerta': 'Door to door', 'Sitio web': 'Website', 'Evento': 'Event', 'Cliente recurrente': 'Repeat customer' };
+const srcEN = s => SOURCE_EN[s] || s || '';
 const PAY_METHODS = ['Tarjeta', 'ACH / Transferencia', 'Cheque', 'Efectivo', 'Financiamiento', 'Zelle'];
 const PERMIT_TYPES = ['Construcción', 'Eléctrico', 'Techado', 'Mecánico', 'Interconexión (utility)', 'PTO (permiso para operar)', 'HOA'];
 const PERMIT_ST = { todo: ['Por enviar', 'warn'], submitted: ['Enviado', 'info'], approved: ['Aprobado', 'ok'], inspection: ['Inspección programada', 'brand'], passed: ['Inspección aprobada', 'ok'], rejected: ['Rechazado / correcciones', 'bad'] };
@@ -182,11 +185,23 @@ function seed() {
   d.activity = [
     ['Pago recibido de ' + C[4].name, -0.1], ['Estimado ' + d.estimates[0].number + ' enviado a ' + C[0].name, -0.3], ['Nuevo lead: ' + C[6].name + ' (Solar)', -0.6], ['Trabajo completado: Instalación bomba de calor', -1], ['Permiso RF-26-1029 con inspección programada', -1.4],
   ].map(([text, off]) => ({ id: uid(), text, ts: iso(new Date(Date.now() + off * DAY)) }));
+  d.workflows = wfTemplates().slice(0, 6).map(t => ({ id: uid(), ...t, active: true, activatedAt: iso(now), createdAt: iso(now), runs: 0, lastRun: null }));
+  d.tasks = [
+    { id: uid(), title: 'Llamar a ' + C[6].name + ' — Sistema solar + batería', due: ymd(now), assignee: '', done: false, customerId: C[6].id, link: { kind: 'customer', id: C[6].id }, wf: d.workflows[0].name, createdAt: iso(now) },
+    { id: uid(), type: 'message', channel: 'sms', title: 'Enviar SMS a ' + C[0].name, body: 'Hola ' + C[0].name.split(' ')[0] + ', ¿pudo revisar su estimado ' + d.estimates[0].number + ' de ' + d.settings.company + '? Con gusto resolvemos dudas o vemos opciones de financiamiento.', due: ymd(now), assignee: '', done: false, customerId: C[0].id, link: { kind: 'estimate', id: d.estimates[0].id }, wf: d.workflows[1].name, createdAt: iso(now) },
+    { id: uid(), title: 'Agendar site survey — ' + C[12].name, due: ymd(addDays(now, -1)), assignee: 't1', done: false, customerId: C[12].id, link: { kind: 'customer', id: C[12].id }, wf: d.workflows[2].name, createdAt: iso(addDays(now, -2)) },
+    { id: uid(), title: 'Confirmar entrega de tejas con proveedor', due: ymd(addDays(now, 2)), assignee: 't3', done: false, customerId: C[1].id, link: { kind: 'customer', id: C[1].id }, createdAt: iso(now) },
+  ];
   return d;
 }
 
+function normalize(d) {
+  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks'].forEach(k => d[k] = d[k] || []);
+  if (!d.workflows) d.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t));
+  return d;
+}
 function load() {
-  try { const raw = localStorage.getItem(STORE_KEY); if (raw) return JSON.parse(raw); } catch (e) { /* sin acceso */ }
+  try { const raw = localStorage.getItem(STORE_KEY); if (raw) return normalize(JSON.parse(raw)); } catch (e) { /* sin acceso */ }
   return seed();
 }
 function save() {
@@ -194,11 +209,11 @@ function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(db)); } catch (e) { toast('No se pudo guardar localmente (almacenamiento lleno o bloqueado).'); }
 }
 function log(text) { db.activity.unshift({ id: uid(), text, ts: iso(new Date()), by: cloud.user ? cloud.user.email : undefined }); db.activity = db.activity.slice(0, 200); }
-function blankDb() { const d = seed(); return { ...d, techs: [], customers: [], leads: [], estimates: [], jobs: [], invoices: [], plans: [], permits: [], activity: [] }; }
+function blankDb() { const d = seed(); return { ...d, techs: [], customers: [], leads: [], estimates: [], jobs: [], invoices: [], plans: [], permits: [], activity: [], tasks: [], workflows: d.workflows.map(w => ({ ...w, runs: 0, lastRun: null })) }; }
 
 /* ───────────── Nube (Supabase) ───────────── */
 const CFG = window.OPSBOSS_CONFIG || {};
-const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity'];
+const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks'];
 const TABLE = 'opsboss_records';
 const ROLE_LABEL = { owner: 'Dueño', admin: 'Administrador', office: 'Oficina', tech: 'Técnico' };
 const cloud = { on: false, sb: null, user: null, role: null, shadow: new Map(), timer: null, busy: false, again: false, pendingRender: false };
@@ -322,7 +337,7 @@ const state = { div: 'all', week: weekStart(new Date()), tabs: {}, filters: {} }
 try { state.div = localStorage.getItem('opsboss.div') || 'all'; } catch (e) { /* ignore */ }
 
 /* ───────────── UI: toast, modal ───────────── */
-function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; $('#toastRoot').appendChild(t); setTimeout(() => t.remove(), 3200); }
+function toast(msg) { const r = $('#toastRoot'); while (r.children.length >= 3) r.firstChild.remove(); const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; r.appendChild(t); setTimeout(() => t.remove(), 3200); }
 function modal({ title, body, foot = '', wide = false, onMount }) {
   const root = $('#modalRoot');
   const bg = document.createElement('div'); bg.className = 'modal-bg';
@@ -343,16 +358,16 @@ function field(f) {
   if (f.type === 'textarea') return `<label class="${cls}">${f.label}<textarea name="${f.k}">${esc(v)}</textarea></label>`;
   return `<label class="${cls}">${f.label}<input name="${f.k}" type="${f.type || 'text'}" value="${esc(v)}" ${f.step ? `step="${f.step}"` : ''} ${f.required ? 'required' : ''} ${f.list ? `list="${f.list}"` : ''} placeholder="${esc(f.ph || '')}"></label>`;
 }
-function form({ title, fields, onSave, saveLabel = 'Guardar', extraFoot = '', wide }) {
+function form({ title, fields, onSave, saveLabel = 'Guardar', cancelLabel = 'Cancelar', extraFoot = '', wide }) {
   return modal({
     title, wide,
     body: `<form class="form" id="mform">${fields.map(field).join('')}<button type="submit" hidden></button></form>`,
-    foot: `${extraFoot}<button class="btn" data-dismiss>Cancelar</button><button class="btn primary" data-save>${saveLabel}</button>`,
+    foot: `${extraFoot}<button class="btn" data-dismiss>${cancelLabel}</button><button class="btn primary" data-save>${saveLabel}</button>`,
     onMount(bg, close) {
       const submit = e => {
         e && e.preventDefault();
         const vals = {}; $$('[name]', bg).forEach(i => vals[i.name] = i.type === 'number' ? num(i.value) : i.value.trim());
-        for (const f of fields) if (f.required && !vals[f.k]) { toast(`"${f.label}" es obligatorio`); return; }
+        for (const f of fields) if (f.required && !vals[f.k]) { toast(cancelLabel === 'Cancel' ? `"${f.label}" is required` : `"${f.label}" es obligatorio`); return; }
         if (onSave(vals, bg) !== false) { close(); save(); render(); }
       };
       $('#mform', bg).addEventListener('submit', submit);
@@ -367,16 +382,16 @@ const confirmDlg = (msg, yes) => modal({ title: 'Confirmar', body: `<p>${msg}</p
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
-  ['sec', 'Operación'], ['dashboard', '◧', 'Panel'], ['schedule', '▦', 'Agenda y despacho'], ['pipeline', '⇶', 'Pipeline de ventas'], ['customers', '☺', 'Clientes'],
+  ['sec', 'Operación'], ['dashboard', '◧', 'Panel'], ['tasks', '☑', 'Tareas'], ['schedule', '▦', 'Agenda y despacho'], ['pipeline', '⇶', 'Sales Pipeline'], ['customers', '☺', 'Clientes'],
   ['sec', 'Ventas y trabajos'], ['estimates', '✎', 'Estimados'], ['jobs', '⚒', 'Trabajos'], ['invoices', '$', 'Facturas y pagos'], ['plans', '↻', 'Membresías'],
   ['sec', 'Proyectos'], ['permits', '⚑', 'Permisos e inspecciones'], ['tools', '∑', 'Calculadoras'],
-  ['sec', 'Negocio'], ['reports', '▤', 'Reportes'], ['pricebook', '☰', 'Lista de precios'], ['team', '◎', 'Equipo'], ['settings', '⚙', 'Configuración'],
+  ['sec', 'Negocio'], ['workflows', '⚡', 'Workflows'], ['reports', '▤', 'Reportes'], ['pricebook', '☰', 'Lista de precios'], ['team', '◎', 'Equipo'], ['settings', '⚙', 'Configuración'],
 ];
 function renderNav() {
   const route = (location.hash.slice(2) || 'dashboard').split('/')[0];
   const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices' };
   const active = parentOf[route] || route;
-  const badges = { schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length };
+  const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length };
   $('#nav').innerHTML = NAV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
   $('#divFilter').innerHTML = [['all', 'Todo'], ...divOptions()].map(([k, v]) => `<button data-div="${k}" class="${state.div === k ? 'on' : ''}">${k !== 'all' ? `<span class="div-dot d-${k}"></span> ` : ''}${v}</button>`).join('');
 }
@@ -447,6 +462,7 @@ ROUTES.dashboard = () => {
   const maxM = Math.max(1, ...months.map(m => keys.reduce((s, k) => s + m.by[k], 0)));
   const bars = months.map(m => { const tot = keys.reduce((s, k) => s + m.by[k], 0); return `<div class="bar" title="${m.label}: ${money(tot)}"><div class="small b">${kmoney(tot)}</div><div class="stack" style="height:${tot / maxM * 130}px">${keys.map(k => `<div style="height:${tot ? m.by[k] / tot * 100 : 0}%;background:${DIV[k].color}"></div>`).join('')}</div><div class="lbl">${m.label}</div></div>`; }).join('');
   const attention = [
+    ...(db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).sort((a, b) => a.due.localeCompare(b.due)).slice(0, 4).map(t => `<div class="list-item"><span class="pill ${t.due < ymd(new Date()) ? 'bad' : 'warn'}">${t.due < ymd(new Date()) ? 'Tarea vencida' : 'Tarea hoy'}</span><div style="flex:1"><a href="#/tasks">${esc(t.title)}</a></div></div>`),
     ...overdue.slice(0, 4).map(i => `<div class="list-item"><span class="pill bad">Vencida</span><div style="flex:1"><a href="#/invoice/${i.id}">${i.number}</a> · ${esc(cust(i.customerId).name)}</div><b>${money(invBal(i))}</b></div>`),
     ...db.jobs.filter(divOK).filter(j => j.status === 'unscheduled').slice(0, 3).map(j => `<div class="list-item"><span class="pill warn">Sin programar</span><div style="flex:1"><a href="#/job/${j.id}">${esc(j.title)}</a></div>${divPill(j.division)}</div>`),
     ...db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).slice(0, 3).map(p => `<div class="list-item">${pill(PERMIT_ST, p.status)}<div style="flex:1"><a href="#/permits">${esc(p.type)}</a> · ${esc(p.jurisdiction)}</div></div>`),
@@ -521,10 +537,10 @@ ROUTES.pipeline = () => {
   const leads = db.leads.filter(divOK);
   const cols = STAGES.map(([k, label]) => {
     const list = leads.filter(l => l.stage === k);
-    return `<div class="kcol" data-stage="${k}"><div class="kcol-h"><span>${label} <span class="muted">${list.length}</span></span><span class="sum">${kmoney(list.reduce((s, l) => s + num(l.value), 0))}</span></div><div class="kcol-b">${list.map(l => { const c = cust(l.customerId); const late = l.next && parseLocal(l.next) < sod(new Date()) && !['won', 'lost'].includes(l.stage); return `<div class="kcard" draggable="true" data-lead="${l.id}"><div class="t">${esc(l.title)}</div><div class="small">${esc(c.name)}</div><div class="m"><span>${divPill(l.division)}</span><b>${money(l.value)}</b></div><div class="m"><span>${esc(l.source || '')}</span><span class="${late ? 'down b' : ''}">${l.next ? '⏱ ' + fDate(l.next) : ''}</span></div></div>`; }).join('')}</div></div>`;
+    return `<div class="kcol" data-stage="${k}"><div class="kcol-h"><span>${label} <span class="muted">${list.length}</span></span><span class="sum">${kmoney(list.reduce((s, l) => s + num(l.value), 0))}</span></div><div class="kcol-b">${list.map(l => { const c = cust(l.customerId); const late = l.next && parseLocal(l.next) < sod(new Date()) && !['won', 'lost'].includes(l.stage); return `<div class="kcard" draggable="true" data-lead="${l.id}"><div class="t">${esc(l.title)}</div><div class="small">${esc(c.name)}</div><div class="m"><span>${divPill(l.division)}</span><b>${money(l.value)}</b></div><div class="m"><span>${esc(srcEN(l.source))}</span><span class="${late ? 'down b' : ''}">${l.next ? '⏱ ' + new Date(l.next + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span></div></div>`; }).join('')}</div></div>`;
   }).join('');
   const open = leads.filter(l => !['won', 'lost'].includes(l.stage));
-  return head('Pipeline de ventas', `${open.length} oportunidades abiertas · ${money(open.reduce((s, l) => s + num(l.value), 0))} en juego`, `<button class="btn primary" data-act="newLead">＋ Lead</button>`) + `<div class="kanban">${cols}</div>`;
+  return head('Sales Pipeline', `${open.length} open opportunities · ${money(open.reduce((s, l) => s + num(l.value), 0))} in play`, `<button class="btn primary" data-act="newLead">＋ New Lead</button>`) + `<div class="kanban">${cols}</div>`;
 };
 ROUTES['pipeline:after'] = () => {
   $$('[data-lead]').forEach(el => {
@@ -534,34 +550,37 @@ ROUTES['pipeline:after'] = () => {
   $$('[data-stage]').forEach(col => {
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
     col.addEventListener('dragleave', () => col.classList.remove('over'));
-    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage) return; l.stage = col.dataset.stage; log(`Lead "${l.title}" → ${STAGES.find(s => s[0] === l.stage)[1]}`); save(); render(); });
+    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage) return; l.stage = col.dataset.stage; l.stageAt = iso(new Date()); log(`Lead "${l.title}" → ${STAGES.find(s => s[0] === l.stage)[1]}`); emit('lead.stage', 'lead', l, { to: l.stage }); save(); render(); });
   });
 };
 function leadModal(l) {
   const isNew = !l;
   l = l || { id: uid(), stage: 'new', createdAt: iso(new Date()), division: state.div !== 'all' ? state.div : 'solar', value: 0, source: 'Google', next: ymd(addDays(new Date(), 1)) };
   const m = form({
-    title: isNew ? 'Nuevo lead' : 'Lead: ' + esc(l.title),
+    title: isNew ? 'New Lead' : 'Lead: ' + esc(l.title),
+    saveLabel: 'Save', cancelLabel: 'Cancel',
     fields: [
-      { k: 'customerId', label: 'Cliente', type: 'select', options: [['__new', '＋ Nuevo cliente…'], ...custOptions()], value: l.customerId || '__new' },
-      { k: 'newName', label: 'Nombre (si es nuevo)', value: '' }, { k: 'newPhone', label: 'Teléfono (si es nuevo)', value: '' },
-      { k: 'title', label: 'Oportunidad', value: l.title, required: true, ph: 'Ej. Sistema solar 8 kW' },
-      { k: 'division', label: 'División', type: 'select', options: divOptions(), value: l.division },
-      { k: 'value', label: 'Valor estimado ($)', type: 'number', value: l.value },
-      { k: 'stage', label: 'Etapa', type: 'select', options: STAGES, value: l.stage },
-      { k: 'source', label: 'Fuente', type: 'select', options: SOURCES, value: l.source },
-      { k: 'next', label: 'Próximo seguimiento', type: 'date', value: l.next },
-      { k: 'notes', label: 'Notas', type: 'textarea', full: true, value: l.notes },
+      { k: 'customerId', label: 'Customer', type: 'select', options: [['__new', '＋ New customer…'], ...custOptions()], value: l.customerId || '__new' },
+      { k: 'newName', label: 'Name (if new)', value: '' }, { k: 'newPhone', label: 'Phone (if new)', value: '' },
+      { k: 'title', label: 'Opportunity', value: l.title, required: true, ph: 'e.g. 8 kW solar system' },
+      { k: 'division', label: 'Division', type: 'select', options: divOptions(), value: l.division },
+      { k: 'value', label: 'Estimated value ($)', type: 'number', value: l.value },
+      { k: 'stage', label: 'Stage', type: 'select', options: STAGES, value: l.stage },
+      { k: 'source', label: 'Lead source', type: 'select', options: SOURCES.map(x => [x, srcEN(x)]), value: l.source },
+      { k: 'next', label: 'Next follow-up', type: 'date', value: l.next },
+      { k: 'notes', label: 'Notes', type: 'textarea', full: true, value: l.notes },
     ],
-    extraFoot: isNew ? '' : `<button class="btn danger" id="ldDel" style="margin-right:auto">Eliminar</button><button class="btn" id="ldEst">→ Crear estimado</button>`,
+    extraFoot: isNew ? '' : `<button class="btn danger" id="ldDel" style="margin-right:auto">Delete</button><button class="btn" id="ldEst">→ Create estimate</button>`,
     onSave(v) {
-      if (v.customerId === '__new') { if (!v.newName) { toast('Escribe el nombre del nuevo cliente'); return false; } const c = newCustomer({ name: v.newName, phone: v.newPhone, source: v.source }); v.customerId = c.id; }
+      if (v.customerId === '__new') { if (!v.newName) { toast('Enter the new customer\'s name'); return false; } const c = newCustomer({ name: v.newName, phone: v.newPhone, source: v.source }); v.customerId = c.id; }
       delete v.newName; delete v.newPhone;
-      Object.assign(l, v); if (isNew) { db.leads.unshift(l); log(`Nuevo lead: ${cust(l.customerId).name} (${DIV[l.division].name})`); toast('Lead creado'); }
+      const prevStage = l.stage; Object.assign(l, v);
+      if (isNew) { l.stageAt = l.createdAt; db.leads.unshift(l); log(`Nuevo lead: ${cust(l.customerId).name} (${DIV[l.division].name})`); toast('Lead created'); emit('lead.created', 'lead', l); }
+      else if (prevStage !== l.stage) { l.stageAt = iso(new Date()); emit('lead.stage', 'lead', l, { to: l.stage }); }
     },
   });
   if (!isNew) {
-    $('#ldDel', m.el).onclick = () => { m.close(); confirmDlg('¿Eliminar este lead?', () => { db.leads = db.leads.filter(x => x.id !== l.id); }); };
+    $('#ldDel', m.el).onclick = () => { m.close(); confirmDlg('Delete this lead?', () => { db.leads = db.leads.filter(x => x.id !== l.id); }); };
     $('#ldEst', m.el).onclick = () => { m.close(); const e = createEstimate({ customerId: l.customerId, division: l.division, title: l.title }); l.stage = 'proposal'; l.estimateId = e.id; save(); location.hash = '#/estimate/' + e.id; };
   }
 }
@@ -569,7 +588,7 @@ function leadModal(l) {
 /* ───────────── CLIENTES ───────────── */
 function newCustomer(v) {
   const c = { id: uid(), name: v.name, phone: v.phone || '', email: v.email || '', address: v.address || '', city: v.city || '', zip: v.zip || '', source: v.source || 'Google', tags: [], createdAt: iso(new Date()), notes: v.notes || '', property: { roofType: '', roofAge: '', sqft: '', utility: '', avgBill: '', stories: 1 }, equipment: [] };
-  db.customers.unshift(c); log('Nuevo cliente: ' + c.name); return c;
+  db.customers.unshift(c); log('Nuevo cliente: ' + c.name); emit('customer.created', 'customer', c); return c;
 }
 function customerModal(c) {
   const isNew = !c; c = c || {};
@@ -704,7 +723,7 @@ function jobModal(j, preset = {}) {
       const data = { customerId: v.customerId, division: v.division, title: v.title, duration: v.duration, techIds, start, notes: v.notes };
       if (isNew) {
         const nj = { id: uid(), number: nextNum('job'), ...data, status: start ? 'scheduled' : 'unscheduled', items: preset.items || [], checklist: CHECKLISTS[v.division].map(t => ({ id: uid(), t, done: false })), photos: [], estimateId: preset.estimateId || null, createdAt: iso(new Date()) };
-        db.jobs.unshift(nj); log(`Trabajo ${nj.number} creado: ${nj.title}`); toast('Trabajo creado'); setTimeout(() => location.hash = '#/job/' + nj.id);
+        db.jobs.unshift(nj); log(`Trabajo ${nj.number} creado: ${nj.title}`); toast('Trabajo creado'); emit('job.created', 'job', nj); setTimeout(() => location.hash = '#/job/' + nj.id);
       } else { Object.assign(j, data); if (!start) j.status = 'unscheduled'; else if (j.status === 'unscheduled') j.status = 'scheduled'; }
     },
   });
@@ -784,7 +803,7 @@ ROUTES.invoice = id => {
 };
 function payModal(i) {
   form({ title: `Registrar pago — ${i.number}`, fields: [{ k: 'amount', label: 'Monto ($)', type: 'number', step: '0.01', value: invBal(i).toFixed(2), required: true }, { k: 'method', label: 'Método', type: 'select', options: PAY_METHODS, value: 'Tarjeta' }, { k: 'date', label: 'Fecha', type: 'date', value: ymd(new Date()) }, { k: 'ref', label: 'Referencia / # cheque', value: '' }], saveLabel: 'Registrar pago',
-    onSave(v) { if (v.amount <= 0) { toast('Monto inválido'); return false; } i.payments.push({ id: uid(), amount: v.amount, method: v.method, date: iso(parseLocal(v.date, '12:00')), ref: v.ref }); if (i.status === 'draft') i.status = 'sent'; log(`Pago de ${money2(v.amount)} recibido de ${cust(i.customerId).name} (${i.number})`); toast('Pago registrado ✓'); } });
+    onSave(v) { if (v.amount <= 0) { toast('Monto inválido'); return false; } i.payments.push({ id: uid(), amount: v.amount, method: v.method, date: iso(parseLocal(v.date, '12:00')), ref: v.ref }); if (i.status === 'draft') i.status = 'sent'; log(`Pago de ${money2(v.amount)} recibido de ${cust(i.customerId).name} (${i.number})`); toast('Pago registrado ✓'); emit('payment.received', 'invoice', i); if (invBal(i) <= 0.009) emit('invoice.paid', 'invoice', i); } });
 }
 
 /* ───────────── MEMBRESÍAS ───────────── */
@@ -945,6 +964,212 @@ ROUTES.settings = () => {
   </div>`;
 };
 
+/* ───────────── WORKFLOWS (automatizaciones) ───────────── */
+const WF_TRIGGERS = {
+  'lead.created': { label: 'Se crea un lead', kind: 'lead', group: 'Ventas' },
+  'lead.stage': { label: 'Un lead cambia de etapa', kind: 'lead', group: 'Ventas', param: 'stage' },
+  'customer.created': { label: 'Se crea un cliente', kind: 'customer', group: 'Ventas' },
+  'estimate.sent': { label: 'Se envía un estimado', kind: 'estimate', group: 'Ventas' },
+  'estimate.approved': { label: 'Se aprueba un estimado', kind: 'estimate', group: 'Ventas' },
+  'estimate.declined': { label: 'Se rechaza un estimado', kind: 'estimate', group: 'Ventas' },
+  'job.created': { label: 'Se crea un trabajo', kind: 'job', group: 'Operación' },
+  'job.status': { label: 'Un trabajo cambia de estado', kind: 'job', group: 'Operación', param: 'status' },
+  'invoice.sent': { label: 'Se envía una factura', kind: 'invoice', group: 'Cobranza' },
+  'payment.received': { label: 'Se registra un pago', kind: 'invoice', group: 'Cobranza' },
+  'invoice.paid': { label: 'Una factura queda pagada', kind: 'invoice', group: 'Cobranza' },
+  'time.estimate_no_reply': { label: 'Estimado enviado sin respuesta por N días', kind: 'estimate', group: 'Por tiempo', timer: true },
+  'time.lead_stale': { label: 'Lead sin cambiar de etapa por N días', kind: 'lead', group: 'Por tiempo', timer: true },
+  'time.invoice_overdue': { label: 'Factura vencida hace N días', kind: 'invoice', group: 'Por tiempo', timer: true },
+  'time.job_completed_ago': { label: 'N días después de completar un trabajo', kind: 'job', group: 'Por tiempo', timer: true },
+  'time.plan_visit_due': { label: 'Faltan N días para la visita de membresía', kind: 'plan', group: 'Por tiempo', timer: true },
+};
+const WF_ACTIONS = {
+  task: 'Crear tarea', message: 'Preparar SMS / email al cliente', move_lead: 'Mover el lead a una etapa', invoice_job: 'Crear factura del trabajo',
+  assign_tech: 'Asignar técnico al trabajo', tag: 'Etiquetar al cliente', note: 'Registrar nota en la actividad', notify: 'Mostrar aviso en pantalla',
+};
+const WF_VARS = ['{{cliente}}', '{{nombre}}', '{{telefono}}', '{{titulo}}', '{{numero}}', '{{monto}}', '{{saldo}}', '{{division}}', '{{empresa}}', '{{telefono_empresa}}'];
+const wfTemplates = () => [
+  { name: 'Responder rápido a nuevos leads', trigger: { type: 'lead.created' }, cond: {}, actions: [{ type: 'task', title: 'Llamar a {{cliente}} — {{titulo}}', days: 0 }, { type: 'message', channel: 'sms', body: 'Hola {{nombre}}, gracias por contactar a {{empresa}}. Le llamaremos hoy mismo sobre su proyecto de {{division}}.' }] },
+  { name: 'Seguimiento de estimados sin respuesta', trigger: { type: 'time.estimate_no_reply', days: 3 }, cond: {}, actions: [{ type: 'task', title: 'Dar seguimiento al estimado {{numero}} de {{cliente}} ({{monto}})', days: 0 }, { type: 'message', channel: 'sms', body: 'Hola {{nombre}}, ¿pudo revisar su estimado {{numero}} de {{empresa}}? Con gusto resolvemos dudas o vemos opciones de financiamiento.' }] },
+  { name: 'Arranque de proyecto solar', trigger: { type: 'estimate.approved' }, cond: { division: 'solar' }, actions: [{ type: 'task', title: 'Agendar site survey — {{cliente}}', days: 1 }, { type: 'task', title: 'Diseño y paquete de permisos — {{cliente}}', days: 3 }, { type: 'task', title: 'Enviar solicitud de interconexión — {{cliente}}', days: 5 }, { type: 'message', channel: 'email', body: 'Hola {{nombre}}, ¡bienvenido a {{empresa}}! Su proyecto solar está aprobado. En las próximas 48 horas le contactaremos para agendar la visita técnica.' }] },
+  { name: 'Arranque de proyecto de techo', trigger: { type: 'estimate.approved' }, cond: { division: 'roofing' }, actions: [{ type: 'task', title: 'Solicitar permiso de techado — {{cliente}}', days: 1 }, { type: 'task', title: 'Ordenar materiales y dumpster — {{cliente}}', days: 2 }] },
+  { name: 'Trabajo completado → factura y reseña', trigger: { type: 'job.status', status: 'completed' }, cond: {}, actions: [{ type: 'invoice_job' }, { type: 'message', channel: 'sms', body: 'Gracias {{nombre}} por confiar en {{empresa}}. Si quedó satisfecho, ¿nos ayudaría con una reseña en Google? ¡Significa mucho para nosotros!' }] },
+  { name: 'Cobranza de facturas vencidas', trigger: { type: 'time.invoice_overdue', days: 1 }, cond: {}, actions: [{ type: 'message', channel: 'sms', body: 'Hola {{nombre}}, le recordamos que la factura {{numero}} de {{empresa}} tiene un saldo de {{saldo}}. Puede llamarnos al {{telefono_empresa}}. ¡Gracias!' }, { type: 'task', title: 'Llamar para cobrar {{numero}} ({{saldo}}) — {{cliente}}', days: 2 }] },
+  { name: 'Agendar visitas de membresía', trigger: { type: 'time.plan_visit_due', days: 7 }, cond: {}, actions: [{ type: 'task', title: 'Agendar visita de membresía — {{cliente}}', days: 0 }] },
+  { name: 'Alerta de leads estancados', trigger: { type: 'time.lead_stale', days: 5 }, cond: {}, actions: [{ type: 'task', title: 'Reactivar lead estancado: {{titulo}} ({{cliente}})', days: 0 }, { type: 'notify', text: 'Lead estancado: {{titulo}} de {{cliente}}' }] },
+];
+const wfFromTemplate = (t, active = true) => ({ id: uid(), ...JSON.parse(JSON.stringify(t)), active, activatedAt: iso(new Date()), createdAt: iso(new Date()), runs: 0, lastRun: null });
+
+function wfInfo(kind, rec) {
+  const c = kind === 'customer' ? rec : cust(rec.customerId);
+  const value = kind === 'lead' ? num(rec.value) : kind === 'estimate' ? (rec.status === 'approved' ? estTotal(rec) : estMax(rec)) : kind === 'job' ? totalOf(rec.items) : kind === 'invoice' ? invTotal(rec) : kind === 'plan' ? num(rec.price) : custLTV(rec.id);
+  return { c, value, division: rec.division || null, balance: kind === 'invoice' ? invBal(rec) : 0 };
+}
+function wfFill(tpl, kind, rec) {
+  const { c, value, division, balance } = wfInfo(kind, rec), s = db.settings;
+  const vars = { cliente: c.name, nombre: String(c.name || '').split(' ')[0], telefono: c.phone, email: c.email, titulo: rec.title || rec.name || '', numero: rec.number || '', monto: money(value), saldo: money2(balance), division: division ? DIV[division].name : '', empresa: s.company, telefono_empresa: s.phone };
+  return String(tpl || '').replace(/\{\{\s*(\w+)\s*\}\}/g, (m, k) => vars[k] ?? m);
+}
+function wfMatches(wf, kind, rec, extra) {
+  const t = wf.trigger, k = wf.cond || {}, info = wfInfo(kind, rec);
+  if (t.stage && t.stage !== 'any' && extra.to !== t.stage) return false;
+  if (t.status && t.status !== 'any' && extra.to !== t.status) return false;
+  if (k.division && k.division !== 'any' && info.division !== k.division) return false;
+  if (num(k.minValue) && info.value < num(k.minValue)) return false;
+  if (k.source && k.source !== 'any' && (rec.source || info.c.source) !== k.source) return false;
+  return true;
+}
+let wfDepth = 0;
+function wfRun(wf, kind, rec) {
+  const now = new Date(), c = wfInfo(kind, rec).c, link = { kind, id: rec.id };
+  for (const a of wf.actions) {
+    if (a.type === 'task') db.tasks.unshift({ id: uid(), title: wfFill(a.title, kind, rec), due: ymd(addDays(now, num(a.days))), assignee: a.tech || (kind === 'job' ? rec.techIds[0] || '' : ''), done: false, customerId: c.id, link, wf: wf.name, createdAt: iso(now) });
+    if (a.type === 'message') db.tasks.unshift({ id: uid(), type: 'message', channel: a.channel || 'sms', body: wfFill(a.body, kind, rec), title: `${a.channel === 'email' ? 'Enviar email' : 'Enviar SMS'} a ${c.name}`, due: ymd(addDays(now, num(a.days))), assignee: '', done: false, customerId: c.id, link, wf: wf.name, createdAt: iso(now) });
+    if (a.type === 'move_lead' && a.stage) {
+      const lead = kind === 'lead' ? rec : db.leads.find(l => l.customerId === c.id && (!rec.division || l.division === rec.division) && !['won', 'lost'].includes(l.stage));
+      if (lead && lead.stage !== a.stage) { lead.stage = a.stage; lead.stageAt = iso(now); emit('lead.stage', 'lead', lead, { to: a.stage }); }
+    }
+    if (a.type === 'invoice_job' && kind === 'job' && !rec.invoiceId) invoiceFromJob(rec);
+    if (a.type === 'assign_tech' && kind === 'job' && a.tech && !rec.techIds.includes(a.tech)) rec.techIds.push(a.tech);
+    if (a.type === 'tag' && a.tag && c.id) { c.tags = c.tags || []; if (!c.tags.includes(a.tag)) c.tags.push(a.tag); }
+    if (a.type === 'note') log(wfFill(a.text, kind, rec));
+    if (a.type === 'notify') toast('⚡ ' + wfFill(a.text, kind, rec));
+  }
+  wf.runs = (wf.runs || 0) + 1; wf.lastRun = iso(now);
+  log(`⚡ Workflow "${wf.name}" — ${c.name || ''}`);
+}
+// Dispara los workflows de un evento. Devuelve cuántos se ejecutaron.
+function emit(event, kind, rec, extra = {}) {
+  if (!db.workflows || wfDepth > 3) return 0;
+  let n = 0; wfDepth++;
+  try { for (const wf of db.workflows) if (wf.active && wf.trigger.type === event && wfMatches(wf, kind, rec, extra)) { wfRun(wf, kind, rec); n++; } } catch (e) { console.error('workflow', e); }
+  finally { wfDepth--; }
+  if (n && wfDepth === 0) { save(); toast(`⚡ ${n} workflow${n > 1 ? 's' : ''} ejecutado${n > 1 ? 's' : ''}`); }
+  return n;
+}
+// Disparadores por tiempo: se revisan al abrir la app y cada 5 minutos.
+function wfTimers() {
+  if (!db || !db.workflows) return;
+  const now = Date.now(); let n = 0;
+  for (const wf of db.workflows) {
+    const T = WF_TRIGGERS[wf.trigger.type]; if (!wf.active || !T || !T.timer) continue;
+    const days = num(wf.trigger.days) * DAY, since = new Date(wf.activatedAt || wf.createdAt).getTime() - DAY;
+    let cands = [];
+    if (wf.trigger.type === 'time.estimate_no_reply') cands = db.estimates.filter(e => e.status === 'sent').map(e => [e, new Date(e.sentAt || e.createdAt).getTime() + days, 'x']);
+    if (wf.trigger.type === 'time.lead_stale') cands = db.leads.filter(l => !['won', 'lost'].includes(l.stage)).map(l => [l, new Date(l.stageAt || l.createdAt).getTime() + days, l.stage]);
+    if (wf.trigger.type === 'time.invoice_overdue') cands = db.invoices.filter(i => invStatus(i) === 'overdue').map(i => [i, parseLocal(i.due).getTime() + days, i.due]);
+    if (wf.trigger.type === 'time.job_completed_ago') cands = db.jobs.filter(j => j.status === 'completed').map(j => [j, new Date(j.completedAt || j.start || j.createdAt).getTime() + days, 'x']);
+    if (wf.trigger.type === 'time.plan_visit_due') cands = db.plans.filter(p => p.status === 'active').map(p => [p, parseLocal(p.nextVisit).getTime() - days, p.nextVisit]);
+    for (const [rec, at, ver] of cands) {
+      if (at > now || at < since) continue;
+      const key = wf.id + ':' + ver; rec._wf = rec._wf || {};
+      if (rec._wf[key]) continue;
+      if (!wfMatches(wf, T.kind, rec, {})) continue;
+      rec._wf[key] = iso(new Date()); wfRun(wf, T.kind, rec); n++;
+    }
+  }
+  if (n) { save(); toast(`⚡ ${n} automatización${n > 1 ? 'es' : ''} por tiempo ejecutada${n > 1 ? 's' : ''}`); if (!$('#modalRoot').children.length) render(); }
+}
+function invoiceFromJob(j) {
+  const est = j.estimateId && byId('estimates', j.estimateId);
+  const deps = est ? db.invoices.filter(i => i.customerId === j.customerId && i.items.some(it => it.name.includes(est.number))) : [];
+  const items = j.items.map(x => ({ ...x, id: uid() }));
+  deps.forEach(d => items.push({ id: uid(), name: `Menos depósito (${d.number})`, qty: 1, price: -subtotal(d.items), cost: 0 }));
+  const inv = createInvoice({ customerId: j.customerId, jobId: j.id, division: j.division, items }); j.invoiceId = inv.id; return inv;
+}
+const wfTriggerText = t => { const T = WF_TRIGGERS[t.type]; if (!T) return t.type; let s = T.label.replace('N días', `${num(t.days)} día${num(t.days) === 1 ? '' : 's'}`); if (t.stage && t.stage !== 'any') s += ` → ${STAGES.find(x => x[0] === t.stage)?.[1]}`; if (t.status && t.status !== 'any') s += ` → ${JOB_ST[t.status]?.[0]}`; return s; };
+const wfCondText = k => { const p = []; if (k.division && k.division !== 'any') p.push('División ' + DIV[k.division].name); if (num(k.minValue)) p.push('Monto ≥ ' + money(k.minValue)); if (k.source && k.source !== 'any') p.push('Fuente ' + k.source); return p.join(' · ') || 'Siempre'; };
+const wfActionText = a => a.type === 'task' ? `Tarea: "${a.title}"${num(a.days) ? ` (vence en ${a.days} d)` : ''}` : a.type === 'message' ? `${a.channel === 'email' ? 'Email' : 'SMS'}: "${String(a.body || '').slice(0, 70)}${String(a.body || '').length > 70 ? '…' : ''}"` : a.type === 'move_lead' ? `Mover lead a ${STAGES.find(x => x[0] === a.stage)?.[1] || '—'}` : a.type === 'assign_tech' ? `Asignar a ${tech(a.tech)?.name || '—'}` : a.type === 'tag' ? `Etiqueta "${a.tag}"` : a.type === 'note' || a.type === 'notify' ? `${WF_ACTIONS[a.type]}: "${a.text}"` : WF_ACTIONS[a.type];
+
+ROUTES.workflows = () => {
+  const list = db.workflows || [];
+  const unused = wfTemplates().filter(t => !list.some(w => w.name === t.name));
+  return head('Workflows', 'Automatiza tu operación: cuando pase algo, OpsBoss crea tareas, prepara mensajes, mueve leads o factura por ti.', `<button class="btn primary" data-act="wfNew">＋ Nuevo workflow</button>`) + `
+  <div class="grid g3">${list.map(w => `<div class="card" style="${w.active ? '' : 'opacity:.6'}"><div class="card-h"><h3>⚡ ${esc(w.name)}</h3><button class="btn sm ${w.active ? 'ok' : ''}" data-act="wfToggle" data-id="${w.id}">${w.active ? '● Activo' : '○ Pausado'}</button></div><div class="card-b">
+    <div class="small muted b">CUANDO</div><div class="mb">${esc(wfTriggerText(w.trigger))}</div>
+    <div class="small muted b">SI</div><div class="mb">${esc(wfCondText(w.cond || {}))}</div>
+    <div class="small muted b">ENTONCES</div><ol style="margin:4px 0 12px;padding-left:18px">${w.actions.map(a => `<li class="small" style="margin-bottom:4px">${esc(wfActionText(a))}</li>`).join('')}</ol>
+    <div class="row" style="justify-content:space-between"><span class="small muted">${w.runs || 0} ejecuciones${w.lastRun ? ' · última hace ' + ago(w.lastRun) : ''}</span><div class="row"><button class="btn sm" data-act="wfEdit" data-id="${w.id}">Editar</button><button class="btn sm" data-act="wfDup" data-id="${w.id}" title="Duplicar">⧉</button><button class="btn sm danger" data-act="wfDel" data-id="${w.id}" title="Eliminar">✕</button></div></div>
+  </div></div>`).join('') || '<div class="card"><div class="empty">Aún no tienes workflows. Crea uno o empieza con una plantilla.</div></div>'}</div>
+  ${unused.length ? `<h3 class="mt" style="margin-top:28px">Plantillas</h3><div class="grid g3">${unused.map(t => `<div class="card"><div class="card-b"><div class="b">${esc(t.name)}</div><div class="small muted mt">Cuando: ${esc(wfTriggerText(t.trigger))}${t.cond.division ? ' · ' + DIV[t.cond.division].name : ''}</div><div class="small muted">${t.actions.length} acciones</div><button class="btn sm primary mt" data-act="wfAddTpl" data-name="${esc(t.name)}">＋ Usar plantilla</button></div></div>`).join('')}</div>` : ''}
+  <div class="card mt"><div class="card-b small muted">Los workflows se ejecutan dentro de OpsBoss cuando alguien del equipo hace la acción, y los de tiempo se revisan cada vez que alguien tiene la app abierta (cada 5 minutos). Los SMS y emails quedan preparados en <a href="#/tasks">Tareas</a> para enviarlos con un clic desde tu teléfono o correo.</div></div>`;
+};
+function wfEditor(wf) {
+  const isNew = !wf;
+  const d = JSON.parse(JSON.stringify(wf || { name: '', trigger: { type: 'lead.created' }, cond: {}, actions: [{ type: 'task', title: 'Llamar a {{cliente}}', days: 0 }] }));
+  const sel = (f, opts, val, extra = '') => `<select class="inp" data-f="${f}" ${extra}>${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(val ?? '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const techOpts = [['', '— Ninguno —'], ...db.techs.map(t => [t.id, t.name])];
+  const draw = () => {
+    const T = WF_TRIGGERS[d.trigger.type];
+    const groups = [...new Set(Object.values(WF_TRIGGERS).map(x => x.group))];
+    const trigSel = `<select class="inp" data-f="trigger.type">${groups.map(g => `<optgroup label="${g}">${Object.entries(WF_TRIGGERS).filter(([, v]) => v.group === g).map(([k, v]) => `<option value="${k}" ${k === d.trigger.type ? 'selected' : ''}>${v.label}</option>`).join('')}</optgroup>`).join('')}</select>`;
+    const act = (a, i) => {
+      let p = '';
+      if (a.type === 'task') p = `<label class="f full">Título de la tarea<input class="inp" data-a="${i}" data-f="title" value="${esc(a.title || '')}"></label><label class="f">Vence en (días)<input class="inp" type="number" min="0" data-a="${i}" data-f="days" value="${num(a.days)}"></label><label class="f">Asignar a${sel('tech', techOpts, a.tech, `data-a="${i}"`)}</label>`;
+      if (a.type === 'message') p = `<label class="f">Canal${sel('channel', [['sms', 'SMS'], ['email', 'Email']], a.channel, `data-a="${i}"`)}</label><label class="f">Enviar en (días)<input class="inp" type="number" min="0" data-a="${i}" data-f="days" value="${num(a.days)}"></label><label class="f full">Mensaje<textarea class="inp" data-a="${i}" data-f="body">${esc(a.body || '')}</textarea></label>`;
+      if (a.type === 'move_lead') p = `<label class="f">Etapa${sel('stage', STAGES, a.stage, `data-a="${i}"`)}</label>`;
+      if (a.type === 'assign_tech') p = `<label class="f">Técnico${sel('tech', techOpts, a.tech, `data-a="${i}"`)}</label><div class="small muted" style="align-self:end">Solo aplica cuando el disparador es un trabajo.</div>`;
+      if (a.type === 'invoice_job') p = `<div class="small muted full">Crea la factura con los conceptos del trabajo (descontando depósitos). Solo aplica cuando el disparador es un trabajo.</div>`;
+      if (a.type === 'tag') p = `<label class="f">Etiqueta<input class="inp" data-a="${i}" data-f="tag" value="${esc(a.tag || '')}" placeholder="Ej. VIP, Garantía, Seguro"></label>`;
+      if (a.type === 'note' || a.type === 'notify') p = `<label class="f full">Texto<input class="inp" data-a="${i}" data-f="text" value="${esc(a.text || '')}"></label>`;
+      return `<div class="card mb" style="box-shadow:none"><div class="card-h" style="padding:10px 14px"><div class="row"><span class="pill brand">${i + 1}</span>${sel('type', Object.entries(WF_ACTIONS), a.type, `data-a="${i}" style="width:auto"`)}</div><button class="btn ghost sm danger" data-wfdel="${i}" title="Quitar acción">✕</button></div><div class="card-b form" style="padding:12px 14px">${p}</div></div>`;
+    };
+    $('#wfEd').innerHTML = `
+      <label class="f">Nombre del workflow<input class="inp" data-f="name" value="${esc(d.name)}" placeholder="Ej. Seguimiento de estimados"></label>
+      <h4 style="margin:18px 0 8px">1. Cuando…</h4>
+      <div class="form"><label class="f ${T.param || T.timer ? '' : 'full'}">Disparador${trigSel}</label>
+      ${T.param === 'stage' ? `<label class="f">Nueva etapa${sel('trigger.stage', [['any', 'Cualquiera'], ...STAGES], d.trigger.stage || 'any')}</label>` : ''}
+      ${T.param === 'status' ? `<label class="f">Nuevo estado${sel('trigger.status', [['any', 'Cualquiera'], ...Object.entries(JOB_ST).map(([k, v]) => [k, v[0]])], d.trigger.status || 'any')}</label>` : ''}
+      ${T.timer ? `<label class="f">Número de días (N)<input class="inp" type="number" min="0" data-f="trigger.days" value="${num(d.trigger.days)}"></label>` : ''}</div>
+      <h4 style="margin:18px 0 8px">2. Solo si… <span class="small muted" style="font-weight:400">(opcional)</span></h4>
+      <div class="form" style="grid-template-columns:repeat(3,minmax(0,1fr))"><label class="f">División${sel('cond.division', [['any', 'Cualquiera'], ...divOptions()], d.cond.division || 'any')}</label><label class="f">Monto mínimo ($)<input class="inp" type="number" min="0" data-f="cond.minValue" value="${num(d.cond.minValue) || ''}" placeholder="0"></label><label class="f">Fuente del lead${sel('cond.source', [['any', 'Cualquiera'], ...SOURCES.map(x => [x, x])], d.cond.source || 'any')}</label></div>
+      <h4 style="margin:18px 0 8px">3. Entonces…</h4>
+      ${d.actions.map(act).join('')}
+      <button class="btn sm" id="wfAddAct">＋ Agregar acción</button>
+      <p class="small muted mt">Variables que puedes usar en textos: ${WF_VARS.map(v => `<code>${v}</code>`).join(' ')}</p>`;
+  };
+  const m = modal({
+    title: isNew ? 'Nuevo workflow' : 'Editar workflow', wide: true, body: '<div id="wfEd"></div>',
+    foot: `<button class="btn" data-dismiss>Cancelar</button><button class="btn primary" id="wfSave">Guardar workflow</button>`,
+    onMount(bg) {
+      const ed = () => $('#wfEd', bg);
+      const setVal = el => {
+        const v = el.type === 'number' ? num(el.value) : el.value;
+        if (el.dataset.a !== undefined) { const a = d.actions[+el.dataset.a]; if (el.dataset.f === 'type') { d.actions[+el.dataset.a] = { type: v, ...(v === 'task' ? { title: '', days: 0 } : v === 'message' ? { channel: 'sms', body: '' } : v === 'move_lead' ? { stage: 'contacted' } : {}) }; draw(); return; } a[el.dataset.f] = v; return; }
+        const [o, k] = el.dataset.f.split('.');
+        if (k) { d[o][k] = v; if (el.dataset.f === 'trigger.type') { d.trigger = { type: v, ...(WF_TRIGGERS[v].timer ? { days: 3 } : {}) }; draw(); } } else d[o] = v;
+      };
+      bg.addEventListener('input', e => { const el = e.target.closest('[data-f]'); if (el && el.tagName !== 'SELECT') setVal(el); });
+      bg.addEventListener('change', e => { const el = e.target.closest('[data-f]'); if (el && el.tagName === 'SELECT') setVal(el); });
+      bg.addEventListener('click', e => {
+        if (e.target.closest('#wfAddAct')) { d.actions.push({ type: 'task', title: '', days: 0 }); draw(); }
+        const del = e.target.closest('[data-wfdel]'); if (del) { d.actions.splice(+del.dataset.wfdel, 1); draw(); }
+      });
+      $('#wfSave', bg).onclick = () => {
+        if (!d.name.trim()) { toast('Ponle un nombre al workflow'); return; }
+        if (!d.actions.length) { toast('Agrega al menos una acción'); return; }
+        if (isNew) db.workflows.unshift({ ...d, id: uid(), active: true, activatedAt: iso(new Date()), createdAt: iso(new Date()), runs: 0, lastRun: null });
+        else Object.assign(wf, d);
+        bg.remove(); save(); render(); toast('Workflow guardado ✓'); wfTimers();
+      };
+      draw(); void ed;
+    },
+  });
+  return m;
+}
+
+/* ───────────── TAREAS ───────────── */
+const taskLink = t => { if (!t.link) return t.customerId ? `<a href="#/customer/${t.customerId}">${esc(cust(t.customerId).name)}</a>` : ''; const r = { lead: ['leads', '#/pipeline'], estimate: ['estimates', '#/estimate/'], job: ['jobs', '#/job/'], invoice: ['invoices', '#/invoice/'], plan: ['plans', '#/plans'], customer: ['customers', '#/customer/'] }[t.link.kind]; if (!r) return ''; const rec = byId(r[0], t.link.id); const href = r[1].endsWith('/') ? r[1] + t.link.id : r[1]; return `<a href="${href}">${esc(rec?.number || rec?.title || rec?.name || cust(t.customerId).name)}</a>${t.customerId && t.link.kind !== 'customer' ? ' · ' + esc(cust(t.customerId).name) : ''}`; };
+ROUTES.tasks = () => {
+  const who = state.filters.taskWho || 'all', today = ymd(new Date());
+  const all = (db.tasks || []).filter(t => who === 'all' || t.assignee === who || (who === 'none' && !t.assignee));
+  const open = all.filter(t => !t.done).sort((a, b) => a.due.localeCompare(b.due));
+  const groups = [['Vencidas', open.filter(t => t.due < today), 'bad'], ['Hoy', open.filter(t => t.due === today), 'warn'], ['Próximas', open.filter(t => t.due > today), 'info'], ['Completadas', all.filter(t => t.done).sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt))).slice(0, 25), 'ok']];
+  const row = t => { const c = cust(t.customerId); const tk = tech(t.assignee); return `<div class="list-item" style="align-items:flex-start"><input type="checkbox" style="width:18px;height:18px;margin-top:2px;accent-color:var(--brand)" data-act-input="taskDone" data-id="${t.id}" ${t.done ? 'checked' : ''}><div style="flex:1;min-width:0"><div class="b" style="${t.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${t.type === 'message' ? (t.channel === 'email' ? '@ ' : '✉ ') : ''}${esc(t.title)}</div>${t.type === 'message' ? `<div class="small" style="white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0">${esc(t.body)}</div>` : ''}${t.notes ? `<div class="small muted">${esc(t.notes)}</div>` : ''}<div class="small muted">${taskLink(t)} · ${t.due === today ? 'Hoy' : fDate(parseLocal(t.due))}${t.wf ? ` · <span class="pill brand" style="font-size:11px">⚡ ${esc(t.wf)}</span>` : ''}</div></div>${tk ? avatar(tk) : ''}${t.type === 'message' && !t.done ? (t.channel === 'email' ? `<a class="btn sm primary" data-act="taskSend" data-id="${t.id}" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(db.settings.company)}&body=${encodeURIComponent(t.body)}">@ Enviar</a>` : `<a class="btn sm primary" data-act="taskSend" data-id="${t.id}" href="sms:${esc(c.phone)}?body=${encodeURIComponent(t.body)}">✉ Enviar</a>`) : ''}<button class="btn ghost sm danger" data-act="taskDel" data-id="${t.id}" title="Eliminar">✕</button></div>`; };
+  return head('Tareas', `${open.length} pendientes · ${open.filter(t => t.due < today).length} vencidas`, `<select class="inp" style="width:auto" data-act-input="taskWho"><option value="all">Todo el equipo</option><option value="none" ${who === 'none' ? 'selected' : ''}>Sin asignar</option>${db.techs.map(t => `<option value="${t.id}" ${who === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select><a class="btn" href="#/workflows">⚡ Workflows</a><button class="btn primary" data-act="taskNew">＋ Tarea</button>`) +
+    groups.map(([label, list, cls]) => list.length || label !== 'Completadas' ? `<div class="card mb"><div class="card-h"><h3><span class="pill ${cls}">${label}</span> <span class="muted small">${list.length}</span></h3></div><div class="card-b" style="padding-top:4px;padding-bottom:4px">${list.map(row).join('') || '<div class="muted small" style="padding:10px 0">Nada aquí.</div>'}</div></div>` : '').join('');
+};
+
 /* ───────────── Búsqueda / paleta de comandos ───────────── */
 function openPalette() {
   const pages = NAV.filter(n => n[0] !== 'sec').map(n => ({ label: n[2], type: 'Página', go: '#/' + n[0] }));
@@ -994,28 +1219,28 @@ const ACT = {
   optTab: el => { state.tabs['opt' + el.dataset.id] = +el.dataset.k; render(); },
   addOpt: el => { const e = byId('estimates', el.dataset.id); const k = state.tabs['opt' + e.id] ?? 0; const names = ['Bueno', 'Mejor', 'Óptimo']; e.options.push({ id: uid(), name: names[e.options.length] || 'Opción', items: e.options[k].items.map(x => ({ ...x, id: uid() })) }); state.tabs['opt' + e.id] = e.options.length - 1; save(); render(); },
   delOpt: el => { const e = byId('estimates', el.dataset.id); e.options.splice(+el.dataset.k, 1); state.tabs['opt' + e.id] = 0; save(); render(); },
-  sendEst: el => { const e = byId('estimates', el.dataset.id); e.status = 'sent'; e.sentAt = iso(new Date()); const c = cust(e.customerId); log(`Estimado ${e.number} enviado a ${c.name}`); save(); render(); modal({ title: 'Estimado marcado como enviado', body: `<p>Envía el estimado al cliente:</p><div class="row"><a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(`Su estimado ${e.number} de ${db.settings.company}`)}&body=${encodeURIComponent(`Hola ${c.name},\n\nAdjunto su estimado ${e.number} (${e.title}) por ${money(estMax(e))}.\nOpciones de financiamiento desde ${money(monthly(Math.min(...e.options.map(o => totalOf(o.items))), num(db.settings.apr), num(db.settings.term)))}/mes.\n\nQuedamos a sus órdenes,\n${db.settings.company}\n${db.settings.phone}`)}">@ Email</a><a class="btn" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hola ${c.name}, le enviamos su estimado ${e.number} de ${db.settings.company} por ${money(estMax(e))}. ¿Tiene alguna pregunta?`)}">✉ SMS</a><button class="btn" data-act="previewEst" data-id="${e.id}">⎙ PDF</button></div>`, foot: '<button class="btn primary" data-dismiss>Listo</button>' }); },
+  sendEst: el => { const e = byId('estimates', el.dataset.id); e.status = 'sent'; e.sentAt = iso(new Date()); const c = cust(e.customerId); log(`Estimado ${e.number} enviado a ${c.name}`); emit('estimate.sent', 'estimate', e); save(); render(); modal({ title: 'Estimado marcado como enviado', body: `<p>Envía el estimado al cliente:</p><div class="row"><a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(`Su estimado ${e.number} de ${db.settings.company}`)}&body=${encodeURIComponent(`Hola ${c.name},\n\nAdjunto su estimado ${e.number} (${e.title}) por ${money(estMax(e))}.\nOpciones de financiamiento desde ${money(monthly(Math.min(...e.options.map(o => totalOf(o.items))), num(db.settings.apr), num(db.settings.term)))}/mes.\n\nQuedamos a sus órdenes,\n${db.settings.company}\n${db.settings.phone}`)}">@ Email</a><a class="btn" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hola ${c.name}, le enviamos su estimado ${e.number} de ${db.settings.company} por ${money(estMax(e))}. ¿Tiene alguna pregunta?`)}">✉ SMS</a><button class="btn" data-act="previewEst" data-id="${e.id}">⎙ PDF</button></div>`, foot: '<button class="btn primary" data-dismiss>Listo</button>' }); },
   approveEst: el => {
     const e = byId('estimates', el.dataset.id), k = +el.dataset.k; e.status = 'approved'; e.selected = k; e.approvedAt = iso(new Date());
     const items = e.options[k].items.map(x => ({ ...x, id: uid() }));
     const j = { id: uid(), number: nextNum('job'), customerId: e.customerId, division: e.division, title: e.title, techIds: [], start: null, duration: e.division === 'hvac' ? 6 : 8, status: 'unscheduled', items, checklist: CHECKLISTS[e.division].map(t => ({ id: uid(), t, done: false })), photos: [], notes: e.notes, estimateId: e.id, createdAt: iso(new Date()) };
     db.jobs.unshift(j);
-    const lead = db.leads.find(l => l.estimateId === e.id || (l.customerId === e.customerId && l.division === e.division && !['won', 'lost'].includes(l.stage))); if (lead) lead.stage = 'won';
+    const lead = db.leads.find(l => l.estimateId === e.id || (l.customerId === e.customerId && l.division === e.division && !['won', 'lost'].includes(l.stage))); if (lead && lead.stage !== 'won') { lead.stage = 'won'; lead.stageAt = iso(new Date()); emit('lead.stage', 'lead', lead, { to: 'won' }); }
     let msg = `Estimado aprobado. Trabajo ${j.number} creado.`;
     if (num(e.deposit)) { const dep = totalOf(items) * num(e.deposit) / 100; const inv = createInvoice({ customerId: e.customerId, jobId: null, division: e.division, items: [{ id: uid(), name: `Depósito ${e.deposit}% — ${e.number} ${e.title}`, qty: 1, price: Math.round(dep * 100) / 100 / (1 + num(db.settings.taxRate) / 100), cost: 0 }] }); inv.status = 'sent'; msg += ` Factura de depósito ${inv.number}.`; }
-    log(`Estimado ${e.number} aprobado (${e.options[k].name}) — ${money(totalOf(items))}`); save(); toast(msg); location.hash = '#/job/' + j.id;
+    log(`Estimado ${e.number} aprobado (${e.options[k].name}) — ${money(totalOf(items))}`); emit('estimate.approved', 'estimate', e); emit('job.created', 'job', j); save(); toast(msg); location.hash = '#/job/' + j.id;
   },
-  declineEst: el => { const e = byId('estimates', el.dataset.id); e.status = 'declined'; log(`Estimado ${e.number} rechazado`); save(); render(); },
+  declineEst: el => { const e = byId('estimates', el.dataset.id); e.status = 'declined'; log(`Estimado ${e.number} rechazado`); emit('estimate.declined', 'estimate', e); save(); render(); },
   reopenEst: el => { byId('estimates', el.dataset.id).status = 'draft'; save(); render(); },
   delEst: el => confirmDlg('¿Eliminar este estimado?', () => { db.estimates = db.estimates.filter(x => x.id !== el.dataset.id); location.hash = '#/estimates'; }),
   previewEst: el => previewEstimate(byId('estimates', el.dataset.id)),
-  jobStatus: el => { const j = byId('jobs', el.dataset.id); j.status = el.dataset.s; if (j.status === 'completed') { j.completedAt = iso(new Date()); j.checklist.forEach(c => c.done = true); } log(`${j.number} → ${JOB_ST[j.status][0]}`); save(); render(); toast(JOB_ST[j.status][0]); if (j.status === 'enroute') { const c = cust(j.customerId); modal({ title: 'Avisar al cliente', body: `<p>¿Enviar mensaje de "en camino" a ${esc(c.name)}?</p>`, foot: `<button class="btn" data-dismiss>No</button><a class="btn primary" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hola ${c.name}, su técnico de ${db.settings.company} va en camino para "${j.title}".`)}">✉ Enviar SMS</a>` }); } },
+  jobStatus: el => { const j = byId('jobs', el.dataset.id); j.status = el.dataset.s; if (j.status === 'completed') { j.completedAt = iso(new Date()); j.checklist.forEach(c => c.done = true); } log(`${j.number} → ${JOB_ST[j.status][0]}`); emit('job.status', 'job', j, { to: j.status }); save(); render(); toast(JOB_ST[j.status][0]); if (j.status === 'enroute') { const c = cust(j.customerId); modal({ title: 'Avisar al cliente', body: `<p>¿Enviar mensaje de "en camino" a ${esc(c.name)}?</p>`, foot: `<button class="btn" data-dismiss>No</button><a class="btn primary" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hola ${c.name}, su técnico de ${db.settings.company} va en camino para "${j.title}".`)}">✉ Enviar SMS</a>` }); } },
   cancelJob: el => { const j = byId('jobs', el.dataset.id); j.status = j.status === 'cancelled' ? (j.start ? 'scheduled' : 'unscheduled') : 'cancelled'; save(); render(); },
   delJob: el => confirmDlg('¿Eliminar este trabajo?', () => { db.jobs = db.jobs.filter(x => x.id !== el.dataset.id); location.hash = '#/jobs'; }),
-  invoiceJob: el => { const j = byId('jobs', el.dataset.id); const deps = db.invoices.filter(i => i.customerId === j.customerId && i.items.some(it => j.estimateId && it.name.includes(byId('estimates', j.estimateId)?.number || '@@'))); const items = j.items.map(x => ({ ...x, id: uid() })); deps.forEach(d => items.push({ id: uid(), name: `Menos depósito (${d.number})`, qty: 1, price: -subtotal(d.items), cost: 0 })); const inv = createInvoice({ customerId: j.customerId, jobId: j.id, division: j.division, items }); j.invoiceId = inv.id; save(); location.hash = '#/invoice/' + inv.id; },
+  invoiceJob: el => { const inv = invoiceFromJob(byId('jobs', el.dataset.id)); save(); location.hash = '#/invoice/' + inv.id; },
   addCheck: el => { const j = byId('jobs', el.dataset.id); form({ title: 'Agregar tarea', fields: [{ k: 't', label: 'Tarea', full: true, required: true }], onSave(v) { j.checklist.push({ id: uid(), t: v.t, done: false }); } }); },
   delPhoto: el => { byId('jobs', el.dataset.id).photos.splice(+el.dataset.i, 1); save(); render(); },
-  sendInv: el => { const i = byId('invoices', el.dataset.id); i.status = 'sent'; const c = cust(i.customerId); log(`Factura ${i.number} enviada a ${c.name}`); save(); render(); modal({ title: 'Factura enviada', body: `<p>Comparte la factura con el cliente:</p><div class="row"><a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(`Factura ${i.number} — ${db.settings.company}`)}&body=${encodeURIComponent(`Hola ${c.name},\n\nSu factura ${i.number} por ${money2(invTotal(i))} vence el ${fDate(parseLocal(i.due))}.\n\nGracias por su preferencia,\n${db.settings.company}`)}">@ Email</a><a class="btn" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hola ${c.name}, su factura ${i.number} de ${db.settings.company} por ${money2(invTotal(i))} está lista.`)}">✉ SMS</a></div>`, foot: '<button class="btn primary" data-dismiss>Listo</button>' }); },
+  sendInv: el => { const i = byId('invoices', el.dataset.id); i.status = 'sent'; const c = cust(i.customerId); log(`Factura ${i.number} enviada a ${c.name}`); emit('invoice.sent', 'invoice', i); save(); render(); modal({ title: 'Factura enviada', body: `<p>Comparte la factura con el cliente:</p><div class="row"><a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(`Factura ${i.number} — ${db.settings.company}`)}&body=${encodeURIComponent(`Hola ${c.name},\n\nSu factura ${i.number} por ${money2(invTotal(i))} vence el ${fDate(parseLocal(i.due))}.\n\nGracias por su preferencia,\n${db.settings.company}`)}">@ Email</a><a class="btn" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hola ${c.name}, su factura ${i.number} de ${db.settings.company} por ${money2(invTotal(i))} está lista.`)}">✉ SMS</a></div>`, foot: '<button class="btn primary" data-dismiss>Listo</button>' }); },
   remindInv: el => { const i = byId('invoices', el.dataset.id), c = cust(i.customerId); location.href = `sms:${c.phone}?body=${encodeURIComponent(`Hola ${c.name}, le recordamos que la factura ${i.number} de ${db.settings.company} tiene un saldo de ${money2(invBal(i))}, vencida el ${fDate(parseLocal(i.due))}. ¡Gracias!`)}`; log(`Recordatorio enviado: ${i.number}`); save(); },
   payInv: el => payModal(byId('invoices', el.dataset.id)),
   delPay: el => confirmDlg('¿Eliminar este pago?', () => { const i = byId('invoices', el.dataset.id); i.payments = i.payments.filter(p => p.id !== el.dataset.p); }),
@@ -1046,6 +1271,15 @@ const ACT = {
     download(`opsboss-${w}-${ymd(new Date())}.csv`, '﻿' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n'), 'text/csv');
   },
   exportJson: () => download(`opsboss-respaldo-${ymd(new Date())}.json`, JSON.stringify(db, null, 2), 'application/json'),
+  wfNew: () => wfEditor(null),
+  wfEdit: el => wfEditor(byId('workflows', el.dataset.id)),
+  wfToggle: el => { const w = byId('workflows', el.dataset.id); w.active = !w.active; if (w.active) w.activatedAt = iso(new Date()); save(); render(); toast(w.active ? 'Workflow activado' : 'Workflow pausado'); if (w.active) wfTimers(); },
+  wfDup: el => { const w = byId('workflows', el.dataset.id); db.workflows.unshift({ ...JSON.parse(JSON.stringify(w)), id: uid(), name: w.name + ' (copia)', active: false, runs: 0, lastRun: null, createdAt: iso(new Date()) }); save(); render(); },
+  wfDel: el => confirmDlg('¿Eliminar este workflow? Las tareas que ya creó se conservan.', () => { db.workflows = db.workflows.filter(x => x.id !== el.dataset.id); }),
+  wfAddTpl: el => { const t = wfTemplates().find(x => x.name === el.dataset.name); if (!t) return; db.workflows.push(wfFromTemplate(t)); save(); render(); toast('Plantilla agregada y activa'); wfTimers(); },
+  taskNew: () => form({ title: 'Nueva tarea', fields: [{ k: 'title', label: 'Tarea', full: true, required: true }, { k: 'due', label: 'Fecha', type: 'date', value: ymd(new Date()) }, { k: 'assignee', label: 'Asignar a', type: 'select', options: techOptions() }, { k: 'customerId', label: 'Cliente (opcional)', type: 'select', options: [['', '—'], ...custOptions()] }, { k: 'notes', label: 'Notas', type: 'textarea', full: true }], onSave(v) { db.tasks.unshift({ id: uid(), ...v, done: false, link: v.customerId ? { kind: 'customer', id: v.customerId } : null, createdAt: iso(new Date()) }); } }),
+  taskDel: el => { db.tasks = db.tasks.filter(t => t.id !== el.dataset.id); save(); render(); },
+  taskSend: el => { const t = byId('tasks', el.dataset.id); t.done = true; t.doneAt = iso(new Date()); log(`${t.channel === 'email' ? 'Email' : 'SMS'} enviado a ${cust(t.customerId).name}`); save(); setTimeout(render, 300); location.href = el.getAttribute('href'); },
   removeMember: el => confirmDlg('¿Quitar el acceso de esta persona a OpsBoss?', async () => { const { error } = await cloud.sb.from('opsboss_members').delete().eq('user_id', el.dataset.id); toast(error ? error.message : 'Acceso eliminado'); render(); }),
   removeInvite: async el => { const { error } = await cloud.sb.from('opsboss_invites').delete().eq('email', el.dataset.email); toast(error ? error.message : 'Invitación eliminada'); ROUTES['settings:after'](); },
   signOut: async () => { if (cloud.on) { clearTimeout(cloud.timer); await sync(); } await cloud.sb.auth.signOut(); location.reload(); },
@@ -1066,11 +1300,13 @@ const INPUT = {
   invDue: el => { byId('invoices', el.dataset.id).due = el.value; save(); render(); },
   permitSt: el => { const p = byId('permits', el.dataset.id); p.status = el.value; p.updated = ymd(new Date()); if (el.value === 'submitted' && !p.submitted) p.submitted = ymd(new Date()); log(`Permiso ${p.type} → ${PERMIT_ST[p.status][0]}`); save(); render(); },
   range: el => { state.filters.range = +el.value; render(); },
+  taskDone: el => { const t = byId('tasks', el.dataset.id); t.done = el.checked; t.doneAt = el.checked ? iso(new Date()) : null; save(); render(); },
+  taskWho: el => { state.filters.taskWho = el.value; render(); },
   memberRole: async el => { const { error } = await cloud.sb.from('opsboss_members').update({ role: el.value }).eq('user_id', el.dataset.id); toast(error ? error.message : 'Rol actualizado'); },
   setting: el => { db.settings[el.dataset.k] = el.type === 'number' ? num(el.value) : el.value; save(); },
   calc: el => { const [g, k] = el.dataset.k.split('.'); state.tools[g][k] = num(el.value); const pos = el.dataset.k; render(); const n = $(`[data-k="${pos}"]`); if (n) { n.focus(); } },
   photos: async el => { const j = byId('jobs', el.dataset.id); for (const f of el.files) { const d = await compressImage(f); if (d) j.photos.push(d); } save(); render(); toast('Fotos agregadas'); },
-  importJson: el => { const f = el.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (!d.customers || !d.settings) throw 0; db = d; save(); render(); toast('Respaldo importado ✓'); } catch (e) { toast('Archivo inválido'); } }; r.readAsText(f); },
+  importJson: el => { const f = el.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (!d.customers || !d.settings) throw 0; db = normalize(d); save(); render(); toast('Respaldo importado ✓'); } catch (e) { toast('Archivo inválido'); } }; r.readAsText(f); },
 };
 // edición de líneas (sin re-render en cada tecla para no perder el foco)
 document.addEventListener('input', e => {
@@ -1116,7 +1352,7 @@ function renderUserBox() {
   else if (CFG.url) b.innerHTML = `<div>Modo demo local · <button data-act="exitDemo">Iniciar sesión</button></div>`;
   else b.innerHTML = '';
 }
-function start() { renderUserBox(); render(); }
+function start() { renderUserBox(); render(); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
 function authScreen(mode = 'login', msg = '', kind = 'bad') {
   const el = $('#auth'); el.hidden = false;
   const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
@@ -1174,6 +1410,7 @@ async function enter(user) {
     db = d;
     cloud.shadow = snapshot();
     if (!db.settings) { const b = blankDb(); db.settings = b.settings; if (!db.pricebook.length) db.pricebook = b.pricebook; }
+    if (count && !db.workflows.length && !db.settings.wfSeeded) { db.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t)); db.settings.wfSeeded = true; }
     cloud.on = true; $('#auth').hidden = true; setSync('ok');
     subscribe(); start(); sync();
     if (!count && canAdmin()) firstRun();
@@ -1185,7 +1422,7 @@ function firstRun() {
     ${local && local.customers ? `<button class="btn" data-fr="local" style="justify-content:flex-start">⇧ Subir los datos de este navegador <span class="muted small">(${local.customers.length} clientes, ${local.jobs.length} trabajos)</span></button>` : ''}
     <button class="btn" data-fr="blank" style="justify-content:flex-start">✦ Empezar en blanco <span class="muted small">(con lista de precios base)</span></button>
     <button class="btn" data-fr="demo" style="justify-content:flex-start">◧ Cargar datos de demostración <span class="muted small">(para probar con el equipo)</span></button></div>`,
-    onMount(bg, close) { bg.addEventListener('click', e => { const b = e.target.closest('[data-fr]'); if (!b) return; const k = b.dataset.fr; db = k === 'local' ? local : k === 'demo' ? seed() : { ...blankDb(), settings: db.settings, pricebook: db.pricebook }; COLLS.forEach(c => db[c] = db[c] || []); log('Base de datos inicializada'); close(); save(); render(); toast('Listo ✓'); }); },
+    onMount(bg, close) { bg.addEventListener('click', e => { const b = e.target.closest('[data-fr]'); if (!b) return; const k = b.dataset.fr; db = k === 'local' ? normalize(local) : k === 'demo' ? seed() : { ...blankDb(), settings: db.settings, pricebook: db.pricebook }; db.settings.wfSeeded = true; COLLS.forEach(c => db[c] = db[c] || []); log('Base de datos inicializada'); close(); save(); render(); toast('Listo ✓'); }); },
   });
 }
 async function boot() {
