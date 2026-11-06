@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Portal del cliente</title>
+<meta name="theme-color" content="#0b1220">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M9 22V10h6.5a4 4 0 0 1 0 8H12' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='21' r='3' fill='%23fbbf24'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  :root{color-scheme:light}
+  body{background:#eef1f7;color:#0f172a}
+  .pwrap{max-width:860px;margin:0 auto;padding:24px 16px 80px}
+  .ptop{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .pcard{background:#fff;border:1px solid #e5e8ef;border-radius:16px;box-shadow:0 1px 2px rgba(15,23,42,.05),0 8px 24px rgba(15,23,42,.06);padding:24px;margin-bottom:16px}
+  .pcard h2{margin:0 0 4px;font-size:20px;letter-spacing:-.01em}
+  .muted{color:#64748b}
+  .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:16px 0}
+  .opt{border:2px solid #e5e8ef;border-radius:14px;padding:16px;cursor:pointer;background:#fff;text-align:left;font:inherit;color:inherit;position:relative}
+  .opt.on{border-color:#4f46e5;box-shadow:0 0 0 4px #eef2ff}
+  .opt .pr{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:6px}
+  .opt .badge{position:absolute;top:-10px;right:12px;background:#4f46e5;color:#fff;font-size:11px;font-weight:700;border-radius:99px;padding:2px 9px}
+  table{width:100%;border-collapse:collapse}
+  th{background:#f8fafc;color:#64748b;border-color:#e5e8ef}
+  td{border-color:#e5e8ef}
+  .sig{border:2px dashed #cbd5e1;border-radius:12px;background:#fafbff;touch-action:none;width:100%;height:170px;display:block}
+  .bigbtn{width:100%;justify-content:center;padding:14px;font-size:16px;border-radius:12px}
+  .done{text-align:center;padding:40px 24px}
+  .done .ic{width:64px;height:64px;border-radius:50%;background:#ecfdf5;color:#059669;display:grid;place-items:center;font-size:32px;margin:0 auto 12px}
+  .row2{display:flex;gap:10px;flex-wrap:wrap}
+  .err{background:#fef2f2;color:#dc2626;border-radius:10px;padding:10px 12px;font-size:14px;margin-top:10px}
+  input.inp{background:#fff;color:#0f172a}
+  .sm-only{display:none}
+  @media (max-width:560px){.hm{display:none}.sm-only{display:block}.pcard{padding:18px}th,td{padding:9px 10px}}
+  @media print{.noprint{display:none!important}body{background:#fff}.pcard{box-shadow:none;border:0;padding:0}}
+</style>
+</head>
+<body>
+<div class="pwrap" id="portal"><div class="pcard"><p class="muted">Cargando…</p></div></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script src="portal.js"></script>
+</body>
+</html>
