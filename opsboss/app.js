@@ -379,7 +379,8 @@ function form({ title, fields, onSave, saveLabel = 'Guardar', cancelLabel = 'Can
 const custOptions = () => [...db.customers].sort((a, b) => a.name.localeCompare(b.name)).map(c => [c.id, c.name]);
 const divOptions = () => Object.entries(DIV).map(([k, v]) => [k, v.name]);
 const techOptions = () => [['', '— Sin asignar —'], ...db.techs.map(t => [t.id, t.name])];
-const confirmDlg = (msg, yes) => modal({ title: 'Confirmar', body: `<p>${msg}</p>`, foot: `<button class="btn" data-dismiss>Cancelar</button><button class="btn primary" id="cfYes">Confirmar</button>`, onMount(bg, close) { $('#cfYes', bg).onclick = () => { close(); yes(); save(); render(); }; } });
+const onPipeline = () => location.hash.startsWith('#/pipeline');
+const confirmDlg = (msg, yes) => { const en = onPipeline(); return modal({ title: en ? 'Confirm' : 'Confirmar', body: `<p>${msg}</p>`, foot: `<button class="btn" data-dismiss>${en ? 'Cancel' : 'Cancelar'}</button><button class="btn primary" id="cfYes">${en ? 'Confirm' : 'Confirmar'}</button>`, onMount(bg, close) { $('#cfYes', bg).onclick = () => { close(); yes(); save(); render(); }; } }); };
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
@@ -1118,7 +1119,7 @@ function emit(event, kind, rec, extra = {}) {
   let n = 0; wfDepth++;
   try { for (const wf of db.workflows) if (wf.active && wf.trigger.type === event && wfMatches(wf, kind, rec, extra)) { wfRun(wf, kind, rec); n++; } } catch (e) { console.error('workflow', e); }
   finally { wfDepth--; }
-  if (n && wfDepth === 0) { save(); toast(`⚡ ${n} workflow${n > 1 ? 's' : ''} ejecutado${n > 1 ? 's' : ''}`); }
+  if (n && wfDepth === 0) { save(); toast(onPipeline() ? `⚡ ${n} workflow${n > 1 ? 's' : ''} ran` : `⚡ ${n} workflow${n > 1 ? 's' : ''} ejecutado${n > 1 ? 's' : ''}`); }
   return n;
 }
 // Disparadores por tiempo: se revisan al abrir la app y cada 5 minutos.
@@ -1142,7 +1143,7 @@ function wfTimers() {
       rec._wf[key] = iso(new Date()); wfRun(wf, T.kind, rec); n++;
     }
   }
-  if (n) { save(); toast(`⚡ ${n} automatización${n > 1 ? 'es' : ''} por tiempo ejecutada${n > 1 ? 's' : ''}`); if (!$('#modalRoot').children.length) render(); }
+  if (n) { save(); toast(onPipeline() ? `⚡ ${n} scheduled automation${n > 1 ? 's' : ''} ran` : `⚡ ${n} automatización${n > 1 ? 'es' : ''} por tiempo ejecutada${n > 1 ? 's' : ''}`); if (!$('#modalRoot').children.length) render(); }
 }
 function invoiceFromJob(j) {
   const est = j.estimateId && byId('estimates', j.estimateId);
