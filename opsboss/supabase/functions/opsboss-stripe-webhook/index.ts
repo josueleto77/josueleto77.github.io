@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
   const r = await fetch(`${SB_URL}/rest/v1/rpc/opsboss_portal_record_payment`, {
     method: 'POST',
     headers: { apikey: SB_SERVICE, Authorization: `Bearer ${SB_SERVICE}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_invoice_id: invoiceId, p_amount: (s.amount_total ?? 0) / 100, p_ref: s.id, p_method: 'Pago en línea (Stripe)' }),
+    body: JSON.stringify({ p_invoice_id: invoiceId, p_amount: (s.amount_total ?? 0) / 100, p_ref: s.id, p_method: 'Online payment (Stripe)' }),
   });
   if (!r.ok) { console.error('record payment', r.status, await r.text()); return new Response('db error', { status: 500 }); }
   return new Response('ok', { status: 200 });

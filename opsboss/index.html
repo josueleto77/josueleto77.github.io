@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpsBoss</title>
-<meta name="description" content="OpsBoss — CRM y gestión de operaciones para empresas de Solar, Roofing y HVAC.">
+<meta name="description" content="OpsBoss — CRM and operations management for Solar, Roofing and HVAC companies.">
 <meta name="theme-color" content="#0b1220">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M9 22V10h6.5a4 4 0 0 1 0 8H12' stroke='white' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='21' r='3' fill='%23fbbf24'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=20261106">
+<link rel="stylesheet" href="styles.css?v=20261106b">
 </head>
 <body>
 <div id="app">
@@ -21,23 +21,23 @@
     <nav id="nav"></nav>
     <div class="sidebar-foot">
       <div id="userBox"></div>
-      <button class="btn ghost sm full" id="themeBtn">◐ Tema</button>
+      <button class="btn ghost sm full" id="themeBtn">◐ Theme</button>
     </div>
   </aside>
   <div class="main">
     <header class="topbar">
-      <button class="icon-btn mobile-only" id="menuBtn" aria-label="Menú">☰</button>
-      <button class="search" id="searchBtn"><span>⌕</span> Buscar clientes, trabajos, facturas… <kbd>Ctrl K</kbd></button>
+      <button class="icon-btn mobile-only" id="menuBtn" aria-label="Menu">☰</button>
+      <button class="search" id="searchBtn"><span>⌕</span> Search customers, jobs, invoices… <kbd>Ctrl K</kbd></button>
       <div class="division-filter" id="divFilter"></div>
-      <span class="sync" id="syncStatus" title="Estado de sincronización"></span>
+      <span class="sync" id="syncStatus" title="Sync status"></span>
       <div class="new-wrap">
-        <button class="btn primary" id="newBtn">＋ Nuevo</button>
+        <button class="btn primary" id="newBtn">＋ New</button>
         <div class="dropdown" id="newMenu">
           <button data-new="lead">Lead</button>
-          <button data-new="customer">Cliente</button>
-          <button data-new="estimate">Estimado</button>
-          <button data-new="job">Trabajo</button>
-          <button data-new="invoice">Factura</button>
+          <button data-new="customer">Customer</button>
+          <button data-new="estimate">Estimate</button>
+          <button data-new="job">Job</button>
+          <button data-new="invoice">Invoice</button>
         </div>
       </div>
     </header>
@@ -48,7 +48,7 @@
 <div id="modalRoot"></div>
 <div id="toastRoot"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="config.js?v=20261106"></script>
-<script src="app.js?v=20261106"></script>
+<script src="config.js?v=20261106b"></script>
+<script src="app.js?v=20261106b"></script>
 </body>
 </html>
