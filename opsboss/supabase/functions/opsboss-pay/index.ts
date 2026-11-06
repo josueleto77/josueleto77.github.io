@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
     p.set('line_items[0][quantity]', '1');
     p.set('line_items[0][price_data][currency]', 'usd');
     p.set('line_items[0][price_data][unit_amount]', String(cents));
-    p.set('line_items[0][price_data][product_data][name]', `${inv.kind === 'deposit' ? 'Depósito' : 'Factura'} ${inv.number} — ${s.company ?? 'OpsBoss'}`);
+    p.set('line_items[0][price_data][product_data][name]', `${inv.kind === 'deposit' ? 'Deposit' : 'Invoice'} ${inv.number} — ${s.company ?? 'OpsBoss'}`);
     p.set('metadata[invoice_id]', link.record_id);
     p.set('metadata[token]', token);
     p.set('payment_intent_data[metadata][invoice_id]', link.record_id);

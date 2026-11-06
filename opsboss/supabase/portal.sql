@@ -1,7 +1,7 @@
 -- ============================================================
 -- OpsBoss — Portal del cliente (firma electrónica + pagos en línea)
--- Ya instalado en el proyecto "opsboss". Para reinstalar: ejecutar
--- DESPUÉS de schema.sql (usa las funciones de opsboss_private).
+-- Already installed on the "opsboss" project. To reinstall, run it
+-- AFTER schema.sql (it uses the opsboss_private functions).
 -- ============================================================
 
 -- Links secretos del portal (uno por documento; vencen a los 90 días)
@@ -189,9 +189,9 @@ begin
       into v_n from public.opsboss_records where coll = 'invoices';
     v_inv_id := substr(replace(gen_random_uuid()::text, '-', ''), 1, 10);
     insert into public.opsboss_records (coll, id, data) values ('invoices', v_inv_id, jsonb_build_object(
-      'id', v_inv_id, 'number', 'F-' || v_n, 'customerId', r->'customerId', 'jobId', null, 'division', r->'division',
+      'id', v_inv_id, 'number', 'INV-' || v_n, 'customerId', r->'customerId', 'jobId', null, 'division', r->'division',
       'items', jsonb_build_array(jsonb_build_object('id', substr(replace(gen_random_uuid()::text, '-', ''), 1, 8),
-        'name', 'Depósito ' || (r->>'deposit') || '% — ' || (r->>'number') || ' ' || coalesce(r->>'title', ''), 'qty', 1, 'price', v_dep / (1 + v_tax / 100), 'cost', 0)),
+        'name', 'Deposit ' || (r->>'deposit') || '% — ' || (r->>'number') || ' ' || coalesce(r->>'title', ''), 'qty', 1, 'price', v_dep / (1 + v_tax / 100), 'cost', 0)),
       'status', 'sent', 'createdAt', v_now, 'due', to_char(current_date, 'YYYY-MM-DD'), 'payments', '[]'::jsonb, 'notes', '', 'estimateId', l.record_id, 'kind', 'deposit'));
     update public.opsboss_records set data = jsonb_set(data, '{counters,inv}', to_jsonb(v_n)) where coll = 'settings' and id = 'main' and data ? 'counters';
     r := r || jsonb_build_object('depositInvoiceId', v_inv_id);
@@ -232,7 +232,7 @@ begin
   if r is null then return jsonb_build_object('error', 'missing'); end if;
   if exists (select 1 from jsonb_array_elements(coalesce(r->'payments', '[]'::jsonb)) p where p->>'ref' = p_ref) then return jsonb_build_object('ok', true, 'duplicate', true); end if;
   r := jsonb_set(r, '{payments}', coalesce(r->'payments', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
-    'id', substr(replace(gen_random_uuid()::text, '-', ''), 1, 8), 'amount', p_amount, 'date', opsboss_private.now_iso(), 'method', coalesce(p_method, 'Pago en línea'), 'ref', p_ref, 'online', true)));
+    'id', substr(replace(gen_random_uuid()::text, '-', ''), 1, 8), 'amount', p_amount, 'date', opsboss_private.now_iso(), 'method', coalesce(p_method, 'Online payment'), 'ref', p_ref, 'online', true)));
   if r->>'status' = 'draft' then r := r || jsonb_build_object('status', 'sent'); end if;
   update public.opsboss_records set data = r where coll = 'invoices' and id = p_invoice_id;
   insert into public.opsboss_portal_events (kind, record_id, event, amount) values ('invoice', p_invoice_id, 'paid', p_amount);
