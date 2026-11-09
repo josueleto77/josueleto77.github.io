@@ -40,7 +40,14 @@ const JOB_FLOW = ['unscheduled', 'scheduled', 'enroute', 'inprogress', 'complete
 const EST_ST = { draft: ['Draft', ''], sent: ['Sent', 'info'], approved: ['Approved', 'ok'], declined: ['Declined', 'bad'] };
 const INV_ST = { draft: ['Draft', ''], sent: ['Sent', 'info'], partial: ['Partially paid', 'warn'], paid: ['Paid', 'ok'], overdue: ['Overdue', 'bad'], void: ['Void', ''] };
 const STAGES = [['new', 'New'], ['contacted', 'Contacted'], ['visit', 'Appointment Set'], ['proposal', 'Proposal Sent'], ['won', 'Won'], ['lost', 'Lost']];
-const SOURCES = ['Google', 'Referral', 'Facebook/Instagram', 'Door to door', 'Website', 'Yelp', 'Event', 'Repeat customer'];
+// Pipeline de marketing (leads que entran desde HighLevel). Las claves de etapa son únicas entre pipelines.
+const MKT_STAGES = [['warm', 'Warm Leads'], ['mcontacted', 'Contacted'], ['mappt', 'Appointment Set'], ['qualified', 'Qualified'], ['notint', 'Not Interested']];
+const PIPELINES = { sales: { name: 'Sales Pipeline', stages: STAGES, entry: 'new' }, marketing: { name: 'Marketing Leads', stages: MKT_STAGES, entry: 'warm' } };
+const CLOSED = ['won', 'lost', 'notint'];
+const pipeOf = stage => MKT_STAGES.some(x => x[0] === stage) ? 'marketing' : 'sales';
+const stageName = k => ([...STAGES, ...MKT_STAGES].find(x => x[0] === k) || [k, k])[1];
+const ALL_STAGES = [...STAGES.map(([k, v]) => [k, 'Sales · ' + v]), ...MKT_STAGES.map(([k, v]) => [k, 'Marketing · ' + v])];
+const SOURCES = ['HighLevel', 'Google', 'Referral', 'Facebook/Instagram', 'Door to door', 'Website', 'Yelp', 'Event', 'Repeat customer'];
 // Valores antiguos (en español) que se migran a inglés al cargar
 const SOURCE_EN = { 'Referido': 'Referral', 'Puerta a puerta': 'Door to door', 'Sitio web': 'Website', 'Evento': 'Event', 'Cliente recurrente': 'Repeat customer' };
 const srcEN = s => SOURCE_EN[s] || s || '';
@@ -331,7 +338,7 @@ function applyRemote(p) {
     else if (db[coll]) { const i = db[coll].findIndex(x => x.id === id); if (i >= 0) db[coll][i] = p.new.data; else db[coll].unshift(p.new.data); }
   }
   remoteRender();
-  clearTimeout(cloud.pp); cloud.pp = setTimeout(processPortal, 800);
+  clearTimeout(cloud.pp); cloud.pp = setTimeout(() => { processPortal(); processGhlLeads(); }, 800);
 }
 function remoteRender() {
   const busy = $('#modalRoot').children.length || (document.activeElement && document.activeElement.closest('#view') && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName));
@@ -424,7 +431,7 @@ const confirmDlg = (msg, yes) => { return modal({ title: 'Confirm', body: `<p>${
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
-  ['sec', 'Operations'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Sales Pipeline'], ['customers', '☺', 'Customers'],
+  ['sec', 'Operations'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
   ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Jobs'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'],
   ['sec', 'Projects'], ['permits', '⚑', 'Permits & Inspections'], ['tools', '∑', 'Calculators'],
   ['sec', 'Business'], ['workflows', '⚡', 'Workflows'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
@@ -433,7 +440,7 @@ function renderNav() {
   const route = (location.hash.slice(2) || 'dashboard').split('/')[0];
   const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices' };
   const active = parentOf[route] || route;
-  const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length };
+  const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length };
   $('#nav').innerHTML = NAV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
   $('#divFilter').innerHTML = [['all', 'All'], ...divOptions()].map(([k, v]) => `<button data-div="${k}" class="${state.div === k ? 'on' : ''}">${k !== 'all' ? `<span class="div-dot d-${k}"></span> ` : ''}${v}</button>`).join('');
 }
@@ -491,7 +498,7 @@ ROUTES.dashboard = () => {
   const pmRev = pays.filter(p => new Date(p.date) >= pmStart && new Date(p.date) < mStart).reduce((s, p) => s + num(p.amount), 0);
   const invs = db.invoices.filter(divOK).filter(i => !['void', 'draft'].includes(i.status));
   const ar = invs.reduce((s, i) => s + invBal(i), 0), overdue = invs.filter(i => invStatus(i) === 'overdue');
-  const leads = db.leads.filter(divOK), openLeads = leads.filter(l => !['won', 'lost'].includes(l.stage));
+  const leads = db.leads.filter(divOK), openLeads = leads.filter(l => !CLOSED.includes(l.stage));
   const ests = db.estimates.filter(divOK), sentEst = ests.filter(e => e.status === 'sent');
   const pipe = openLeads.reduce((s, l) => s + num(l.value), 0) + sentEst.reduce((s, e) => s + estMax(e), 0);
   const decided = ests.filter(e => ['approved', 'declined'].includes(e.status)), close = decided.length ? ests.filter(e => e.status === 'approved').length / decided.length : 0;
@@ -576,13 +583,15 @@ ROUTES['schedule:after'] = () => {
 
 /* ───────────── PIPELINE ───────────── */
 ROUTES.pipeline = () => {
-  const leads = db.leads.filter(divOK);
-  const cols = STAGES.map(([k, label]) => {
+  const pk = state.filters.pipe || 'sales', P = PIPELINES[pk];
+  const leads = db.leads.filter(divOK).filter(l => pipeOf(l.stage) === pk);
+  const cols = P.stages.map(([k, label]) => {
     const list = leads.filter(l => l.stage === k);
-    return `<div class="kcol" data-stage="${k}"><div class="kcol-h"><span>${label} <span class="muted">${list.length}</span></span><span class="sum">${kmoney(list.reduce((s, l) => s + num(l.value), 0))}</span></div><div class="kcol-b">${list.map(l => { const c = cust(l.customerId); const late = l.next && parseLocal(l.next) < sod(new Date()) && !['won', 'lost'].includes(l.stage); return `<div class="kcard" draggable="true" data-lead="${l.id}"><div class="t">${esc(l.title)}</div><div class="small">${esc(c.name)}</div><div class="m"><span>${divPill(l.division)}</span><b>${money(l.value)}</b></div><div class="m"><span>${esc(srcEN(l.source))}</span><span class="${late ? 'down b' : ''}">${l.next ? '⏱ ' + new Date(l.next + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span></div></div>`; }).join('')}</div></div>`;
+    return `<div class="kcol" data-stage="${k}"><div class="kcol-h"><span>${label} <span class="muted">${list.length}</span></span><span class="sum">${kmoney(list.reduce((s, l) => s + num(l.value), 0))}</span></div><div class="kcol-b">${list.map(l => { const c = cust(l.customerId); const late = l.next && parseLocal(l.next) < sod(new Date()) && !CLOSED.includes(l.stage); return `<div class="kcard" draggable="true" data-lead="${l.id}"><div class="t">${esc(l.title)}</div><div class="small">${esc(c.name)}</div><div class="m"><span>${divPill(l.division)}</span><b>${money(l.value)}</b></div><div class="m"><span>${esc(srcEN(l.source))}</span><span class="${late ? 'down b' : ''}">${l.next ? '⏱ ' + new Date(l.next + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span></div></div>`; }).join('')}</div></div>`;
   }).join('');
-  const open = leads.filter(l => !['won', 'lost'].includes(l.stage));
-  return head('Sales Pipeline', `${open.length} open opportunities · ${money(open.reduce((s, l) => s + num(l.value), 0))} in play`, `<button class="btn primary" data-act="newLead">＋ New Lead</button>`) + `<div class="kanban">${cols}</div>`;
+  const open = leads.filter(l => !CLOSED.includes(l.stage));
+  const tabs = `<div class="tabs">${Object.entries(PIPELINES).map(([k, v]) => `<button data-act="filt" data-f="pipe" data-v="${k}" class="${pk === k ? 'on' : ''}">${v.name} <span class="muted">${db.leads.filter(divOK).filter(l => pipeOf(l.stage) === k && !CLOSED.includes(l.stage)).length}</span></button>`).join('')}</div>`;
+  return head(P.name, pk === 'marketing' ? `${open.length} open marketing leads · new HighLevel leads land in Warm Leads` : `${open.length} open opportunities · ${money(open.reduce((s, l) => s + num(l.value), 0))} in play`, `<button class="btn primary" data-act="newLead" data-pipe="${pk}">＋ New Lead</button>`) + tabs + `<div class="kanban">${cols}</div>`;
 };
 ROUTES['pipeline:after'] = () => {
   $$('[data-lead]').forEach(el => {
@@ -592,12 +601,12 @@ ROUTES['pipeline:after'] = () => {
   $$('[data-stage]').forEach(col => {
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
     col.addEventListener('dragleave', () => col.classList.remove('over'));
-    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage) return; l.stage = col.dataset.stage; l.stageAt = iso(new Date()); log(`Lead "${l.title}" → ${STAGES.find(s => s[0] === l.stage)[1]}`); emit('lead.stage', 'lead', l, { to: l.stage }); save(); render(); });
+    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage) return; l.stage = col.dataset.stage; l.stageAt = iso(new Date()); log(`Lead "${l.title}" → ${stageName(l.stage)}`); emit('lead.stage', 'lead', l, { to: l.stage }); save(); render(); });
   });
 };
-function leadModal(l) {
+function leadModal(l, pipe) {
   const isNew = !l;
-  l = l || { id: uid(), stage: 'new', createdAt: iso(new Date()), division: state.div !== 'all' ? state.div : 'solar', value: 0, source: 'Google', next: ymd(addDays(new Date(), 1)) };
+  l = l || { id: uid(), stage: PIPELINES[pipe || 'sales'].entry, createdAt: iso(new Date()), division: state.div !== 'all' ? state.div : 'solar', value: 0, source: 'Google', next: ymd(addDays(new Date(), 1)) };
   const m = form({
     title: isNew ? 'New Lead' : 'Lead: ' + esc(l.title),
     fields: [
@@ -606,12 +615,12 @@ function leadModal(l) {
       { k: 'title', label: 'Opportunity', value: l.title, required: true, ph: 'e.g. 8 kW solar system' },
       { k: 'division', label: 'Division', type: 'select', options: divOptions(), value: l.division },
       { k: 'value', label: 'Estimated value ($)', type: 'number', value: l.value },
-      { k: 'stage', label: 'Stage', type: 'select', options: STAGES, value: l.stage },
+      { k: 'stage', label: 'Pipeline · stage', type: 'select', options: ALL_STAGES, value: l.stage },
       { k: 'source', label: 'Lead source', type: 'select', options: SOURCES, value: srcEN(l.source) },
       { k: 'next', label: 'Next follow-up', type: 'date', value: l.next },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true, value: l.notes },
     ],
-    extraFoot: isNew ? '' : `<button class="btn danger" id="ldDel" style="margin-right:auto">Delete</button><button class="btn" id="ldEst">→ Create estimate</button>`,
+    extraFoot: isNew ? '' : `<button class="btn danger" id="ldDel" style="margin-right:auto">Delete</button>${pipeOf(l.stage) === 'marketing' ? '<button class="btn" id="ldToSales">→ Move to Sales Pipeline</button>' : ''}<button class="btn" id="ldEst">→ Create estimate</button>`,
     onSave(v) {
       if (v.customerId === '__new') { if (!v.newName) { toast('Enter the new customer\'s name'); return false; } const c = newCustomer({ name: v.newName, phone: v.newPhone, source: v.source }); v.customerId = c.id; }
       delete v.newName; delete v.newPhone;
@@ -622,6 +631,8 @@ function leadModal(l) {
   });
   if (!isNew) {
     $('#ldDel', m.el).onclick = () => { m.close(); confirmDlg('Delete this lead?', () => { db.leads = db.leads.filter(x => x.id !== l.id); }); };
+    const toSales = $('#ldToSales', m.el);
+    if (toSales) toSales.onclick = () => { m.close(); l.stage = 'new'; l.stageAt = iso(new Date()); log(`Lead "${l.title}" moved to Sales Pipeline`); emit('lead.stage', 'lead', l, { to: 'new' }); save(); state.filters.pipe = 'sales'; render(); toast('Moved to Sales Pipeline'); };
     $('#ldEst', m.el).onclick = () => { m.close(); const e = createEstimate({ customerId: l.customerId, division: l.division, title: l.title }); l.stage = 'proposal'; l.estimateId = e.id; save(); location.hash = '#/estimate/' + e.id; };
   }
 }
@@ -668,7 +679,7 @@ ROUTES.customer = id => {
       <div class="card"><div class="card-h"><h3>Jobs (${jobs.length})</h3><button class="btn sm" data-act="newJob" data-cust="${c.id}">＋</button></div><div class="card-b">${jobs.map(j => `<div class="list-item click" data-go="#/job/${j.id}" style="cursor:pointer"><div style="flex:1"><div class="b">${j.number} · ${esc(j.title)}</div><div class="small muted">${j.start ? fDate(j.start) : 'No date'}</div></div>${divPill(j.division)} ${pill(JOB_ST, j.status)}</div>`).join('') || '<div class="muted">No jobs</div>'}</div></div>
       <div class="card"><div class="card-h"><h3>Estimates (${ests.length})</h3><button class="btn sm" data-act="newEstimate" data-cust="${c.id}">＋</button></div><div class="card-b">${ests.map(e => `<div class="list-item click" data-go="#/estimate/${e.id}" style="cursor:pointer"><div style="flex:1"><div class="b">${e.number} · ${esc(e.title)}</div><div class="small muted">${fDate(e.createdAt)}</div></div><b>${money(e.status === 'approved' ? estTotal(e) : estMax(e))}</b> ${pill(EST_ST, e.status)}</div>`).join('') || '<div class="muted">No estimates</div>'}</div></div>
       <div class="card"><div class="card-h"><h3>Invoices (${invs.length})</h3><button class="btn sm" data-act="newInvoice" data-cust="${c.id}">＋</button></div><div class="card-b">${invs.map(i => `<div class="list-item click" data-go="#/invoice/${i.id}" style="cursor:pointer"><div style="flex:1"><div class="b">${i.number}</div><div class="small muted">${fDate(i.createdAt)}</div></div><b>${money(invTotal(i))}</b> ${pill(INV_ST, invStatus(i))}</div>`).join('') || '<div class="muted">No invoices</div>'}</div></div>
-      <div class="card"><div class="card-h"><h3>Leads & memberships</h3><button class="btn sm" data-act="newPlan" data-cust="${c.id}">＋ Membership</button></div><div class="card-b">${leads.map(l => `<div class="list-item"><div style="flex:1">${esc(l.title)}</div>${divPill(l.division)}<span class="pill">${STAGES.find(s => s[0] === l.stage)[1]}</span></div>`).join('')}${plans.map(pl => `<div class="list-item"><div style="flex:1"><b>${esc(pl.name)}</b><div class="small muted">Next visit ${fDate(parseLocal(pl.nextVisit))}</div></div><span class="pill ok">${money(pl.price)}/${pl.interval === 'month' ? 'mo' : 'yr'}</span></div>`).join('') || (leads.length ? '' : '<div class="muted">Nothing yet</div>')}</div></div>
+      <div class="card"><div class="card-h"><h3>Leads & memberships</h3><button class="btn sm" data-act="newPlan" data-cust="${c.id}">＋ Membership</button></div><div class="card-b">${leads.map(l => `<div class="list-item"><div style="flex:1">${esc(l.title)}</div>${divPill(l.division)}<span class="pill">${stageName(l.stage)}</span></div>`).join('')}${plans.map(pl => `<div class="list-item"><div style="flex:1"><b>${esc(pl.name)}</b><div class="small muted">Next visit ${fDate(parseLocal(pl.nextVisit))}</div></div><span class="pill ok">${money(pl.price)}/${pl.interval === 'month' ? 'mo' : 'yr'}</span></div>`).join('') || (leads.length ? '' : '<div class="muted">Nothing yet</div>')}</div></div>
     </div>`;
   if (tab === 'property') body = `
     <div class="grid g2">
@@ -679,11 +690,12 @@ ROUTES.customer = id => {
       </div>${p.roofAge >= 15 ? `<p class="small"><span class="pill warn">Opportunity</span> ${p.roofAge}-year-old roof: good candidate for replacement before going solar.</p>` : ''}${p.avgBill >= 200 ? `<p class="small"><span class="pill brand">Opportunity</span> High bill (${money(p.avgBill)}/mo): strong candidate for solar + battery.</p>` : ''}</div></div>
       <div class="card"><div class="card-h"><h3>Installed equipment</h3><button class="btn sm" data-act="addEquip" data-id="${c.id}">＋ Equipment</button></div><div class="card-b">${(c.equipment || []).map(eq => { const exp = eq.warranty && parseLocal(eq.warranty) < new Date(); return `<div class="list-item"><div style="flex:1"><div class="b">${esc(eq.type)} — ${esc(eq.brand)}</div><div class="small muted">Model ${esc(eq.model)} · S/N ${esc(eq.serial)} · Installed ${fDate(parseLocal(eq.installed))}</div></div><span class="pill ${exp ? 'bad' : 'ok'}">${exp ? 'Warranty expired' : 'Warranty until ' + fDate(parseLocal(eq.warranty))}</span><button class="btn ghost sm danger" data-act="delEquip" data-id="${c.id}" data-eq="${eq.id}">✕</button></div>`; }).join('') || '<div class="muted">Track HVAC units, inverters, panels or batteries to follow up on warranties.</div>'}</div></div>
     </div>`;
+  if (tab === 'conv') body = `<div class="card"><div class="card-b" id="ghlConv"><span class="muted small">Loading conversation from HighLevel…</span></div></div>`;
   if (tab === 'notes') body = `<div class="card"><div class="card-b"><label class="f">Internal notes<textarea id="custNotes" style="min-height:200px">${esc(c.notes)}</textarea></label><div class="row mt"><button class="btn primary" data-act="saveNotes" data-id="${c.id}">Save notes</button></div></div></div>`;
   return `<div class="small muted mb"><a href="#/customers">Customers</a> / ${esc(c.name)}</div>` + head(esc(c.name), `${esc(c.address)}, ${esc(c.city)} ${esc(c.zip)} · Customer since ${fDate(c.createdAt)} · ${esc(srcEN(c.source))}`,
     `<a class="btn" href="tel:${esc(c.phone)}">✆ Call</a><a class="btn" href="sms:${esc(c.phone)}">✉ SMS</a><a class="btn" href="mailto:${esc(c.email)}">@ Email</a><a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${addr}">⌖ Map</a><button class="btn" data-act="editCustomer" data-id="${c.id}">Edit</button><button class="btn primary" data-act="newEstimate" data-cust="${c.id}">＋ Estimate</button>`) + `
   <div class="grid g4 mb">${kpi('Lifetime value', money(custLTV(id)))}${kpi('Balance due', money(custBal(id)))}${kpi('Jobs', jobs.length, jobs.filter(j => j.status === 'completed').length + ' completed')}${kpi('Contact', `<span style="font-size:15px">${esc(c.phone)}</span>`, esc(c.email))}</div>
-  <div class="tabs">${[['overview', 'Overview'], ['property', 'Property & equipment'], ['notes', 'Notes']].map(([k, v]) => `<button data-act="tab" data-t="cust" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>${body}`;
+  <div class="tabs">${[['overview', 'Overview'], ['conv', '💬 Conversation'], ['property', 'Property & equipment'], ['notes', 'Notes']].map(([k, v]) => `<button data-act="tab" data-t="cust" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>${body}`;
 };
 
 /* ───────────── ESTIMADOS ───────────── */
@@ -747,7 +759,7 @@ function jobFromEstimate(e) {
   const k = e.selected ?? 0, items = e.options[k].items.map(x => ({ ...x, id: uid() }));
   const j = { id: uid(), number: nextNum('job'), customerId: e.customerId, division: e.division, title: e.title, techIds: [], start: null, duration: e.division === 'hvac' ? 6 : 8, status: 'unscheduled', items, checklist: CHECKLISTS[e.division].map(t => ({ id: uid(), t, done: false })), photos: [], notes: e.notes, estimateId: e.id, createdAt: iso(new Date()) };
   db.jobs.unshift(j); e.jobId = j.id;
-  const lead = db.leads.find(l => l.estimateId === e.id || (l.customerId === e.customerId && l.division === e.division && !['won', 'lost'].includes(l.stage)));
+  const lead = db.leads.find(l => l.estimateId === e.id || (l.customerId === e.customerId && l.division === e.division && !CLOSED.includes(l.stage)));
   if (lead && lead.stage !== 'won') { lead.stage = 'won'; lead.stageAt = iso(new Date()); emit('lead.stage', 'lead', lead, { to: 'won' }); }
   return j;
 }
@@ -808,6 +820,64 @@ async function portalInfo(kind, id) {
 }
 ROUTES['estimate:after'] = id => portalInfo('estimate', id);
 ROUTES['invoice:after'] = id => portalInfo('invoice', id);
+
+/* ───────────── HighLevel ───────────── */
+const ghlOn = () => cloud.on && cloud.ghl && cloud.ghl.connected;
+async function ghlCall(action, payload = {}) {
+  const { data: { session } } = await cloud.sb.auth.getSession();
+  const r = await fetch(`${CFG.url}/functions/v1/opsboss-ghl`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.key, Authorization: `Bearer ${session ? session.access_token : ''}` }, body: JSON.stringify({ action, ...payload }) });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok || out.error) throw new Error(out.message || out.error || 'HighLevel error ' + r.status);
+  return out;
+}
+async function ghlLoadConfig() { if (!cloud.on) return; try { const { data } = await cloud.sb.rpc('opsboss_ghl_config'); cloud.ghl = data || {}; } catch (e) { cloud.ghl = {}; } }
+// Vincula un cliente de OpsBoss con su contacto de HighLevel (busca por teléfono/email; si no existe, lo crea).
+async function ghlEnsure(c) {
+  if (c.ghlId) return c.ghlId;
+  const out = await ghlCall('link', { customer: { name: c.name, phone: c.phone, email: c.email, address: c.address, city: c.city, zip: c.zip } });
+  c.ghlId = out.contactId; save();
+  if (out.created) log(`HighLevel contact created for ${c.name}`);
+  return c.ghlId;
+}
+async function ghlSend(c, type, text, subject) {
+  const id = await ghlEnsure(c);
+  await ghlCall('send', { contactId: id, type, message: text, subject });
+  log(`${type === 'Email' ? '@ Email' : '✉ SMS'} sent to ${c.name} via HighLevel`);
+}
+const ghlContactUrl = id => `https://app.gohighlevel.com/v2/location/${cloud.ghl && cloud.ghl.locationId}/contacts/detail/${id}`;
+ROUTES['customer:after'] = async id => {
+  const box = $('#ghlConv'); if (!box) return;
+  const c = byId('customers', id);
+  if (!ghlOn()) { box.innerHTML = `<div class="empty">Connect HighLevel in <a href="#/settings">Settings</a> to see SMS, calls and emails here.</div>`; return; }
+  if (!c.phone && !c.email) { box.innerHTML = '<div class="empty">Add a phone or email to this customer to link HighLevel.</div>'; return; }
+  try {
+    const cid = await ghlEnsure(c);
+    const h = await ghlCall('history', { contactId: cid, limit: 60 });
+    if (!$('#ghlConv')) return;
+    const msgs = (h.messages || []).slice().reverse();
+    const bubble = m => {
+      const out = m.direction === 'outbound', when = new Date(m.date).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      if (m.type === 'call') return `<div class="list-item"><span class="pill ${m.callStatus === 'completed' ? 'ok' : 'warn'}">📞 ${out ? 'Outbound' : 'Inbound'} call</span><div style="flex:1" class="small">${m.duration ? Math.round(m.duration / 60) + ' min' : ''} ${esc(m.callStatus || m.status || '')}</div><span class="small muted">${when}</span></div>`;
+      return `<div style="display:flex;justify-content:${out ? 'flex-end' : 'flex-start'};margin:6px 0"><div style="max-width:78%;background:${out ? 'var(--brand)' : 'var(--panel-2)'};color:${out ? '#fff' : 'var(--text)'};border:1px solid var(--border);border-radius:12px;padding:8px 11px"><div class="small" style="white-space:pre-wrap">${m.type === 'email' ? '<b>@ ' + esc(m.subject || 'Email') + '</b><br>' : ''}${esc(m.body || '(' + m.type + ')')}</div><div style="font-size:11px;opacity:.7;margin-top:3px">${when}${m.status ? ' · ' + esc(m.status) : ''}</div></div></div>`;
+    };
+    box.innerHTML = `<div class="row mb" style="justify-content:space-between"><span class="small muted">Last ${msgs.length} messages from HighLevel</span><div class="row"><a class="btn sm" href="${esc(ghlContactUrl(cid))}" target="_blank" rel="noopener">📞 Call / open in HighLevel ↗</a><button class="btn sm" data-act="ghlRefresh" data-id="${c.id}">↻</button></div></div>
+      <div style="max-height:420px;overflow:auto;padding:4px 2px" id="ghlMsgs">${msgs.map(bubble).join('') || '<div class="empty">No conversation yet.</div>'}</div>
+      <div class="row mt" style="align-items:flex-end"><textarea class="inp" id="ghlText" placeholder="Write an SMS…" style="flex:1;min-height:60px"></textarea><button class="btn primary" data-act="ghlSendSms" data-id="${c.id}">Send SMS</button></div>`;
+    const ml = $('#ghlMsgs'); if (ml) ml.scrollTop = ml.scrollHeight;
+  } catch (e) { if ($('#ghlConv')) $('#ghlConv').innerHTML = `<div class="auth-msg bad">HighLevel: ${esc(e.message)}</div>`; }
+};
+// Leads que llegan desde HighLevel: disparan los workflows de "lead creado" una sola vez.
+async function processGhlLeads() {
+  if (!cloud.on) return;
+  for (const l of db.leads) {
+    if (l.via !== 'highlevel' || l.wfFired || portalSeen.has('g' + l.id)) continue;
+    portalSeen.add('g' + l.id);
+    const { data: mine } = await cloud.sb.rpc('opsboss_lock', { p_key: 'ghl-lead:' + l.id });
+    l.wfFired = true;
+    if (mine) { toast(`📥 New marketing lead: ${cust(l.customerId).name}`); emit('lead.created', 'lead', l); }
+    save();
+  }
+}
 
 /* ───────────── TRABAJOS ───────────── */
 function jobModal(j, preset = {}) {
@@ -1072,6 +1142,14 @@ ROUTES.settings = () => {
         <label class="f">Other payment methods (shown in the portal)<textarea class="inp" data-act-input="setting" data-k="payInstructions" placeholder="e.g. Zelle: payments@nexispower.com · Checks payable to Nexis Power">${esc(s.payInstructions || '')}</textarea></label>
       </div></div>
       <div class="card"><div class="card-h"><h3>Tax & financing</h3></div><div class="card-b form">${f('taxRate', 'Sales tax (%)', 'number', '0.01')}${f('apr', 'Financing APR (%)', 'number', '0.01')}${f('term', 'Term (months)', 'number')}</div></div>
+      ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>HighLevel (SMS, email & calls)</h3><span class="pill ${ghlOn() ? 'ok' : ''}">${ghlOn() ? 'Connected' : 'Not connected'}</span></div><div class="card-b">
+        ${canAdmin() ? `<div class="form" style="grid-template-columns:1fr 1fr"><label class="f">Private Integration token ${cloud.ghl && cloud.ghl.tokenHint ? `<span class="muted">(saved ${esc(cloud.ghl.tokenHint)})</span>` : ''}<input class="inp" id="ghlToken" type="password" autocomplete="off" placeholder="${cloud.ghl && cloud.ghl.tokenHint ? 'Leave blank to keep the current token' : 'pit-…'}"></label><label class="f">Location ID<input class="inp" id="ghlLoc" value="${esc((cloud.ghl && cloud.ghl.locationId) || '')}"></label></div>
+        <label class="check mt"><input type="checkbox" id="ghlAuto" ${cloud.ghl && cloud.ghl.autoSend ? 'checked' : ''}><span><b>Send workflow messages automatically</b> through HighLevel (otherwise they wait in Tasks for one-click sending)</span></label>
+        <div class="row mt"><button class="btn primary" data-act="ghlSave">Save</button>${ghlOn() ? '<button class="btn" data-act="ghlTest">Test connection</button>' : ''}</div>
+        <p class="small muted">The token is write-only: it’s stored on the server and never shown again.</p>
+        ${cloud.ghl && cloud.ghl.webhookKey ? `<details class="mt"><summary class="b small">Webhook URLs for HighLevel workflows</summary><p class="small muted">In HighLevel, add a <b>Webhook</b> action (method POST) to a workflow and paste the URL for that event:</p>${[['lead', 'New lead → Marketing Leads · Warm Leads (trigger: Contact Created / Form Submitted)'], ['reply', 'Customer replied → task to reply (trigger: Customer Replied)'], ['call', 'Call logged → activity, task if missed (trigger: Call Status)']].map(([ev, label]) => `<label class="f mt">${label}<input class="inp" readonly onclick="this.select()" value="${esc(CFG.url + '/functions/v1/opsboss-ghl-webhook?event=' + ev + '&key=' + cloud.ghl.webhookKey)}"></label>`).join('')}<p class="small muted mt">Optional: add <code>&division=solar</code>, <code>roofing</code> or <code>hvac</code> to the lead URL so leads land in the right division.</p></details>` : ''}`
+        : `<p class="small muted">${ghlOn() ? 'Messages and calls sync with HighLevel.' : 'Ask an admin to connect HighLevel.'}</p>`}
+      </div></div>` : ''}
       <div class="card mt"><div class="card-h"><h3>Data & backup</h3></div><div class="card-b"><p class="small muted">${cloud.on ? 'Data is stored in Supabase and shared live with your team. Export a backup from time to time.' : 'Local mode: data is stored only in this browser. Export backups often.'}</p><div class="row"><button class="btn" data-act="exportJson">⇩ Export backup (JSON)</button>${canAdmin() ? `<label class="btn">⇧ Import backup<input type="file" accept="application/json" hidden data-act-input="importJson"></label><button class="btn danger" data-act="resetDemo">Reset demo data</button><button class="btn danger" data-act="wipe">Start blank</button>` : ''}</div></div></div>
       ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>Team & access</h3><span class="pill brand">Your role: ${ROLE_LABEL[cloud.role] || cloud.role}</span></div><div class="card-b" id="acl"><span class="muted small">Loading…</span></div></div>` : ''}
     </div>
@@ -1142,9 +1220,14 @@ function wfRun(wf, kind, rec) {
   const now = new Date(), c = wfInfo(kind, rec).c, link = { kind, id: rec.id };
   for (const a of wf.actions) {
     if (a.type === 'task') db.tasks.unshift({ id: uid(), title: wfFill(a.title, kind, rec), due: ymd(addDays(now, num(a.days))), assignee: a.tech || (kind === 'job' ? rec.techIds[0] || '' : ''), done: false, customerId: c.id, link, wf: wf.name, createdAt: iso(now) });
-    if (a.type === 'message') db.tasks.unshift({ id: uid(), type: 'message', channel: a.channel || 'sms', body: wfFill(a.body, kind, rec), title: `${a.channel === 'email' ? 'Send email' : 'Send SMS'} to ${c.name}`, due: ymd(addDays(now, num(a.days))), assignee: '', done: false, customerId: c.id, link, wf: wf.name, createdAt: iso(now) });
+    if (a.type === 'message') {
+      const t = { id: uid(), type: 'message', channel: a.channel || 'sms', body: wfFill(a.body, kind, rec), title: `${a.channel === 'email' ? 'Send email' : 'Send SMS'} to ${c.name}`, due: ymd(addDays(now, num(a.days))), assignee: '', done: false, customerId: c.id, link, wf: wf.name, createdAt: iso(now) };
+      db.tasks.unshift(t);
+      // Envío automático por HighLevel: solo mensajes para hoy, si está activado en Settings.
+      if (ghlOn() && cloud.ghl.autoSend && !num(a.days) && c.id) ghlSend(c, t.channel === 'email' ? 'Email' : 'SMS', t.body, db.settings.company).then(() => { t.done = true; t.doneAt = iso(new Date()); t.sentVia = 'highlevel'; save(); remoteRender(); }).catch(e => toast('HighLevel auto-send failed: ' + e.message));
+    }
     if (a.type === 'move_lead' && a.stage) {
-      const lead = kind === 'lead' ? rec : db.leads.find(l => l.customerId === c.id && (!rec.division || l.division === rec.division) && !['won', 'lost'].includes(l.stage));
+      const lead = kind === 'lead' ? rec : db.leads.find(l => l.customerId === c.id && (!rec.division || l.division === rec.division) && !CLOSED.includes(l.stage));
       if (lead && lead.stage !== a.stage) { lead.stage = a.stage; lead.stageAt = iso(now); emit('lead.stage', 'lead', lead, { to: a.stage }); }
     }
     if (a.type === 'invoice_job' && kind === 'job' && !rec.invoiceId) invoiceFromJob(rec);
@@ -1174,7 +1257,7 @@ function wfTimers() {
     const days = num(wf.trigger.days) * DAY, since = new Date(wf.activatedAt || wf.createdAt).getTime() - DAY;
     let cands = [];
     if (wf.trigger.type === 'time.estimate_no_reply') cands = db.estimates.filter(e => e.status === 'sent').map(e => [e, new Date(e.sentAt || e.createdAt).getTime() + days, 'x']);
-    if (wf.trigger.type === 'time.lead_stale') cands = db.leads.filter(l => !['won', 'lost'].includes(l.stage)).map(l => [l, new Date(l.stageAt || l.createdAt).getTime() + days, l.stage]);
+    if (wf.trigger.type === 'time.lead_stale') cands = db.leads.filter(l => !CLOSED.includes(l.stage)).map(l => [l, new Date(l.stageAt || l.createdAt).getTime() + days, l.stage]);
     if (wf.trigger.type === 'time.invoice_overdue') cands = db.invoices.filter(i => invStatus(i) === 'overdue').map(i => [i, parseLocal(i.due).getTime() + days, i.due]);
     if (wf.trigger.type === 'time.job_completed_ago') cands = db.jobs.filter(j => j.status === 'completed').map(j => [j, new Date(j.completedAt || j.start || j.createdAt).getTime() + days, 'x']);
     if (wf.trigger.type === 'time.plan_visit_due') cands = db.plans.filter(p => p.status === 'active').map(p => [p, parseLocal(p.nextVisit).getTime() - days, p.nextVisit]);
@@ -1195,9 +1278,9 @@ function invoiceFromJob(j) {
   deps.forEach(d => items.push({ id: uid(), name: `Less deposit (${d.number})`, qty: 1, price: -subtotal(d.items), cost: 0 }));
   const inv = createInvoice({ customerId: j.customerId, jobId: j.id, division: j.division, items }); j.invoiceId = inv.id; return inv;
 }
-const wfTriggerText = t => { const T = WF_TRIGGERS[t.type]; if (!T) return t.type; let s = T.label.replace('N days', `${num(t.days)} day${num(t.days) === 1 ? '' : 's'}`); if (t.stage && t.stage !== 'any') s += ` → ${STAGES.find(x => x[0] === t.stage)?.[1]}`; if (t.status && t.status !== 'any') s += ` → ${JOB_ST[t.status]?.[0]}`; return s; };
+const wfTriggerText = t => { const T = WF_TRIGGERS[t.type]; if (!T) return t.type; let s = T.label.replace('N days', `${num(t.days)} day${num(t.days) === 1 ? '' : 's'}`); if (t.stage && t.stage !== 'any') s += ` → ${stageName(t.stage)}`; if (t.status && t.status !== 'any') s += ` → ${JOB_ST[t.status]?.[0]}`; return s; };
 const wfCondText = k => { const p = []; if (k.division && k.division !== 'any') p.push('Division ' + DIV[k.division].name); if (num(k.minValue)) p.push('Amount ≥ ' + money(k.minValue)); if (k.source && k.source !== 'any') p.push('Source ' + srcEN(k.source)); return p.join(' · ') || 'Always'; };
-const wfActionText = a => a.type === 'task' ? `Task: "${a.title}"${num(a.days) ? ` (due in ${a.days} d)` : ''}` : a.type === 'message' ? `${a.channel === 'email' ? 'Email' : 'SMS'}: "${String(a.body || '').slice(0, 70)}${String(a.body || '').length > 70 ? '…' : ''}"` : a.type === 'move_lead' ? `Move lead to ${STAGES.find(x => x[0] === a.stage)?.[1] || '—'}` : a.type === 'assign_tech' ? `Assign to ${tech(a.tech)?.name || '—'}` : a.type === 'tag' ? `Tag "${a.tag}"` : a.type === 'note' || a.type === 'notify' ? `${WF_ACTIONS[a.type]}: "${a.text}"` : WF_ACTIONS[a.type];
+const wfActionText = a => a.type === 'task' ? `Task: "${a.title}"${num(a.days) ? ` (due in ${a.days} d)` : ''}` : a.type === 'message' ? `${a.channel === 'email' ? 'Email' : 'SMS'}: "${String(a.body || '').slice(0, 70)}${String(a.body || '').length > 70 ? '…' : ''}"` : a.type === 'move_lead' ? `Move lead to ${stageName(a.stage) || '—'}` : a.type === 'assign_tech' ? `Assign to ${tech(a.tech)?.name || '—'}` : a.type === 'tag' ? `Tag "${a.tag}"` : a.type === 'note' || a.type === 'notify' ? `${WF_ACTIONS[a.type]}: "${a.text}"` : WF_ACTIONS[a.type];
 
 ROUTES.workflows = () => {
   const list = db.workflows || [];
@@ -1225,7 +1308,7 @@ function wfEditor(wf) {
       let p = '';
       if (a.type === 'task') p = `<label class="f full">Task title<input class="inp" data-a="${i}" data-f="title" value="${esc(a.title || '')}"></label><label class="f">Due in (days)<input class="inp" type="number" min="0" data-a="${i}" data-f="days" value="${num(a.days)}"></label><label class="f">Assign to${sel('tech', techOpts, a.tech, `data-a="${i}"`)}</label>`;
       if (a.type === 'message') p = `<label class="f">Channel${sel('channel', [['sms', 'SMS'], ['email', 'Email']], a.channel, `data-a="${i}"`)}</label><label class="f">Send in (days)<input class="inp" type="number" min="0" data-a="${i}" data-f="days" value="${num(a.days)}"></label><label class="f full">Message<textarea class="inp" data-a="${i}" data-f="body">${esc(a.body || '')}</textarea></label>`;
-      if (a.type === 'move_lead') p = `<label class="f">Stage${sel('stage', STAGES, a.stage, `data-a="${i}"`)}</label>`;
+      if (a.type === 'move_lead') p = `<label class="f">Stage${sel('stage', ALL_STAGES, a.stage, `data-a="${i}"`)}</label>`;
       if (a.type === 'assign_tech') p = `<label class="f">Technician${sel('tech', techOpts, a.tech, `data-a="${i}"`)}</label><div class="small muted" style="align-self:end">Only applies when the trigger is a job.</div>`;
       if (a.type === 'invoice_job') p = `<div class="small muted full">Creates the invoice from the job’s line items (less deposits). Only applies when the trigger is a job.</div>`;
       if (a.type === 'tag') p = `<label class="f">Tag<input class="inp" data-a="${i}" data-f="tag" value="${esc(a.tag || '')}" placeholder="e.g. VIP, Warranty, Insurance"></label>`;
@@ -1236,7 +1319,7 @@ function wfEditor(wf) {
       <label class="f">Workflow name<input class="inp" data-f="name" value="${esc(d.name)}" placeholder="e.g. Estimate follow-up"></label>
       <h4 style="margin:18px 0 8px">1. When…</h4>
       <div class="form"><label class="f ${T.param || T.timer ? '' : 'full'}">Trigger${trigSel}</label>
-      ${T.param === 'stage' ? `<label class="f">New stage${sel('trigger.stage', [['any', 'Any'], ...STAGES], d.trigger.stage || 'any')}</label>` : ''}
+      ${T.param === 'stage' ? `<label class="f">New stage${sel('trigger.stage', [['any', 'Any'], ...ALL_STAGES], d.trigger.stage || 'any')}</label>` : ''}
       ${T.param === 'status' ? `<label class="f">New status${sel('trigger.status', [['any', 'Any'], ...Object.entries(JOB_ST).map(([k, v]) => [k, v[0]])], d.trigger.status || 'any')}</label>` : ''}
       ${T.timer ? `<label class="f">Number of days (N)<input class="inp" type="number" min="0" data-f="trigger.days" value="${num(d.trigger.days)}"></label>` : ''}</div>
       <h4 style="margin:18px 0 8px">2. Only if… <span class="small muted" style="font-weight:400">(optional)</span></h4>
@@ -1283,7 +1366,7 @@ ROUTES.tasks = () => {
   const all = (db.tasks || []).filter(t => who === 'all' || t.assignee === who || (who === 'none' && !t.assignee));
   const open = all.filter(t => !t.done).sort((a, b) => a.due.localeCompare(b.due));
   const groups = [['Overdue', open.filter(t => t.due < today), 'bad'], ['Today', open.filter(t => t.due === today), 'warn'], ['Upcoming', open.filter(t => t.due > today), 'info'], ['Completed', all.filter(t => t.done).sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt))).slice(0, 25), 'ok']];
-  const row = t => { const c = cust(t.customerId); const tk = tech(t.assignee); return `<div class="list-item" style="align-items:flex-start"><input type="checkbox" style="width:18px;height:18px;margin-top:2px;accent-color:var(--brand)" data-act-input="taskDone" data-id="${t.id}" ${t.done ? 'checked' : ''}><div style="flex:1;min-width:0"><div class="b" style="${t.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${t.type === 'message' ? (t.channel === 'email' ? '@ ' : '✉ ') : ''}${esc(t.title)}</div>${t.type === 'message' ? `<div class="small" style="white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0">${esc(t.body)}</div>` : ''}${t.notes ? `<div class="small muted">${esc(t.notes)}</div>` : ''}<div class="small muted">${taskLink(t)} · ${t.due === today ? 'Today' : fDate(parseLocal(t.due))}${t.wf ? ` · <span class="pill brand" style="font-size:11px">⚡ ${esc(t.wf)}</span>` : ''}</div></div>${tk ? avatar(tk) : ''}${t.type === 'message' && !t.done ? (t.channel === 'email' ? `<a class="btn sm primary" data-act="taskSend" data-id="${t.id}" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(db.settings.company)}&body=${encodeURIComponent(t.body)}">@ Send</a>` : `<a class="btn sm primary" data-act="taskSend" data-id="${t.id}" href="sms:${esc(c.phone)}?body=${encodeURIComponent(t.body)}">✉ Send</a>`) : ''}<button class="btn ghost sm danger" data-act="taskDel" data-id="${t.id}" title="Delete">✕</button></div>`; };
+  const row = t => { const c = cust(t.customerId); const tk = tech(t.assignee); return `<div class="list-item" style="align-items:flex-start"><input type="checkbox" style="width:18px;height:18px;margin-top:2px;accent-color:var(--brand)" data-act-input="taskDone" data-id="${t.id}" ${t.done ? 'checked' : ''}><div style="flex:1;min-width:0"><div class="b" style="${t.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${t.type === 'message' ? (t.channel === 'email' ? '@ ' : '✉ ') : ''}${esc(t.title)}</div>${t.type === 'message' ? `<div class="small" style="white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:6px 0">${esc(t.body)}</div>` : ''}${t.notes ? `<div class="small muted">${esc(t.notes)}</div>` : ''}<div class="small muted">${taskLink(t)} · ${t.due === today ? 'Today' : fDate(parseLocal(t.due))}${t.wf ? ` · <span class="pill brand" style="font-size:11px">⚡ ${esc(t.wf)}</span>` : ''}</div></div>${tk ? avatar(tk) : ''}${t.type === 'message' && !t.done && ghlOn() && c.id ? `<button class="btn sm primary" data-act="taskGhl" data-id="${t.id}">⚡ Send via HighLevel</button>` : ''}${t.type === 'message' && !t.done && !ghlOn() ? (t.channel === 'email' ? `<a class="btn sm primary" data-act="taskSend" data-id="${t.id}" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(db.settings.company)}&body=${encodeURIComponent(t.body)}">@ Send</a>` : `<a class="btn sm primary" data-act="taskSend" data-id="${t.id}" href="sms:${esc(c.phone)}?body=${encodeURIComponent(t.body)}">✉ Send</a>`) : ''}<button class="btn ghost sm danger" data-act="taskDel" data-id="${t.id}" title="Delete">✕</button></div>`; };
   return head('Tasks', `${open.length} open · ${open.filter(t => t.due < today).length} overdue`, `<select class="inp" style="width:auto" data-act-input="taskWho"><option value="all">Whole team</option><option value="none" ${who === 'none' ? 'selected' : ''}>Unassigned</option>${db.techs.map(t => `<option value="${t.id}" ${who === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select><a class="btn" href="#/workflows">⚡ Workflows</a><button class="btn primary" data-act="taskNew">＋ Task</button>`) +
     groups.map(([label, list, cls]) => list.length || label !== 'Completed' ? `<div class="card mb"><div class="card-h"><h3><span class="pill ${cls}">${label}</span> <span class="muted small">${list.length}</span></h3></div><div class="card-b" style="padding-top:4px;padding-bottom:4px">${list.map(row).join('') || '<div class="muted small" style="padding:10px 0">Nothing here.</div>'}</div></div>` : '').join('');
 };
@@ -1320,7 +1403,7 @@ const ACT = {
   wk: el => { const n = +el.dataset.n; state.week = n === 0 ? weekStart(new Date()) : addDays(state.week, n); render(); },
   tab: el => { state.tabs[el.dataset.t] = el.dataset.v; render(); },
   filt: el => { state.filters[el.dataset.f] = el.dataset.v; render(); },
-  newLead: () => leadModal(null),
+  newLead: el => leadModal(null, el && el.dataset && el.dataset.pipe),
   newCustomer: () => customerModal(null),
   editCustomer: el => customerModal(byId('customers', el.dataset.id)),
   newEstimate: el => newEstimateModal(el.dataset.cust),
@@ -1403,7 +1486,7 @@ const ACT = {
     const smsTxt = kind === 'estimate' ? `Hi ${first}, here is your estimate ${rec.number} from ${co}. You can review the options, sign and approve right from your phone: ${url}` : `Hi ${first}, you can view and pay your ${rec.kind === 'deposit' ? 'deposit' : 'invoice'} ${rec.number} from ${co} here: ${url}`;
     const subj = kind === 'estimate' ? `Your estimate ${rec.number} — ${co}` : `${rec.kind === 'deposit' ? 'Deposit' : 'Invoice'} ${rec.number} — ${co}`;
     const body = kind === 'estimate' ? `Hi ${c.name},\n\nThank you for the opportunity. You can review estimate ${rec.number} (${rec.title}), compare the options and approve it with your electronic signature here:\n\n${url}\n\nLet us know if you have any questions,\n${co}\n${db.settings.phone}` : `Hi ${c.name},\n\nYou can view and pay your ${rec.kind === 'deposit' ? 'deposit' : 'invoice'} ${rec.number} for ${money2(invBal(rec))} here:\n\n${url}\n\nThank you,\n${co}\n${db.settings.phone}`;
-    modal({ title: kind === 'estimate' ? 'Link to review and sign' : 'Payment link', body: `<p class="muted">The customer doesn’t need an account. The link is private and expires in 90 days; you’ll see here when they open it.</p><input class="inp" readonly value="${esc(url)}" onclick="this.select()"><div class="row mt"><button class="btn" data-act="portalCopy" data-url="${esc(url)}">Copy</button><a class="btn" href="sms:${esc(c.phone)}?body=${encodeURIComponent(smsTxt)}">✉ SMS</a><a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}">@ Email</a><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">View as customer ↗</a></div>`, foot: '<button class="btn primary" data-dismiss>Done</button>' });
+    modal({ title: kind === 'estimate' ? 'Link to review and sign' : 'Payment link', body: `<p class="muted">The customer doesn’t need an account. The link is private and expires in 90 days; you’ll see here when they open it.</p><input class="inp" readonly value="${esc(url)}" onclick="this.select()"><div class="row mt"><button class="btn" data-act="portalCopy" data-url="${esc(url)}">Copy</button>${ghlOn() ? `<button class="btn primary" id="ghlPortalSms">⚡ Text it via HighLevel</button>` : ''}<a class="btn" href="sms:${esc(c.phone)}?body=${encodeURIComponent(smsTxt)}">✉ SMS</a><a class="btn" href="mailto:${esc(c.email)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}">@ Email</a><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">View as customer ↗</a></div>`, foot: '<button class="btn primary" data-dismiss>Done</button>', onMount(bg) { const b = $('#ghlPortalSms', bg); if (b) b.onclick = async () => { b.disabled = true; b.textContent = 'Sending…'; try { await ghlSend(c, 'SMS', smsTxt); b.textContent = '✓ Sent'; toast('Link texted via HighLevel ✓'); } catch (e) { b.disabled = false; b.textContent = '⚡ Text it via HighLevel'; toast('HighLevel: ' + e.message); } }; } });
   },
   portalCopy: el => { try { navigator.clipboard.writeText(el.dataset.url); toast('Link copied'); } catch (e) { toast(el.dataset.url); } },
   viewSig: async el => { const { data } = await cloud.sb.from('opsboss_portal_events').select('signer_name,signature,created_at,ip,user_agent,option_index,amount').eq('id', el.dataset.ev).single(); if (!data) return; modal({ title: 'Electronic signature', body: `<div class="doc" style="padding:16px"><img src="${esc(data.signature)}" alt="Signature" style="width:100%;max-width:520px;border-bottom:1px solid #cbd5e1"><div class="small" style="margin-top:8px"><b>${esc(data.signer_name)}</b> · ${new Date(data.created_at).toLocaleString('en-US')}<br>Approved amount: ${money2(data.amount)} · Option #${(data.option_index ?? 0) + 1}<br>IP: ${esc(data.ip || '—')}<br><span style="color:#94a3b8">${esc(data.user_agent || '')}</span></div></div>`, foot: '<button class="btn" data-dismiss>Close</button><button class="btn primary" onclick="window.print()">⎙ Print</button>' }); },
@@ -1415,6 +1498,24 @@ const ACT = {
   wfAddTpl: el => { const t = wfTemplates().find(x => x.name === el.dataset.name); if (!t) return; db.workflows.push(wfFromTemplate(t)); save(); render(); toast('Template added and active'); wfTimers(); },
   taskNew: () => form({ title: 'New task', fields: [{ k: 'title', label: 'Task', full: true, required: true }, { k: 'due', label: 'Due date', type: 'date', value: ymd(new Date()) }, { k: 'assignee', label: 'Assign to', type: 'select', options: techOptions() }, { k: 'customerId', label: 'Customer (optional)', type: 'select', options: [['', '—'], ...custOptions()] }, { k: 'notes', label: 'Notes', type: 'textarea', full: true }], onSave(v) { db.tasks.unshift({ id: uid(), ...v, done: false, link: v.customerId ? { kind: 'customer', id: v.customerId } : null, createdAt: iso(new Date()) }); } }),
   taskDel: el => { db.tasks = db.tasks.filter(t => t.id !== el.dataset.id); save(); render(); },
+  taskGhl: async el => {
+    const t = byId('tasks', el.dataset.id), c = cust(t.customerId); el.disabled = true; el.textContent = 'Sending…';
+    try { await ghlSend(c, t.channel === 'email' ? 'Email' : 'SMS', t.body, db.settings.company); t.done = true; t.doneAt = iso(new Date()); t.sentVia = 'highlevel'; save(); render(); toast('Sent via HighLevel ✓'); }
+    catch (e) { el.disabled = false; el.textContent = '⚡ Send via HighLevel'; toast('HighLevel: ' + e.message); }
+  },
+  ghlSendSms: async el => {
+    const c = byId('customers', el.dataset.id), txt = ($('#ghlText') || {}).value || ''; if (!txt.trim()) return;
+    el.disabled = true; el.textContent = 'Sending…';
+    try { await ghlSend(c, 'SMS', txt.trim()); toast('SMS sent ✓'); ROUTES['customer:after'](c.id); } catch (e) { toast('HighLevel: ' + e.message); el.disabled = false; el.textContent = 'Send SMS'; }
+  },
+  ghlRefresh: el => ROUTES['customer:after'](el.dataset.id),
+  ghlSave: async () => {
+    const token = $('#ghlToken').value.trim(), loc = $('#ghlLoc').value.trim(), auto = $('#ghlAuto').checked;
+    const { data, error } = await cloud.sb.rpc('opsboss_ghl_save', { p_token: token || null, p_location: loc || null, p_auto: auto });
+    if (error) { toast(error.message); return; }
+    cloud.ghl = data; $('#ghlToken').value = ''; toast('HighLevel settings saved'); render();
+  },
+  ghlTest: async el => { el.disabled = true; try { const r = await ghlCall('status'); toast(`✓ Connected to ${r.name}`); } catch (e) { toast('HighLevel: ' + e.message); } el.disabled = false; },
   taskSend: el => { const t = byId('tasks', el.dataset.id); t.done = true; t.doneAt = iso(new Date()); log(`${t.channel === 'email' ? 'Email' : 'SMS'} sent to ${cust(t.customerId).name}`); save(); setTimeout(render, 300); location.href = el.getAttribute('href'); },
   removeMember: el => confirmDlg('Remove this person’s access to OpsBoss?', async () => { const { error } = await cloud.sb.from('opsboss_members').delete().eq('user_id', el.dataset.id); toast(error ? error.message : 'Access removed'); render(); }),
   removeInvite: async el => { const { error } = await cloud.sb.from('opsboss_invites').delete().eq('email', el.dataset.email); toast(error ? error.message : 'Invitation removed'); ROUTES['settings:after'](); },
@@ -1489,7 +1590,7 @@ function renderUserBox() {
   else if (CFG.url) b.innerHTML = `<div>Local demo mode · <button data-act="exitDemo">Sign in</button></div>`;
   else b.innerHTML = '';
 }
-function start() { renderUserBox(); render(); setTimeout(processPortal, 1200); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
+function start() { renderUserBox(); render(); setTimeout(processPortal, 1200); setTimeout(processGhlLeads, 1400); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
 function authScreen(mode = 'login', msg = '', kind = 'bad') {
   const el = $('#auth'); el.hidden = false;
   const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
@@ -1543,6 +1644,7 @@ async function enter(user) {
     if (error) { authScreen('setup', esc(error.message)); return; }
     if (!role) { authScreen('noaccess'); return; }
     cloud.role = role;
+    await ghlLoadConfig();
     const { d, count } = await cloudLoad();
     db = d;
     cloud.shadow = snapshot();
