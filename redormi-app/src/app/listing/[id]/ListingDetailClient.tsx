@@ -68,7 +68,7 @@ export default function ListingDetailClient({ listingId }: { listingId: string }
       <div className="mb-4">
         <h1 className="text-2xl font-extrabold text-navy sm:text-3xl">{listing.title}</h1>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink/70">
-          <StarRating rating={listing.ratingAvg} count={listing.ratingCount} />
+          <StarRating rating={listing.ratingAvg} count={listing.ratingCount} createdAt={listing.createdAt} />
           <span className="flex items-center gap-1">
             <Icon name="map-pin" className="h-3.5 w-3.5" />
             {listing.city}, {listing.region}, {listing.country}
@@ -188,7 +188,8 @@ export default function ListingDetailClient({ listingId }: { listingId: string }
           <div>
             <div className="mb-4 flex items-center gap-3">
               <h2 className="text-xl font-extrabold text-navy">
-                <StarRating rating={listing.ratingAvg} /> · {listing.ratingCount} reviews
+                <StarRating rating={listing.ratingAvg} count={listing.ratingCount} createdAt={listing.createdAt} />
+                {listing.ratingCount > 0 && ` · ${listing.ratingCount} reviews`}
               </h2>
             </div>
             {avgSub && (

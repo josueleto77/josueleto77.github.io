@@ -7,16 +7,31 @@ import Icon from "@/components/ui/icons";
 import Badge from "@/components/ui/Badge";
 import StarRating from "@/components/ui/StarRating";
 import { useAppData } from "@/lib/store/AppDataContext";
-import { formatMoney } from "@/lib/utils/format";
+import { formatMoney, nightsBetween } from "@/lib/utils/format";
+import { priceBreakdown } from "@/lib/utils/pricing";
 import { listingHref } from "@/lib/utils/listingHref";
 import { dealForListing } from "@/lib/data/deals";
 
-export default function ListingCard({ listing, showOffers = true }: { listing: Listing; showOffers?: boolean }) {
+export default function ListingCard({
+  listing,
+  showOffers = true,
+  checkIn,
+  checkOut,
+}: {
+  listing: Listing;
+  showOffers?: boolean;
+  checkIn?: string;
+  checkOut?: string;
+}) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const { isSaved, toggleSaved } = useAppData();
   const saved = isSaved(listing.id);
   const deal = dealForListing(listing.id);
   const discounted = deal ? Math.round(listing.pricing.baseNightly * (1 - deal.discountPercent / 100)) : null;
+
+  const hasDates = !!checkIn && !!checkOut;
+  const nights = hasDates ? nightsBetween(checkIn, checkOut) : 0;
+  const total = hasDates && nights > 0 ? priceBreakdown(listing.pricing, nights, deal?.discountPercent ?? 0).total : null;
 
   return (
     <div className="group flex flex-col gap-2.5">
@@ -77,22 +92,33 @@ export default function ListingCard({ listing, showOffers = true }: { listing: L
       <Link href={listingHref(listing.id)} className="flex flex-col gap-0.5">
         <div className="flex items-start justify-between gap-2">
           <h3 className="line-clamp-1 text-sm font-bold text-navy">{listing.title}</h3>
-          <StarRating rating={listing.ratingAvg} showValue />
+          <StarRating rating={listing.ratingAvg} count={listing.ratingCount} createdAt={listing.createdAt} />
         </div>
         <p className="text-sm text-ink/60">
           {listing.city}, {listing.country}
         </p>
-        <p className="mt-1 text-sm">
-          {discounted ? (
-            <>
-              <span className="mr-1.5 text-ink/40 line-through">{formatMoney(listing.pricing.baseNightly)}</span>
-              <span className="font-bold text-coral">{formatMoney(discounted)}</span>
-            </>
-          ) : (
-            <span className="font-bold text-navy">{formatMoney(listing.pricing.baseNightly)}</span>
-          )}{" "}
-          <span className="text-ink/60">night</span>
-        </p>
+        {total !== null ? (
+          <p className="mt-1">
+            <span className="text-sm font-bold text-navy">{formatMoney(total)}</span>{" "}
+            <span className="text-xs text-ink/60">
+              total for {nights} night{nights === 1 ? "" : "s"}
+            </span>
+            <br />
+            <span className="text-xs text-ink/50">{formatMoney(listing.pricing.baseNightly)} / night</span>
+          </p>
+        ) : (
+          <p className="mt-1 text-sm">
+            {discounted ? (
+              <>
+                <span className="mr-1.5 text-ink/40 line-through">{formatMoney(listing.pricing.baseNightly)}</span>
+                <span className="font-bold text-coral">{formatMoney(discounted)}</span>
+              </>
+            ) : (
+              <span className="font-bold text-navy">{formatMoney(listing.pricing.baseNightly)}</span>
+            )}{" "}
+            <span className="text-ink/60">night</span>
+          </p>
+        )}
       </Link>
     </div>
   );

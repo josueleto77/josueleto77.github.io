@@ -59,7 +59,7 @@ export default function DealCard({ deal, listing }: { deal: LastMinuteDeal; list
       <div className="flex flex-1 flex-col gap-1.5 p-4">
         <div className="flex items-start justify-between gap-2">
           <h3 className="line-clamp-1 text-sm font-bold text-navy">{listing.title}</h3>
-          <StarRating rating={listing.ratingAvg} count={listing.ratingCount} />
+          <StarRating rating={listing.ratingAvg} count={listing.ratingCount} createdAt={listing.createdAt} />
         </div>
         <p className="text-sm text-ink/60">
           {listing.city}, {listing.country}

@@ -96,8 +96,12 @@ export default function BookingBox({ listing }: { listing: Listing }) {
     <div className="sticky top-20 flex flex-col gap-4 rounded-2xl border border-navy/10 bg-white p-5 shadow-lg">
       <div className="flex items-baseline justify-between">
         <p>
-          <span className="text-xl font-extrabold text-navy">{formatMoney(breakdown.nightlyRate)}</span>{" "}
-          <span className="text-sm text-ink/60">/ night</span>
+          <span className="text-xl font-extrabold text-navy">{formatMoney(breakdown.total)}</span>{" "}
+          <span className="text-sm text-ink/60">
+            total for {nights} night{nights === 1 ? "" : "s"}
+          </span>
+          <br />
+          <span className="text-xs text-ink/50">{formatMoney(breakdown.nightlyRate)} / night</span>
         </p>
         {listing.instantBook && (
           <span className="flex items-center gap-1 text-xs font-bold text-sage-dark">

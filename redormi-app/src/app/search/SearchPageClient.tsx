@@ -18,6 +18,8 @@ const VALID_PROPERTY_TYPES: PropertyType[] = ["studio", "apartment", "house", "v
 export default function SearchPageClient() {
   const params = useSearchParams();
   const mode = (params.get("mode") as "rent" | "switch") ?? "rent";
+  const checkIn = params.get("checkIn") ?? undefined;
+  const checkOut = params.get("checkOut") ?? undefined;
   const { state } = useAppData();
   const [filters, setFilters] = useState(() => {
     const type = params.get("type");
@@ -38,7 +40,7 @@ export default function SearchPageClient() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       <div className="mb-5">
-        <SearchBar variant="compact" initial={{ where: filters.where, mode: filters.mode }} />
+        <SearchBar variant="compact" initial={{ where: filters.where, mode: filters.mode, checkIn, checkOut }} />
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -90,7 +92,7 @@ export default function SearchPageClient() {
                   onMouseEnter={() => setHoveredId(listing.id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
-                  <ListingCard listing={listing} />
+                  <ListingCard listing={listing} checkIn={checkIn} checkOut={checkOut} />
                 </div>
               ))}
             </div>

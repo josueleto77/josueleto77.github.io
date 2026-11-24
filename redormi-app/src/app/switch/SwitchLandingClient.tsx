@@ -37,7 +37,7 @@ export default function SwitchLandingClient() {
             Two verified owners, two homes, one set of dates. Pay only a processing fee and any add-ons you
             choose — never a nightly rate.
           </p>
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="mt-6 flex flex-wrap items-center gap-3">
             <Button href="/host/new" variant="switch" size="lg">
               Enable Switch on a home
             </Button>
@@ -45,6 +45,7 @@ export default function SwitchLandingClient() {
               Browse swappable homes
             </Button>
           </div>
+          <p className="mt-2.5 text-xs font-semibold text-sage-dark">No nightly rent. A processing fee applies.</p>
         </div>
       </section>
 
@@ -129,7 +130,7 @@ export default function SwitchLandingClient() {
                 <img src={l.photos[0]?.url} alt={l.title} className="aspect-[4/3] w-full rounded-xl object-cover" loading="lazy" />
                 <div className="flex items-center justify-between">
                   <Badge tone="sage">{score.label}</Badge>
-                  <StarRating rating={l.ratingAvg} size="h-3.5 w-3.5" />
+                  <StarRating rating={l.ratingAvg} count={l.ratingCount} createdAt={l.createdAt} size="h-3.5 w-3.5" />
                 </div>
                 <h3 className="line-clamp-1 text-sm font-bold text-navy">{l.title}</h3>
                 <p className="text-xs text-ink/60">{l.city}, {l.country}</p>
