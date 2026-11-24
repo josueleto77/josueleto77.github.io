@@ -431,14 +431,14 @@ const confirmDlg = (msg, yes) => { return modal({ title: 'Confirm', body: `<p>${
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
-  ['sec', 'Operations'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
+  ['sec', 'Operations'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📷', 'Field Photos'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
   ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Jobs'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'],
   ['sec', 'Projects'], ['permits', '⚑', 'Permits & Inspections'], ['tools', '∑', 'Calculators'],
   ['sec', 'Business'], ['workflows', '⚡', 'Workflows'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
 ];
 function renderNav() {
   const route = (location.hash.slice(2) || 'dashboard').split('/')[0];
-  const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices' };
+  const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices', photos: 'field' };
   const active = parentOf[route] || route;
   const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length };
   $('#nav').innerHTML = NAV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
@@ -879,6 +879,208 @@ async function processGhlLeads() {
   }
 }
 
+/* ───────────── PROJECT PHOTOS (financier / QA checklists) ───────────── */
+// Una línea por foto requerida. Las que empiezan con "?" son opcionales. Editables en Settings.
+const PHOTO_DEFAULTS = {
+  solar: [
+    'Front of house with address number visible',
+    'Utility meter close-up (meter number readable)',
+    'Main service panel — door closed with label',
+    'Main service panel — dead front removed (breakers & bus)',
+    'Main panel rating label (bus bar & main breaker)',
+    'Roof — each array plane before install',
+    '? Attic / rafters at array location',
+    'Attachments and flashing before modules',
+    'Racking and rails installed',
+    'Grounding / bonding (lugs, WEEB, ground wire)',
+    'Each array — full view with all modules visible',
+    'Module spec label (model & wattage)',
+    'Module serial numbers / layout map',
+    'Inverter or microinverter label & serials',
+    'Junction box / combiner — open, wiring visible',
+    'Conduit run from array to point of interconnection',
+    'AC disconnect with labels',
+    'Point of interconnection (PV breaker or line-side tap)',
+    'Production meter / CTs installed',
+    'NEC placards & warning labels',
+    '? Battery — installed unit, label and serial',
+    'Monitoring gateway installed',
+    'Commissioning screen — system producing / online',
+    'Final — house with completed system',
+    'Site cleanup',
+  ],
+  hvac: [
+    'Front of house with address number visible',
+    'Old outdoor unit before removal (data plate)',
+    'Old indoor unit / furnace before removal (data plate)',
+    'New outdoor unit installed — full view',
+    'New outdoor unit data plate (model & serial)',
+    'New indoor unit / air handler / furnace installed',
+    'New indoor unit data plate (model & serial)',
+    'Line set and insulation',
+    'Condensate drain and safety switch',
+    'Electrical disconnect and whip',
+    'Pad / mounting and clearances',
+    'Refrigerant charge — gauge readings',
+    'Supply and return temperature readings',
+    'Filter installed',
+    'Thermostat installed and running',
+    '? Permit sticker / job card',
+    'Site cleanup',
+  ],
+  roofing: [],
+};
+const pslug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+function photoReqs(division) {
+  const lines = (db.settings.photoReqs && db.settings.photoReqs[division]) || PHOTO_DEFAULTS[division] || [];
+  const seen = new Set();
+  return lines.map(l => { const t = String(l).trim(), opt = t.startsWith('?'), label = t.replace(/^\?\s*/, ''); return { id: pslug(label), label, required: !opt }; })
+    .filter(r => r.label && !seen.has(r.id) && seen.add(r.id));
+}
+function photoStatus(j) {
+  const reqs = photoReqs(j.division), shots = j.reqPhotos || [];
+  const has = r => shots.some(s => s.reqId === r.id);
+  return { reqs, shots, done: reqs.filter(has).length, total: reqs.length, required: reqs.filter(r => r.required).length, requiredDone: reqs.filter(r => r.required && has(r)).length, missing: reqs.filter(r => r.required && !has(r)) };
+}
+// Reduce la foto y le imprime número de trabajo, requisito, dirección y fecha/hora.
+function stampPhoto(file, lines, max = 1600) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, max / Math.max(img.width, img.height)), w = Math.round(img.width * s), h = Math.round(img.height * s);
+        const fs = Math.max(14, Math.round(w / 55)), band = Math.round(fs * 1.5 * lines.length + fs * 0.6);
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const g = cv.getContext('2d');
+        g.drawImage(img, 0, 0, w, h);
+        g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, h - band, w, band);
+        g.fillStyle = '#fff'; g.font = `600 ${fs}px Inter, Arial, sans-serif`; g.textBaseline = 'top';
+        lines.forEach((t, i) => g.fillText(t, Math.round(fs * 0.6), h - band + Math.round(fs * 0.35) + i * Math.round(fs * 1.5), w - fs));
+        cv.toBlob(b => b ? res(b) : rej(new Error('Could not process photo')), 'image/jpeg', 0.82);
+      };
+      img.onerror = () => rej(new Error('Unsupported image'));
+      img.src = r.result;
+    };
+    r.onerror = () => rej(new Error('Could not read photo'));
+    r.readAsDataURL(file);
+  });
+}
+const blobToDataUrl = b => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(b); });
+async function savePhoto(j, req, file) {
+  const c = cust(j.customerId), when = new Date();
+  const blob = await stampPhoto(file, [`${j.number} · ${req.label}`, `${[c.address, c.city].filter(Boolean).join(', ')} · ${when.toLocaleString('en-US')}`], cloud.on ? 1600 : 1000);
+  const shot = { id: uid(), reqId: req.id, label: req.label, takenAt: iso(when), by: cloud.user ? cloud.user.email : 'local' };
+  if (cloud.on) {
+    const path = `jobs/${j.id}/${req.id}-${shot.id}.jpg`;
+    const { error } = await cloud.sb.storage.from('opsboss-photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+    if (error) throw error;
+    shot.path = path;
+  } else shot.data = await blobToDataUrl(blob);
+  (j.reqPhotos = j.reqPhotos || []).push(shot);
+  log(`📷 ${req.label} — ${j.number}`);
+  save();
+  return shot;
+}
+const photoUrlCache = new Map();
+async function photoUrls(shots) {
+  const out = {}, need = [];
+  for (const s of shots) {
+    if (s.data) out[s.id] = s.data;
+    else if (s.path) { const c = photoUrlCache.get(s.path); if (c && c.exp > Date.now()) out[s.id] = c.url; else need.push(s); }
+  }
+  if (need.length && cloud.on) {
+    const { data } = await cloud.sb.storage.from('opsboss-photos').createSignedUrls(need.map(s => s.path), 3600);
+    (data || []).forEach((d, i) => { if (d.signedUrl) { photoUrlCache.set(need[i].path, { url: d.signedUrl, exp: Date.now() + 50 * 60 * 1000 }); out[need[i].id] = d.signedUrl; } });
+  }
+  return out;
+}
+const photoProgress = st => `<div class="progress" style="height:10px"><div style="width:${st.total ? st.done / st.total * 100 : 0}%;background:${st.missing.length ? 'var(--warn)' : 'var(--ok)'}"></div></div>`;
+
+ROUTES.field = () => {
+  const q = (state.filters.fq || '').toLowerCase(), today = new Date();
+  const jobs = db.jobs.filter(divOK).filter(j => j.status !== 'cancelled' && photoReqs(j.division).length)
+    .filter(j => !q || [j.number, j.title, cust(j.customerId).name, cust(j.customerId).address].join(' ').toLowerCase().includes(q))
+    .map(j => ({ j, st: photoStatus(j), rank: j.status === 'inprogress' ? 0 : j.start && sameDay(j.start, today) ? 1 : j.status === 'completed' ? 4 : 2 }))
+    .sort((a, b) => a.rank - b.rank || (a.st.missing.length ? 0 : 1) - (b.st.missing.length ? 0 : 1));
+  return head('Field Photos', 'Required project photos for financiers and QA — tap a job, then tap each photo to take it.') + `
+  <div class="card mb"><div class="toolbar"><input id="fq" placeholder="Search job #, customer, address…" value="${esc(state.filters.fq || '')}" style="flex:1;min-width:200px"></div></div>
+  <div class="grid g3">${jobs.map(({ j, st }) => { const c = cust(j.customerId); return `<div class="card click" data-go="#/photos/${j.id}" style="cursor:pointer"><div class="card-b">
+    <div class="row" style="justify-content:space-between"><b>${j.number}</b>${pill(JOB_ST, j.status)}</div>
+    <div class="b mt">${esc(j.title)}</div><div class="small muted">${esc(c.name)} · ${esc([c.address, c.city].filter(Boolean).join(', '))}</div>
+    <div class="row mt" style="justify-content:space-between">${divPill(j.division)}<span class="small ${st.missing.length ? 'down b' : 'up b'}">${st.missing.length ? `${st.missing.length} required missing` : '✓ All required photos'}</span></div>
+    <div class="mt">${photoProgress(st)}<div class="small muted mt">${st.done}/${st.total} photos</div></div>
+  </div></div>`; }).join('') || '<div class="card"><div class="empty">No jobs with a photo checklist yet. Solar and HVAC jobs get one automatically.</div></div>'}</div>`;
+};
+ROUTES['field:after'] = () => { const i = $('#fq'); if (!i) return; i.oninput = () => { state.filters.fq = i.value; const pos = i.selectionStart; render(); const n = $('#fq'); n.focus(); n.setSelectionRange(pos, pos); }; };
+
+ROUTES.photos = id => {
+  const j = db.jobs.find(x => x.id === id); if (!j) return '<div class="empty">Job not found</div>';
+  const c = cust(j.customerId), st = photoStatus(j), known = new Set(st.reqs.map(r => r.id));
+  const thumbs = list => list.map(s => `<div style="position:relative"><img data-photo="${s.id}" alt="${esc(s.label)}" style="width:112px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--border);background:var(--panel-2)"><button class="btn sm" style="position:absolute;top:3px;right:3px;padding:0 6px" data-act="delReqPhoto" data-job="${j.id}" data-shot="${s.id}" title="Delete photo">✕</button></div>`).join('');
+  const other = st.shots.filter(s => !known.has(s.reqId));
+  return `<div class="small muted mb"><a href="#/field">Field Photos</a> / ${j.number}</div>` + head(`📷 ${j.number} · ${esc(j.title)}`, `${esc(c.name)} · ${esc([c.address, c.city].filter(Boolean).join(', '))} · ${divPill(j.division)}`,
+    `<a class="btn" href="#/job/${j.id}">Job details</a><button class="btn primary" data-act="photoPdf" data-id="${j.id}">⇩ Download PDF</button>`) + `
+  <div class="card mb"><div class="card-b"><div class="row" style="justify-content:space-between;margin-bottom:8px"><b>${st.done}/${st.total} photos · ${st.requiredDone}/${st.required} required</b><span class="small ${st.missing.length ? 'down b' : 'up b'}">${st.missing.length ? `${st.missing.length} required photos missing — the job can’t be completed yet` : '✓ Ready for the financier'}</span></div>${photoProgress(st)}</div></div>
+  <div class="card">${st.reqs.map((r, i) => { const mine = st.shots.filter(s => s.reqId === r.id); return `<div class="list-item" style="padding:12px 16px;align-items:flex-start;flex-wrap:wrap">
+    <div style="width:28px" class="b ${mine.length ? 'up' : r.required ? 'down' : 'muted'}">${mine.length ? '✓' : i + 1}</div>
+    <div style="flex:1;min-width:200px"><div class="b">${esc(r.label)}</div><div class="small">${r.required ? '<span class="pill warn" style="font-size:11px">Required</span>' : '<span class="pill" style="font-size:11px">Optional</span>'} ${mine.length ? `<span class="muted">${mine.length} photo${mine.length > 1 ? 's' : ''}</span>` : ''}</div><div class="row mt">${thumbs(mine)}</div></div>
+    <label class="btn ${mine.length ? '' : 'primary'}" style="align-self:center">📷 ${mine.length ? 'Add another' : 'Take photo'}<input type="file" accept="image/*" capture="environment" hidden data-act-input="reqPhoto" data-job="${j.id}" data-req="${r.id}"></label>
+  </div>`; }).join('') || '<div class="empty">No photo checklist for this division. Add one in Settings → Required photos.</div>'}</div>
+  ${other.length ? `<div class="card mt"><div class="card-h"><h3>Other photos</h3><span class="small muted">From items no longer on the checklist</span></div><div class="card-b"><div class="row">${thumbs(other)}</div></div></div>` : ''}`;
+};
+ROUTES['photos:after'] = async id => {
+  const j = db.jobs.find(x => x.id === id); if (!j || !(j.reqPhotos || []).length) return;
+  const urls = await photoUrls(j.reqPhotos);
+  $$('img[data-photo]').forEach(im => { const u = urls[im.dataset.photo]; if (u) { im.src = u; im.onclick = () => window.open(u, '_blank'); im.style.cursor = 'zoom-in'; } });
+};
+function loadScript(src) { return new Promise((res, rej) => { if ([...document.scripts].some(s => s.src === src)) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); }); }
+async function imageForPdf(url, max = 1400) {
+  const blob = await (await fetch(url)).blob(), data = await blobToDataUrl(blob);
+  return await new Promise((res, rej) => { const im = new Image(); im.onload = () => { const s = Math.min(1, max / Math.max(im.width, im.height)), cv = document.createElement('canvas'); cv.width = Math.round(im.width * s); cv.height = Math.round(im.height * s); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); res({ data: cv.toDataURL('image/jpeg', 0.78), w: cv.width, h: cv.height }); }; im.onerror = rej; im.src = data; });
+}
+async function photoPdf(j) {
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  const { jsPDF } = window.jspdf, doc = new jsPDF({ unit: 'pt', format: 'letter' }), _t = doc.text.bind(doc), pt = x => String(x ?? '').replace(/[—–]/g, '-').replace(/·/g, '|').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x00-\xFF]/g, ''), W = 612, H = 792, M = 40, c = cust(j.customerId), st = photoStatus(j), s = db.settings;
+  doc.text = (t, ...a) => _t(Array.isArray(t) ? t.map(pt) : pt(t), ...a);
+  // Portada
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.text(s.company || 'OpsBoss', M, 70);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(100); doc.text([s.license || '', [s.address, s.phone, s.email].filter(Boolean).join(' · ')], M, 88);
+  doc.setTextColor(20); doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('Project Photo Report', M, 140);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
+  const info = [['Job', `${j.number} — ${j.title}`], ['Division', DIV[j.division] ? DIV[j.division].name : ''], ['Customer', c.name], ['Address', [c.address, c.city, c.zip].filter(Boolean).join(', ')], ['Install date', j.start ? fDate(j.start) : '—'], ['Generated', new Date().toLocaleString('en-US')], ['Photos', `${st.done}/${st.total} items · ${st.requiredDone}/${st.required} required`]];
+  info.forEach(([k, v], i) => { doc.setFont('helvetica', 'bold'); doc.text(k, M, 170 + i * 18); doc.setFont('helvetica', 'normal'); doc.text(String(v || ''), M + 90, 170 + i * 18, { maxWidth: W - M * 2 - 90 }); });
+  let y = 170 + info.length * 18 + 20;
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(st.missing.length ? 200 : 5, st.missing.length ? 40 : 150, st.missing.length ? 40 : 105);
+  doc.text(st.missing.length ? `INCOMPLETE — ${st.missing.length} required photo(s) missing (marked MISSING below)` : 'COMPLETE — all required photos included', M, y);
+  doc.setTextColor(20); y += 26;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text('Checklist', M, y); y += 16; doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+  st.reqs.forEach((r, i) => {
+    if (y > H - M) { doc.addPage(); y = M + 10; }
+    const n = st.shots.filter(x => x.reqId === r.id).length, miss = r.required && !n;
+    doc.setTextColor(miss ? 200 : 20, miss ? 40 : 20, miss ? 40 : 20);
+    doc.text(`${n ? '[x]' : r.required ? '[  ]' : '[ - ]'} ${i + 1}. ${r.label}${n > 1 ? ` (${n} photos)` : ''}${r.required ? '' : ' (optional)'}${miss ? '  — MISSING' : ''}`, M + 6, y, { maxWidth: W - M * 2 - 6 });
+    y += 13;
+  });
+  doc.setTextColor(20);
+  // Fotos: 2 por página
+  const urls = await photoUrls(st.shots), order = st.reqs.flatMap(r => st.shots.filter(x => x.reqId === r.id)).concat(st.shots.filter(x => !st.reqs.some(r => r.id === x.reqId)));
+  const slotH = (H - M * 2 - 30) / 2;
+  for (let i = 0; i < order.length; i++) {
+    if (i % 2 === 0) doc.addPage();
+    const shot = order[i], top = M + (i % 2) * (slotH + 30), ri = st.reqs.findIndex(r => r.id === shot.reqId);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(20);
+    doc.text(`${ri >= 0 ? ri + 1 + '. ' : ''}${shot.label}`, M, top + 10, { maxWidth: W - M * 2 });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110);
+    doc.text(`${new Date(shot.takenAt).toLocaleString('en-US')} · ${shot.by || ''}`, M, top + 24);
+    try {
+      const im = await imageForPdf(urls[shot.id]); const boxW = W - M * 2, boxH = slotH - 40, sc = Math.min(boxW / im.w, boxH / im.h);
+      doc.addImage(im.data, 'JPEG', M + (boxW - im.w * sc) / 2, top + 32, im.w * sc, im.h * sc);
+    } catch (e) { doc.setTextColor(200, 40, 40); doc.text('Photo could not be loaded', M, top + 50); }
+  }
+  doc.save(`${j.number}-photo-report.pdf`);
+  log(`⇩ Photo report PDF downloaded — ${j.number}`);
+}
+
 /* ───────────── TRABAJOS ───────────── */
 function jobModal(j, preset = {}) {
   const isNew = !j; j = j || {};
@@ -930,7 +1132,8 @@ ROUTES.job = id => {
     <div>
       <div class="card"><div class="card-h"><h3>Job line items</h3>${j.estimateId ? `<a class="small" href="#/estimate/${j.estimateId}">From estimate →</a>` : ''}</div><div class="card-b">${itemsTable(j.items, !inv, `job:${j.id}`)}</div></div>
       <div class="card mt"><div class="card-h"><h3>Checklist ${DIV[j.division].name} (${done}/${j.checklist.length})</h3><button class="btn sm" data-act="addCheck" data-id="${j.id}">＋ Task</button></div><div class="card-b"><div class="progress mb"><div style="width:${j.checklist.length ? done / j.checklist.length * 100 : 0}%"></div></div>${j.checklist.map(x => `<label class="check"><input type="checkbox" data-act-input="check" data-id="${j.id}" data-c="${x.id}" ${x.done ? 'checked' : ''}><span style="${x.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(x.t)}</span></label>`).join('')}</div></div>
-      <div class="card mt"><div class="card-h"><h3>Photos (${j.photos.length})</h3><label class="btn sm">＋ Upload photos<input type="file" accept="image/*" multiple hidden data-act-input="photos" data-id="${j.id}"></label></div><div class="card-b"><div class="row">${j.photos.map((p, i) => `<div style="position:relative"><img src="${p}" alt="Photo ${i + 1}" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"><button class="btn sm" style="position:absolute;top:4px;right:4px;padding:1px 6px" data-act="delPhoto" data-id="${j.id}" data-i="${i}">✕</button></div>`).join('') || '<span class="muted small">Upload before/after photos, damage, equipment and nameplates.</span>'}</div></div></div>
+      ${(() => { const st = photoStatus(j); return st.total ? `<div class="card mt"><div class="card-h"><h3>📷 Required photos (${st.done}/${st.total})</h3><div class="row"><button class="btn sm" data-act="photoPdf" data-id="${j.id}">⇩ PDF</button><a class="btn sm primary" href="#/photos/${j.id}">Open photo checklist</a></div></div><div class="card-b">${photoProgress(st)}<div class="small mt ${st.missing.length ? 'down' : 'up'}">${st.missing.length ? `${st.missing.length} required photo${st.missing.length > 1 ? 's' : ''} missing: ${st.missing.slice(0, 3).map(r => esc(r.label)).join(' · ')}${st.missing.length > 3 ? '…' : ''}` : '✓ All required photos taken'}</div></div></div>` : ''; })()}
+      <div class="card mt"><div class="card-h"><h3>Other photos (${j.photos.length})</h3><label class="btn sm">＋ Upload photos<input type="file" accept="image/*" multiple hidden data-act-input="photos" data-id="${j.id}"></label></div><div class="card-b"><div class="row">${j.photos.map((p, i) => `<div style="position:relative"><img src="${p}" alt="Photo ${i + 1}" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"><button class="btn sm" style="position:absolute;top:4px;right:4px;padding:1px 6px" data-act="delPhoto" data-id="${j.id}" data-i="${i}">✕</button></div>`).join('') || '<span class="muted small">Upload before/after photos, damage, equipment and nameplates.</span>'}</div></div></div>
     </div>
     <div>
       <div class="card"><div class="card-h"><h3>Customer & location</h3></div><div class="card-b"><div class="b">${esc(c.name)}</div><div class="small muted">${esc(c.address)}, ${esc(c.city)} ${esc(c.zip)}</div><div class="row mt"><a class="btn sm" href="tel:${esc(c.phone)}">✆ Call</a><a class="btn sm" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hi ${c.name}, your ${db.settings.company} technician is on the way.`)}">✉ "On the way"</a><a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(c.address + ', ' + c.city)}">⌖ Navigate</a></div></div></div>
@@ -1140,6 +1343,9 @@ ROUTES.settings = () => {
         <label class="check"><input type="checkbox" data-act-input="settingBool" data-k="paymentsEnabled" ${s.paymentsEnabled ? 'checked' : ''}><span><b>Accept card / ACH payments (Stripe)</b> in the portal</span></label>
         <p class="small muted">Requires a one-time Stripe setup (see the OpsBoss README). When off, customers can still view, sign and approve; they just won’t see the Pay button.</p>
         <label class="f">Other payment methods (shown in the portal)<textarea class="inp" data-act-input="setting" data-k="payInstructions" placeholder="e.g. Zelle: payments@nexispower.com · Checks payable to Nexis Power">${esc(s.payInstructions || '')}</textarea></label>
+      </div></div>
+      <div class="card mb"><div class="card-h"><h3>📷 Required photos</h3></div><div class="card-b"><p class="small muted">One photo per line. Start a line with <code>?</code> to make it optional. Jobs can’t be completed until every required photo is taken. Adjust to your financier’s checklist (PPA / lease / loan).</p>
+        ${['solar', 'hvac', 'roofing'].map(k => `<label class="f mt">${DIV[k].name}<textarea class="inp" style="min-height:${k === 'roofing' ? 70 : 150}px;font-size:12.5px" data-act-input="photoReqs" data-k="${k}" ${canAdmin() ? '' : 'disabled'} placeholder="${k === 'roofing' ? 'No checklist yet — add lines to enable one' : ''}">${esc(((db.settings.photoReqs && db.settings.photoReqs[k]) || PHOTO_DEFAULTS[k] || []).join('\n'))}</textarea></label>`).join('')}
       </div></div>
       <div class="card"><div class="card-h"><h3>Tax & financing</h3></div><div class="card-b form">${f('taxRate', 'Sales tax (%)', 'number', '0.01')}${f('apr', 'Financing APR (%)', 'number', '0.01')}${f('term', 'Term (months)', 'number')}</div></div>
       ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>HighLevel (SMS, email & calls)</h3><span class="pill ${ghlOn() ? 'ok' : ''}">${ghlOn() ? 'Connected' : 'Not connected'}</span></div><div class="card-b">
@@ -1433,7 +1639,9 @@ const ACT = {
   reopenEst: el => { byId('estimates', el.dataset.id).status = 'draft'; save(); render(); },
   delEst: el => confirmDlg('Delete this estimate?', () => { db.estimates = db.estimates.filter(x => x.id !== el.dataset.id); location.hash = '#/estimates'; }),
   previewEst: el => previewEstimate(byId('estimates', el.dataset.id)),
-  jobStatus: el => { const j = byId('jobs', el.dataset.id); j.status = el.dataset.s; if (j.status === 'completed') { j.completedAt = iso(new Date()); j.checklist.forEach(c => c.done = true); } log(`${j.number} → ${JOB_ST[j.status][0]}`); emit('job.status', 'job', j, { to: j.status }); save(); render(); toast(JOB_ST[j.status][0]); if (j.status === 'enroute') { const c = cust(j.customerId); modal({ title: 'Notify the customer', body: `<p>Send an "on the way" text to ${esc(c.name)}?</p>`, foot: `<button class="btn" data-dismiss>No</button><a class="btn primary" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hi ${c.name}, your ${db.settings.company} technician is on the way for "${j.title}".`)}">✉ Send SMS</a>` }); } },
+  jobStatus: el => { const j = byId('jobs', el.dataset.id);
+    if (el.dataset.s === 'completed') { const st = photoStatus(j); if (st.missing.length) { modal({ title: 'Required photos missing', body: `<p>This job can’t be completed until all required photos are taken (${st.requiredDone}/${st.required}).</p><ul class="small">${st.missing.map(r => `<li>${esc(r.label)}</li>`).join('')}</ul>`, foot: `<button class="btn" data-dismiss>Close</button><a class="btn primary" href="#/photos/${j.id}" onclick="this.closest('.modal-bg').remove()">📷 Open photo checklist</a>` }); return; } }
+    j.status = el.dataset.s; if (j.status === 'completed') { j.completedAt = iso(new Date()); j.checklist.forEach(c => c.done = true); } log(`${j.number} → ${JOB_ST[j.status][0]}`); emit('job.status', 'job', j, { to: j.status }); save(); render(); toast(JOB_ST[j.status][0]); if (j.status === 'enroute') { const c = cust(j.customerId); modal({ title: 'Notify the customer', body: `<p>Send an "on the way" text to ${esc(c.name)}?</p>`, foot: `<button class="btn" data-dismiss>No</button><a class="btn primary" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hi ${c.name}, your ${db.settings.company} technician is on the way for "${j.title}".`)}">✉ Send SMS</a>` }); } },
   cancelJob: el => { const j = byId('jobs', el.dataset.id); j.status = j.status === 'cancelled' ? (j.start ? 'scheduled' : 'unscheduled') : 'cancelled'; save(); render(); },
   delJob: el => confirmDlg('Delete this job?', () => { db.jobs = db.jobs.filter(x => x.id !== el.dataset.id); location.hash = '#/jobs'; }),
   invoiceJob: el => { const inv = invoiceFromJob(byId('jobs', el.dataset.id)); save(); location.hash = '#/invoice/' + inv.id; },
@@ -1516,6 +1724,8 @@ const ACT = {
     cloud.ghl = data; $('#ghlToken').value = ''; toast('HighLevel settings saved'); render();
   },
   ghlTest: async el => { el.disabled = true; try { const r = await ghlCall('status'); toast(`✓ Connected to ${r.name}`); } catch (e) { toast('HighLevel: ' + e.message); } el.disabled = false; },
+  delReqPhoto: el => confirmDlg('Delete this photo?', async () => { const j = byId('jobs', el.dataset.job), shot = (j.reqPhotos || []).find(x => x.id === el.dataset.shot); if (!shot) return; if (shot.path && cloud.on) await cloud.sb.storage.from('opsboss-photos').remove([shot.path]); j.reqPhotos = j.reqPhotos.filter(x => x.id !== shot.id); save(); render(); }),
+  photoPdf: async el => { const j = byId('jobs', el.dataset.id), t = el.textContent; el.disabled = true; el.textContent = 'Building PDF…'; try { await photoPdf(j); } catch (e) { toast('PDF error: ' + e.message); } el.disabled = false; el.textContent = t; },
   taskSend: el => { const t = byId('tasks', el.dataset.id); t.done = true; t.doneAt = iso(new Date()); log(`${t.channel === 'email' ? 'Email' : 'SMS'} sent to ${cust(t.customerId).name}`); save(); setTimeout(render, 300); location.href = el.getAttribute('href'); },
   removeMember: el => confirmDlg('Remove this person’s access to OpsBoss?', async () => { const { error } = await cloud.sb.from('opsboss_members').delete().eq('user_id', el.dataset.id); toast(error ? error.message : 'Access removed'); render(); }),
   removeInvite: async el => { const { error } = await cloud.sb.from('opsboss_invites').delete().eq('email', el.dataset.email); toast(error ? error.message : 'Invitation removed'); ROUTES['settings:after'](); },
@@ -1543,6 +1753,15 @@ const INPUT = {
   memberRole: async el => { const { error } = await cloud.sb.from('opsboss_members').update({ role: el.value }).eq('user_id', el.dataset.id); toast(error ? error.message : 'Role updated'); },
   setting: el => { db.settings[el.dataset.k] = el.type === 'number' ? num(el.value) : el.value; save(); },
   calc: el => { const [g, k] = el.dataset.k.split('.'); state.tools[g][k] = num(el.value); const pos = el.dataset.k; render(); const n = $(`[data-k="${pos}"]`); if (n) { n.focus(); } },
+  reqPhoto: async el => {
+    const j = byId('jobs', el.dataset.job), req = photoReqs(j.division).find(r => r.id === el.dataset.req), files = [...el.files];
+    if (!req || !files.length) return;
+    const lbl = el.closest('label'); if (lbl) lbl.firstChild.textContent = '⏳ Uploading… ';
+    let n = 0; for (const f of files) { try { await savePhoto(j, req, f); n++; } catch (e) { toast('Photo not saved: ' + (e.message || e)); } }
+    if (n) toast(`📷 ${n} photo${n > 1 ? 's' : ''} saved to ${j.number}`);
+    render();
+  },
+  photoReqs: el => { db.settings.photoReqs = db.settings.photoReqs || {}; db.settings.photoReqs[el.dataset.k] = el.value.split('\n').map(x => x.trim()).filter(Boolean); save(); toast('Photo checklist saved'); },
   photos: async el => { const j = byId('jobs', el.dataset.id); for (const f of el.files) { const d = await compressImage(f); if (d) j.photos.push(d); } save(); render(); toast('Photos added'); },
   importJson: el => { const f = el.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (!d.customers || !d.settings) throw 0; db = normalize(d); save(); render(); toast('Backup imported ✓'); } catch (e) { toast('Invalid file'); } }; r.readAsText(f); },
 };
@@ -1652,6 +1871,7 @@ async function enter(user) {
     if (!db.settings) { const b = blankDb(); db.settings = b.settings; if (!db.pricebook.length) db.pricebook = b.pricebook; }
     if (count && !db.workflows.length && !db.settings.wfSeeded) { db.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t)); db.settings.wfSeeded = true; }
     cloud.on = true; $('#auth').hidden = true; setSync('ok');
+    if (role === 'tech' && (!location.hash || location.hash === '#/' || location.hash === '#/dashboard')) location.hash = '#/field';
     subscribe(); start(); sync();
     if (!count && canAdmin()) firstRun();
   } catch (e) { authScreen('setup', esc(e.message || String(e))); } finally { cloud.entering = false; }
