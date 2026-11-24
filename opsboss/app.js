@@ -451,9 +451,8 @@ function render() {
   const fn = ROUTES[route] || ROUTES.dashboard;
   $('#view').innerHTML = fn(id) || '';
   const after = ROUTES[route + ':after']; after && after(id);
-  $('#sidebar').classList.remove('open');
 }
-window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+window.addEventListener('hashchange', () => { $('#sidebar').classList.remove('open'); render(); window.scrollTo(0, 0); });
 
 /* ───────────── Componentes ───────────── */
 const pill = (map, k) => map[k] ? `<span class="pill ${map[k][1]}">${map[k][0]}</span>` : '';
@@ -1793,6 +1792,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('#newMenu')) $('#newMenu').classList.remove('open');
   if (e.target.closest('#searchBtn')) openPalette();
   if (e.target.closest('#menuBtn')) $('#sidebar').classList.toggle('open');
+  if (e.target.closest('#installBtn')) { doInstall(); return; }
   if (e.target.closest('#themeBtn')) { const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); const n = cur === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = n; try { localStorage.setItem('opsboss.theme', n); } catch (er) { /* ignore */ } }
 });
 document.addEventListener('keydown', e => {
@@ -1802,6 +1802,29 @@ document.addEventListener('keydown', e => {
 });
 try { const th = localStorage.getItem('opsboss.theme'); if (th) document.documentElement.dataset.theme = th; } catch (e) { /* ignore */ }
 
+/* ───────────── Instalar como app (PWA) ───────────── */
+let installEvt = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function renderInstall() {
+  const b = $('#installBtn'); if (!b) return;
+  b.hidden = isStandalone() || !(installEvt || isIOS() || /android/i.test(navigator.userAgent));
+}
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; renderInstall(); });
+window.addEventListener('appinstalled', () => { installEvt = null; renderInstall(); toast('OpsBoss installed ✓'); });
+function showInstallHelp() {
+  const ios = isIOS();
+  modal({ title: '📲 Install OpsBoss on your phone', body: ios
+    ? `<ol style="line-height:1.9;padding-left:20px"><li>Open this page in <b>Safari</b> (on iPhone, other browsers can’t install apps).</li><li>Tap the <b>Share</b> button <span style="font-size:18px">⎋</span> at the bottom of the screen.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>. The OpsBoss icon appears on your home screen.</li></ol><p class="small muted">Open OpsBoss from that icon: it runs full screen like a regular app and the camera works for Field Photos.</p>`
+    : `<ol style="line-height:1.9;padding-left:20px"><li>Open this page in <b>Chrome</b>.</li><li>Tap the <b>⋮</b> menu (top right).</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li><li>Confirm with <b>Install</b>.</li></ol><p class="small muted">The OpsBoss icon appears with your other apps.</p>`,
+    foot: '<button class="btn primary" data-dismiss>Got it</button>' });
+}
+async function doInstall() {
+  if (installEvt) { installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); installEvt = null; renderInstall(); if (r && r.outcome === 'accepted') toast('Installing OpsBoss…'); return; }
+  showInstallHelp();
+}
+if ('serviceWorker' in navigator && location.protocol === 'https:') window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+
 /* ───────────── Arranque y login ───────────── */
 function renderUserBox() {
   const b = $('#userBox'); if (!b) return;
@@ -1809,7 +1832,7 @@ function renderUserBox() {
   else if (CFG.url) b.innerHTML = `<div>Local demo mode · <button data-act="exitDemo">Sign in</button></div>`;
   else b.innerHTML = '';
 }
-function start() { renderUserBox(); render(); setTimeout(processPortal, 1200); setTimeout(processGhlLeads, 1400); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
+function start() { renderUserBox(); renderInstall(); render(); setTimeout(processPortal, 1200); setTimeout(processGhlLeads, 1400); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
 function authScreen(mode = 'login', msg = '', kind = 'bad') {
   const el = $('#auth'); el.hidden = false;
   const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
@@ -1830,9 +1853,10 @@ function authScreen(mode = 'login', msg = '', kind = 'bad') {
     ${needPass ? `<label class="f">Password<input name="password" type="password" minlength="8" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" required></label>` : ''}
     <button class="btn primary full" id="aSubmit">${titles[2]}</button></form>
     <div class="links">${mode !== 'login' ? '<button data-m="login">← Sign in</button>' : '<button data-m="signup">Create account</button>'}${mode === 'login' ? '<button data-m="magic">Magic link</button><button data-m="reset">Forgot your password?</button>' : ''}</div>
-    <div class="links" style="border-top:1px solid var(--border);padding-top:12px"><button id="aDemo">Try it with demo data →</button></div></div>`;
+    <div class="links" style="border-top:1px solid var(--border);padding-top:12px"><button id="aDemo">Try it with demo data →</button>${isStandalone() ? '' : '<button id="aInstall">📲 Install app</button>'}</div></div>`;
   $$('[data-m]', el).forEach(b => b.onclick = () => authScreen(b.dataset.m));
   $('#aDemo').onclick = enterDemo;
+  if ($('#aInstall')) $('#aInstall').onclick = doInstall;
   $('#aForm').onsubmit = async ev => {
     ev.preventDefault();
     const f = ev.target, btn = $('#aSubmit'), redirect = location.origin + location.pathname;

@@ -1,0 +1,21 @@
+{
+  "name": "OpsBoss — Nexis Power",
+  "short_name": "OpsBoss",
+  "description": "CRM and field operations for Solar, Roofing and HVAC.",
+  "id": "/opsboss/",
+  "start_url": "/opsboss/",
+  "scope": "/opsboss/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Field Photos", "url": "/opsboss/#/field", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Tasks", "url": "/opsboss/#/tasks", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
