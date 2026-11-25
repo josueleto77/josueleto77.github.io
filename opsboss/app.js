@@ -1325,11 +1325,11 @@ ROUTES['settings:after'] = async () => {
   if (e1) { box.innerHTML = `<div class="auth-msg bad">${esc(e1.message)}</div>`; return; }
   const roles = Object.entries(ROLE_LABEL).filter(([k]) => k !== 'owner' || cloud.role === 'owner');
   box.innerHTML = `${mem.map(m => `<div class="list-item"><span class="avatar" style="background:#6366f1">${initials(m.name || m.email)}</span><div style="flex:1;min-width:0"><div class="b">${esc(m.name || '')}</div><div class="small muted">${esc(m.email)}</div></div>${canAdmin() && m.user_id !== cloud.user.id && (m.role !== 'owner' || cloud.role === 'owner') ? `<select class="inp" style="width:auto;padding:5px 8px" data-act-input="memberRole" data-id="${m.user_id}">${roles.map(([k, v]) => `<option value="${k}" ${m.role === k ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn ghost sm danger" data-act="removeMember" data-id="${m.user_id}" title="Remove access">✕</button>` : `<span class="pill">${ROLE_LABEL[m.role]}</span>`}</div>`).join('')}
-  ${canAdmin() ? `${(inv.data || []).map(i => `<div class="list-item"><span class="pill warn">Invited</span><div style="flex:1;min-width:0" class="small">${esc(i.email)} · ${ROLE_LABEL[i.role]}</div><button class="btn ghost sm danger" data-act="removeInvite" data-email="${esc(i.email)}">✕</button></div>`).join('')}
-  <form class="row mt" id="inviteForm"><input class="inp" type="email" name="email" required placeholder="email@nexispower.com" style="flex:1;min-width:180px"><select class="inp" name="role" style="width:auto">${roles.map(([k, v]) => `<option value="${k}" ${k === 'office' ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn primary">Invite</button></form>
-  <p class="small muted">The invited person signs in at <b>${esc(location.origin + location.pathname)}</b> with that email (the first time, using "Create account").</p>` : ''}`;
+  ${canAdmin() ? `${(inv.data || []).map(i => `<div class="list-item"><span class="pill warn">Invited</span><div style="flex:1;min-width:0" class="small">${esc(i.name ? i.name + ' · ' : '')}${esc(i.email)} · ${ROLE_LABEL[i.role]}${i.expires_at && new Date(i.expires_at) < new Date() ? ' · <span class="down">link expired</span>' : ''}</div><button class="btn sm" data-act="inviteLink" data-email="${esc(i.email)}" data-role="${esc(i.role)}" data-name="${esc(i.name || '')}">🔗 Invite link</button><button class="btn ghost sm danger" data-act="removeInvite" data-email="${esc(i.email)}">✕</button></div>`).join('')}
+  <form class="row mt" id="inviteForm"><input class="inp" name="name" placeholder="Name" style="flex:1;min-width:140px"><input class="inp" type="email" name="email" required placeholder="email@nexispower.com" style="flex:1;min-width:180px"><select class="inp" name="role" style="width:auto">${roles.map(([k, v]) => `<option value="${k}" ${k === 'office' ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn primary">Invite</button></form>
+  <p class="small muted">You’ll get a personal invite link to send by text or email. They open it, choose a password and they’re in — no email verification. Links expire in 14 days.</p>` : ''}`;
   const f = $('#inviteForm');
-  if (f) f.onsubmit = async ev => { ev.preventDefault(); const email = f.email.value.trim().toLowerCase(), role = f.role.value; const { error } = await cloud.sb.from('opsboss_invites').upsert({ email, role, invited_by: cloud.user.id }); if (error) toast(error.message); else { toast('Invitation created for ' + email); ROUTES['settings:after'](); } };
+  if (f) f.onsubmit = async ev => { ev.preventDefault(); await inviteLinkModal(f.email.value.trim().toLowerCase(), f.role.value, f.name.value.trim()); };
 };
 ROUTES.settings = () => {
   const s = db.settings;
@@ -1725,6 +1725,7 @@ const ACT = {
   ghlTest: async el => { el.disabled = true; try { const r = await ghlCall('status'); toast(`✓ Connected to ${r.name}`); } catch (e) { toast('HighLevel: ' + e.message); } el.disabled = false; },
   delReqPhoto: el => confirmDlg('Delete this photo?', async () => { const j = byId('jobs', el.dataset.job), shot = (j.reqPhotos || []).find(x => x.id === el.dataset.shot); if (!shot) return; if (shot.path && cloud.on) await cloud.sb.storage.from('opsboss-photos').remove([shot.path]); j.reqPhotos = j.reqPhotos.filter(x => x.id !== shot.id); save(); render(); }),
   photoPdf: async el => { const j = byId('jobs', el.dataset.id), t = el.textContent; el.disabled = true; el.textContent = 'Building PDF…'; try { await photoPdf(j); } catch (e) { toast('PDF error: ' + e.message); } el.disabled = false; el.textContent = t; },
+  inviteLink: el => inviteLinkModal(el.dataset.email, el.dataset.role, el.dataset.name),
   taskSend: el => { const t = byId('tasks', el.dataset.id); t.done = true; t.doneAt = iso(new Date()); log(`${t.channel === 'email' ? 'Email' : 'SMS'} sent to ${cust(t.customerId).name}`); save(); setTimeout(render, 300); location.href = el.getAttribute('href'); },
   removeMember: el => confirmDlg('Remove this person’s access to OpsBoss?', async () => { const { error } = await cloud.sb.from('opsboss_members').delete().eq('user_id', el.dataset.id); toast(error ? error.message : 'Access removed'); render(); }),
   removeInvite: async el => { const { error } = await cloud.sb.from('opsboss_invites').delete().eq('email', el.dataset.email); toast(error ? error.message : 'Invitation removed'); ROUTES['settings:after'](); },
@@ -1825,6 +1826,42 @@ async function doInstall() {
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 
+/* ───────────── Invitaciones con link ───────────── */
+async function inviteLinkModal(email, role, name) {
+  const { data: token, error } = await cloud.sb.rpc('opsboss_invite_create', { p_email: email, p_role: role, p_name: name || null });
+  if (error) { toast(error.message); return; }
+  const url = location.origin + location.pathname + '?invite=' + token, co = db.settings.company || 'OpsBoss', first = (name || '').split(' ')[0] || 'there';
+  const msg = `Hi ${first}, you're invited to ${co}'s OpsBoss. Open this link, choose a password and you're in: ${url}`;
+  ROUTES['settings:after'] && $('#acl') && ROUTES['settings:after']();
+  modal({ title: `Invite link for ${esc(name || email)}`, body: `<p class="muted">Send this personal link to <b>${esc(email)}</b> (${ROLE_LABEL[role]}). They open it, choose a password and they’re in. It works once and expires in 14 days.</p><input class="inp" readonly value="${esc(url)}" onclick="this.select()"><div class="row mt"><button class="btn primary" data-act="portalCopy" data-url="${esc(url)}">Copy link</button><a class="btn" href="sms:?body=${encodeURIComponent(msg)}">✉ Text</a><a class="btn" href="mailto:${esc(email)}?subject=${encodeURIComponent(`Your invite to ${co} OpsBoss`)}&body=${encodeURIComponent(msg)}">@ Email</a></div>`, foot: '<button class="btn" data-dismiss>Done</button>' });
+}
+async function joinScreen(token) {
+  const el = $('#auth'); el.hidden = false;
+  const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
+  el.innerHTML = `<div class="auth-card">${logo}<h1>Join OpsBoss</h1><p>Checking your invitation…</p></div>`;
+  const { data: inv, error } = await cloud.sb.rpc('opsboss_invite_info', { p_token: token });
+  const clearUrl = () => history.replaceState(null, '', location.pathname + location.hash);
+  if (error || !inv || inv.error) { clearUrl(); authScreen('login', 'This invite link is invalid, already used or expired. Ask your admin for a new one — or sign in if you already joined.'); return; }
+  el.innerHTML = `<div class="auth-card">${logo}<h1>Join ${esc(db && db.settings ? db.settings.company : 'OpsBoss')}</h1><p>You’re invited as <b>${ROLE_LABEL[inv.role] || inv.role}</b>.</p><form id="jForm">
+    <label class="f">Email<input value="${esc(inv.email)}" disabled></label>
+    <label class="f">Your name<input name="name" autocomplete="name" required value="${esc(inv.name || '')}"></label>
+    <label class="f">Choose a password<input name="password" type="password" minlength="8" autocomplete="new-password" required placeholder="At least 8 characters"></label>
+    <button class="btn primary full" id="jSubmit">Join and sign in</button><div id="jErr"></div></form></div>`;
+  $('#jForm').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = ev.target, btn = $('#jSubmit'), password = f.password.value;
+    btn.disabled = true; btn.textContent = 'One moment…';
+    let out = {};
+    try { const r = await fetch(`${CFG.url}/functions/v1/opsboss-accept-invite`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.key }, body: JSON.stringify({ token, name: f.name.value.trim(), password }) }); out = await r.json(); } catch (e) { out = { error: 'network' }; }
+    if (!out.ok) { btn.disabled = false; btn.textContent = 'Join and sign in'; $('#jErr').innerHTML = `<div class="auth-msg bad" style="margin-top:10px">${{ invalid: 'This invite link is invalid or expired.', password: 'Use a password with at least 8 characters.', network: 'Could not reach the server. Check your connection.' }[out.error] || esc(out.message || 'Something went wrong. Please try again.')}</div>`; return; }
+    clearUrl();
+    if (out.existing) { authScreen('login', `You’re on the team! You already had an account for ${esc(out.email)} — sign in with your existing password (or use “Forgot your password?”).`, 'ok'); const e = $('#aForm [name=email]'); if (e) e.value = out.email; return; }
+    const { error: se } = await cloud.sb.auth.signInWithPassword({ email: out.email, password });
+    if (se) { authScreen('login', 'Account created — please sign in.', 'ok'); return; }
+    const { data } = await cloud.sb.auth.getUser(); if (data.user) enter(data.user);
+  };
+}
+
 /* ───────────── Arranque y login ───────────── */
 function renderUserBox() {
   const b = $('#userBox'); if (!b) return;
@@ -1839,7 +1876,7 @@ function authScreen(mode = 'login', msg = '', kind = 'bad') {
   const note = msg ? `<div class="auth-msg ${kind}">${msg}</div>` : '';
   if (mode === 'loading') { el.innerHTML = `<div class="auth-card">${logo}<h1>OpsBoss</h1><p>Loading your data…</p></div>`; return; }
   if (mode === 'noaccess' || mode === 'setup') {
-    el.innerHTML = `<div class="auth-card">${logo}<h1>${mode === 'setup' ? 'Database setup needed' : 'No access yet'}</h1>${note}<p>${mode === 'setup' ? 'Run <code>opsboss/supabase/schema.sql</code> in the Supabase SQL Editor and reload this page.' : `Your account <b>${esc(cloud.user && cloud.user.email)}</b> hasn’t been invited to OpsBoss yet. Ask an admin to invite you from Settings → Team & access, then sign in again.`}</p><div class="row"><button class="btn" id="aRetry">Retry</button><button class="btn" id="aOut">Sign out</button><button class="btn ghost" id="aDemo">View demo</button></div></div>`;
+    el.innerHTML = `<div class="auth-card">${logo}<h1>${mode === 'setup' ? 'Database setup needed' : 'No access yet'}</h1>${note}<p>${mode === 'setup' ? 'Run <code>opsboss/supabase/schema.sql</code> in the Supabase SQL Editor and reload this page.' : `Your account <b>${esc(cloud.user && cloud.user.email)}</b> hasn’t been invited to OpsBoss yet. Ask your admin to send you an invite link (Settings → Team & access → 🔗 Invite link) and open it.`}</p><div class="row"><button class="btn" id="aRetry">Retry</button><button class="btn" id="aOut">Sign out</button><button class="btn ghost" id="aDemo">View demo</button></div></div>`;
     $('#aRetry').onclick = () => location.reload();
     $('#aOut').onclick = async () => { await cloud.sb.auth.signOut(); location.reload(); };
     $('#aDemo').onclick = enterDemo;
@@ -1852,7 +1889,7 @@ function authScreen(mode = 'login', msg = '', kind = 'bad') {
     ${needEmail ? '<label class="f">Email<input name="email" type="email" autocomplete="email" required></label>' : ''}
     ${needPass ? `<label class="f">Password<input name="password" type="password" minlength="8" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}" required></label>` : ''}
     <button class="btn primary full" id="aSubmit">${titles[2]}</button></form>
-    <div class="links">${mode !== 'login' ? '<button data-m="login">← Sign in</button>' : '<button data-m="signup">Create account</button>'}${mode === 'login' ? '<button data-m="magic">Magic link</button><button data-m="reset">Forgot your password?</button>' : ''}</div>
+    <div class="links">${mode !== 'login' ? '<button data-m="login">← Sign in</button>' : ''}${mode === 'login' ? '<button data-m="magic">Magic link</button><button data-m="reset">Forgot your password?</button>' : ''}</div>
     <div class="links" style="border-top:1px solid var(--border);padding-top:12px"><button id="aDemo">Try it with demo data →</button>${isStandalone() ? '' : '<button id="aInstall">📲 Install app</button>'}</div></div>`;
   $$('[data-m]', el).forEach(b => b.onclick = () => authScreen(b.dataset.m));
   $('#aDemo').onclick = enterDemo;
@@ -1914,6 +1951,8 @@ async function boot() {
   if (!CFG.url || !window.supabase || !window.supabase.createClient) { cloud.on = false; db = load(); setSync('local', 'Local mode: data is stored only in this browser.'); start(); return; }
   cloud.sb = window.supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'opsboss-auth' } });
   if (demo) { enterDemo(); return; }
+  const inviteToken = new URLSearchParams(location.search).get('invite');
+  if (inviteToken && /^[a-f0-9]{64}$/.test(inviteToken)) { await cloud.sb.auth.signOut().catch(() => {}); joinScreen(inviteToken); return; }
   cloud.sb.auth.onAuthStateChange((ev, session) => {
     if (ev === 'PASSWORD_RECOVERY') { setTimeout(() => authScreen('newpass'), 0); return; }
     if (ev === 'SIGNED_IN' && session && !cloud.on) setTimeout(() => enter(session.user), 0);
