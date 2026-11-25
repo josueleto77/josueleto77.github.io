@@ -13,6 +13,7 @@ const money = n => (n < 0 ? '-$' : '$') + Math.abs(Number(n || 0)).toLocaleStrin
 const money2 = n => (n < 0 ? '-$' : '$') + Math.abs(Number(n || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const kmoney = n => Math.abs(n) >= 1e6 ? '$' + (n / 1e6).toFixed(1) + 'M' : Math.abs(n) >= 1e4 ? '$' + (n / 1e3).toFixed(1) + 'k' : money(n);
 const pct = n => (isFinite(n) ? Math.round(n * 100) : 0) + '%';
+const pct2 = n => (isFinite(n) ? (Math.round(n * 10000) / 100).toFixed(2) : '0.00') + '%';
 const DAY = 864e5;
 const sod = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
@@ -39,7 +40,7 @@ const JOB_ST = { unscheduled: ['Unscheduled', 'warn'], scheduled: ['Scheduled', 
 const JOB_FLOW = ['unscheduled', 'scheduled', 'enroute', 'inprogress', 'completed'];
 const EST_ST = { draft: ['Draft', ''], sent: ['Sent', 'info'], approved: ['Approved', 'ok'], declined: ['Declined', 'bad'] };
 const INV_ST = { draft: ['Draft', ''], sent: ['Sent', 'info'], partial: ['Partially paid', 'warn'], paid: ['Paid', 'ok'], overdue: ['Overdue', 'bad'], void: ['Void', ''] };
-const STAGES = [['new', 'New'], ['contacted', 'Contacted'], ['visit', 'Appointment Set'], ['proposal', 'Proposal Sent'], ['won', 'Won'], ['lost', 'Lost']];
+const STAGES = [['new', 'New lead'], ['contacted', 'Contacting'], ['qualified', 'Qualified'], ['visit', 'Visit scheduled'], ['proposal', 'Proposal sent'], ['negotiation', 'Negotiation'], ['won', 'Contract signed'], ['nurture', 'Long-term follow-up'], ['lost', 'Lost']];
 // Pipeline de marketing (leads que entran desde HighLevel). Las claves de etapa son únicas entre pipelines.
 const MKT_STAGES = [['warm', 'Warm Leads'], ['mcontacted', 'Contacted'], ['mappt', 'Appointment Set'], ['qualified', 'Qualified'], ['notint', 'Not Interested']];
 const PIPELINES = { sales: { name: 'Sales Pipeline', stages: STAGES, entry: 'new' }, marketing: { name: 'Marketing Leads', stages: MKT_STAGES, entry: 'warm' } };
@@ -204,7 +205,7 @@ function seed() {
 }
 
 function normalize(d) {
-  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks'].forEach(k => d[k] = d[k] || []);
+  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks', 'pos', 'bills'].forEach(k => d[k] = d[k] || []);
   if (!d.workflows) d.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t));
   if (d.settings && migrateEn(d)) d._migrated = true;
   return d;
@@ -261,9 +262,9 @@ function migrateEn(d) {
 
 /* ───────────── Nube (Supabase) ───────────── */
 const CFG = window.OPSBOSS_CONFIG || {};
-const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks'];
+const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks', 'pos', 'bills'];
 const TABLE = 'opsboss_records';
-const ROLE_LABEL = { owner: 'Owner', admin: 'Admin', office: 'Office', tech: 'Technician' };
+const ROLE_LABEL = { owner: 'Owner', admin: 'Admin (direction)', sales: 'Sales', ops: 'Operations', purchasing: 'Purchasing', finance: 'Finance', office: 'Office', tech: 'Field technician', sub: 'Subcontractor' };
 const cloud = { on: false, sb: null, user: null, role: null, shadow: new Map(), timer: null, busy: false, again: false, pendingRender: false };
 const canon = v => JSON.stringify(v, (k, val) => val && typeof val === 'object' && !Array.isArray(val) ? Object.keys(val).sort().reduce((o, key) => (o[key] = val[key], o), {}) : val);
 const SEP = '\u0001';
@@ -431,14 +432,14 @@ const confirmDlg = (msg, yes) => { return modal({ title: 'Confirm', body: `<p>${
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
-  ['sec', 'Operations'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📷', 'Field Photos'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
-  ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Jobs'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'],
+  ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📷', 'Field Photos'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
+  ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Projects'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'],
   ['sec', 'Projects'], ['permits', '⚑', 'Permits & Inspections'], ['tools', '∑', 'Calculators'],
-  ['sec', 'Business'], ['workflows', '⚡', 'Workflows'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
+  ['sec', 'Business'], ['finance', '◔', 'Finance'], ['purchasing', '⛟', 'Purchasing & Bills'], ['workflows', '⚡', 'Workflows'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
 ];
 function renderNav() {
-  const route = (location.hash.slice(2) || 'dashboard').split('/')[0];
-  const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices', photos: 'field' };
+  const route = (location.hash.slice(2) || 'mywork').split('/')[0];
+  const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices', photos: 'field', duplicates: 'customers' };
   const active = parentOf[route] || route;
   const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length };
   $('#nav').innerHTML = NAV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
@@ -446,7 +447,7 @@ function renderNav() {
 }
 const ROUTES = {};
 function render() {
-  const [route, id] = (location.hash.slice(2) || 'dashboard').split('/');
+  const [route, id] = (location.hash.slice(2) || 'mywork').split('/');
   renderNav();
   const fn = ROUTES[route] || ROUTES.dashboard;
   $('#view').innerHTML = fn(id) || '';
@@ -600,7 +601,7 @@ ROUTES['pipeline:after'] = () => {
   $$('[data-stage]').forEach(col => {
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
     col.addEventListener('dragleave', () => col.classList.remove('over'));
-    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage) return; l.stage = col.dataset.stage; l.stageAt = iso(new Date()); log(`Lead "${l.title}" → ${stageName(l.stage)}`); emit('lead.stage', 'lead', l, { to: l.stage }); save(); render(); });
+    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage) return; if (col.dataset.stage === 'lost') { const r = prompt('Why was this lead lost? (required)'); if (!r || !r.trim()) return; l.lostReason = r.trim(); } l.stage = col.dataset.stage; l.stageAt = iso(new Date()); log(`Lead "${l.title}" → ${stageName(l.stage)}`); emit('lead.stage', 'lead', l, { to: l.stage }); save(); render(); });
   });
 };
 function leadModal(l, pipe) {
@@ -623,7 +624,7 @@ function leadModal(l, pipe) {
     onSave(v) {
       if (v.customerId === '__new') { if (!v.newName) { toast('Enter the new customer\'s name'); return false; } const c = newCustomer({ name: v.newName, phone: v.newPhone, source: v.source }); v.customerId = c.id; }
       delete v.newName; delete v.newPhone;
-      const prevStage = l.stage; Object.assign(l, v);
+      const prevStage = l.stage; if (v.stage === 'lost' && prevStage !== 'lost') { const r = prompt('Why was this lead lost? (required)'); if (!r || !r.trim()) { toast('A lost reason is required'); return false; } l.lostReason = r.trim(); } Object.assign(l, v);
       if (isNew) { l.stageAt = l.createdAt; db.leads.unshift(l); log(`New lead: ${cust(l.customerId).name} (${DIV[l.division].name})`); toast('Lead created'); emit('lead.created', 'lead', l); }
       else if (prevStage !== l.stage) { l.stageAt = iso(new Date()); emit('lead.stage', 'lead', l, { to: l.stage }); }
     },
@@ -658,7 +659,8 @@ ROUTES.customers = () => {
   const q = (state.filters.cq || '').toLowerCase();
   const rows = db.customers.filter(c => !q || [c.name, c.phone, c.email, c.address, c.city].join(' ').toLowerCase().includes(q)).filter(c => state.div === 'all' || [...db.jobs, ...db.leads, ...db.estimates, ...db.invoices].some(x => x.customerId === c.id && x.division === state.div));
   const divsOf = id => [...new Set([...db.jobs, ...db.leads, ...db.estimates, ...db.invoices].filter(x => x.customerId === id).map(x => x.division))];
-  return head('Customers', `${db.customers.length} customers total`, `<button class="btn" data-act="exportCsv" data-what="customers">⇩ CSV</button><button class="btn primary" data-act="newCustomer">＋ Customer</button>`) + `
+  const dupN = duplicateGroups().length;
+  return head('Customers', `${db.customers.length} customers total`, `${dupN ? `<a class="btn" href="#/duplicates">⚠ ${dupN} possible duplicate${dupN > 1 ? 's' : ''}</a>` : ''}<button class="btn" data-act="exportCsv" data-what="customers">⇩ CSV</button><button class="btn primary" data-act="newCustomer">＋ Customer</button>`) + `
   <div class="card"><div class="toolbar"><input id="cq" placeholder="Search by name, phone, address…" value="${esc(state.filters.cq || '')}" style="flex:1;min-width:200px"></div>
   <div class="table-wrap"><table><thead><tr><th>Customer</th><th>Contact</th><th>Address</th><th>Divisions</th><th class="right">Lifetime value</th><th class="right">Balance</th></tr></thead><tbody>
   ${rows.map(c => { const bal = custBal(c.id); return `<tr class="click" data-go="#/customer/${c.id}"><td><div class="row"><span class="avatar" style="background:#6366f1">${initials(c.name)}</span><div><div class="b">${esc(c.name)}</div><div class="small muted">${esc(srcEN(c.source))}</div></div></div></td><td><div>${esc(c.phone)}</div><div class="small muted">${esc(c.email)}</div></td><td>${esc(c.address)}<div class="small muted">${esc(c.city)} ${esc(c.zip)}</div></td><td><div class="row">${divsOf(c.id).map(divPill).join('')}</div></td><td class="right">${money(custLTV(c.id))}</td><td class="right ${bal ? 'b down' : 'muted'}">${bal ? money(bal) : '—'}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">No results</td></tr>'}
@@ -681,6 +683,7 @@ ROUTES.customer = id => {
       <div class="card"><div class="card-h"><h3>Leads & memberships</h3><button class="btn sm" data-act="newPlan" data-cust="${c.id}">＋ Membership</button></div><div class="card-b">${leads.map(l => `<div class="list-item"><div style="flex:1">${esc(l.title)}</div>${divPill(l.division)}<span class="pill">${stageName(l.stage)}</span></div>`).join('')}${plans.map(pl => `<div class="list-item"><div style="flex:1"><b>${esc(pl.name)}</b><div class="small muted">Next visit ${fDate(parseLocal(pl.nextVisit))}</div></div><span class="pill ok">${money(pl.price)}/${pl.interval === 'month' ? 'mo' : 'yr'}</span></div>`).join('') || (leads.length ? '' : '<div class="muted">Nothing yet</div>')}</div></div>
     </div>`;
   if (tab === 'property') body = `
+    <div class="card mb"><div class="card-h"><h3>Properties (${(c.properties || []).length + 1})</h3><button class="btn sm" data-act="addProperty" data-id="${c.id}">＋ Property</button></div><div class="card-b"><div class="list-item"><div style="flex:1"><b>Main</b> · ${esc([c.address, c.city, c.zip].filter(Boolean).join(', '))}</div></div>${(c.properties || []).map(pp => `<div class="list-item"><div style="flex:1"><b>${esc(pp.label || 'Property')}</b> · ${esc([pp.address, pp.city, pp.zip].filter(Boolean).join(', '))}${pp.access ? `<div class="small muted">Access: ${esc(pp.access)}</div>` : ''}</div><span class="small muted">${db.jobs.filter(j => j.propertyId === pp.id).length} projects</span></div>`).join('')}</div></div>
     <div class="grid g2">
       <div class="card"><div class="card-h"><h3>Property</h3><button class="btn sm" data-act="editProperty" data-id="${c.id}">Edit</button></div><div class="card-b"><div class="calc-out">
         <div><div class="l">Roof type</div><div class="b">${esc(p.roofType || '—')}</div></div><div><div class="l">Roof age</div><div class="b">${p.roofAge ? p.roofAge + ' years' : '—'}</div></div>
@@ -757,6 +760,8 @@ function previewEstimate(e) {
 function jobFromEstimate(e) {
   const k = e.selected ?? 0, items = e.options[k].items.map(x => ({ ...x, id: uid() }));
   const j = { id: uid(), number: nextNum('job'), customerId: e.customerId, division: e.division, title: e.title, techIds: [], start: null, duration: e.division === 'hvac' ? 6 : 8, status: 'unscheduled', items, checklist: CHECKLISTS[e.division].map(t => ({ id: uid(), t, done: false })), photos: [], notes: e.notes, estimateId: e.id, createdAt: iso(new Date()) };
+  projInit(j); j.fin.budget = { price: subtotal(items), cost: costOf(items), byCat: { Materials: costOf(items) }, lockedAt: iso(new Date()), by: me(), fromEstimate: e.number };
+  j.financing.mode = e.financing || 'cash'; hist(j, `Project created from ${e.number} (${e.options[k].name}) — original budget ${money2(subtotal(items))} price / ${money2(costOf(items))} cost`);
   db.jobs.unshift(j); e.jobId = j.id;
   const lead = db.leads.find(l => l.estimateId === e.id || (l.customerId === e.customerId && l.division === e.division && !CLOSED.includes(l.stage)));
   if (lead && lead.stage !== 'won') { lead.stage = 'won'; lead.stageAt = iso(new Date()); emit('lead.stage', 'lead', lead, { to: 'won' }); }
@@ -1080,6 +1085,288 @@ async function photoPdf(j) {
   log(`⇩ Photo report PDF downloaded — ${j.number}`);
 }
 
+/* ───────────── PROJECT FILE: service workflows, statuses, financials ───────────── */
+const COST_CATS = ['Materials', 'Equipment', 'Own labor', 'Subcontract', 'Design & engineering', 'Permits', 'Electrical', 'Rentals', 'Disposal', 'Commissions', 'Financing fees', 'Warranty', 'Other'];
+const FIN_MODES = [['cash', 'Cash'], ['loan', 'Loan'], ['lease', 'Lease'], ['ppa', 'PPA']];
+const SERVICE_FLOW = {
+  solar: [['visit', 'Site visit', ['Site survey and roof photos', 'Utility bill / usage collected']], ['design', 'Design', ['System design and layout', 'Design approved by customer']], ['permits', 'Permits & interconnection', ['Building / electrical permit approved', 'Interconnection application approved']], ['procurement', 'Procurement', ['Equipment ordered', 'Equipment delivered']], ['install', 'Installation', ['Racking and modules installed', 'Inverters / batteries and conduit']], ['inspection', 'Inspection', ['City inspection passed']], ['pto', 'PTO', ['Utility PTO received']], ['handoff', 'Handoff', ['Monitoring activated', 'Customer handoff and warranty documents']]],
+  hvac: [['assessment', 'Assessment', ['Existing system documented', 'Load calculation (Manual J/S when applicable)']], ['design', 'Design', ['Equipment selected (AHRI match)']], ['program', 'Program validation', ['Rebate / HEAT Loan eligibility confirmed']], ['permits', 'Permits & procurement', ['Permit pulled', 'Equipment ordered']], ['install', 'Installation', ['Indoor and outdoor units installed', 'Electrical scope complete']], ['commissioning', 'Commissioning', ['Startup tests recorded']], ['docs', 'Documentation & handoff', ['Rebate / program paperwork submitted', 'Customer handoff']]],
+  roofing: [['inspection', 'Inspection', ['Roof inspection photos']], ['measure', 'Measurement & scope', ['Measurement report', 'Scope and extras agreed']], ['schedule', 'Scheduling & materials', ['Materials ordered', 'Dumpster scheduled']], ['tearoff', 'Tear-off', ['Tear-off complete']], ['decking', 'Decking review', ['Decking inspected / replaced']], ['install', 'Installation', ['Underlayment and flashing', 'Shingles / metal installed']], ['cleanup', 'Cleanup & inspection', ['Magnet sweep and cleanup', 'Final inspection']], ['handoff', 'Handoff', ['Warranty registered']]],
+};
+const SPEC_FIELDS = {
+  solar: [['utility', 'Utility'], ['usageKwh', 'Annual usage (kWh)', 'number'], ['dcKw', 'System size DC (kW)', 'number'], ['acKw', 'System size AC (kW)', 'number'], ['productionKwh', 'Est. production (kWh/yr)', 'number'], ['designRev', 'Design / revision'], ['modules', 'Modules (model × qty)'], ['inverters', 'Inverters'], ['batteries', 'Batteries'], ['icApp', 'Interconnection application #'], ['permitApp', 'Permit application #']],
+  hvac: [['existingHeat', 'Existing heating system'], ['zones', 'Zones', 'number'], ['manualJ', 'Manual J/S'], ['indoorModel', 'Indoor model'], ['outdoorModel', 'Outdoor model'], ['ahri', 'AHRI #'], ['capacity', 'Capacity (BTU / tons)'], ['electricalScope', 'Electrical scope'], ['commissioning', 'Commissioning tests'], ['heatLoan', 'HEAT Loan #'], ['rebate', 'Rebate program / amount'], ['rebatePayee', 'Rebate beneficiary']],
+  roofing: [['measureReport', 'Measurement report'], ['squares', 'Squares', 'number'], ['waste', 'Waste (%)', 'number'], ['manufacturer', 'Manufacturer'], ['roofSystem', 'Roof system'], ['ventilation', 'Ventilation'], ['flashing', 'Flashing'], ['disposal', 'Disposal'], ['decking', 'Decking (sheets replaced)'], ['extrasPrice', 'Extras unit price ($)', 'number']],
+};
+const MONEY_ROLES = ['owner', 'admin', 'finance', 'ops', 'purchasing'];
+const canMoney = () => !cloud.on || MONEY_ROLES.includes(cloud.role);
+const canRates = () => !cloud.on || ['owner', 'admin', 'finance'].includes(cloud.role);
+const canApprove = () => !cloud.on || ['owner', 'admin', 'finance'].includes(cloud.role);
+const me = () => (cloud.user && cloud.user.email) || 'local';
+const sumBy = (arr, f) => (arr || []).reduce((s, x) => s + num(f(x)), 0);
+const flowOf = j => SERVICE_FLOW[j.division] || [];
+
+function projInit(j) {
+  if (!j.ops) { const f = flowOf(j); j.ops = { stage: f.length ? f[0][0] : '', tasks: {}, exceptions: [] }; }
+  j.ops.tasks = j.ops.tasks || {}; j.ops.exceptions = j.ops.exceptions || [];
+  for (const [k, , ts] of flowOf(j)) if (!j.ops.tasks[k]) j.ops.tasks[k] = ts.map(t => ({ id: uid(), t, done: false, owner: '' }));
+  j.fin = j.fin || {}; j.fin.changeOrders = j.fin.changeOrders || []; j.fin.costs = j.fin.costs || []; j.fin.labor = j.fin.labor || []; if (j.fin.remaining == null) j.fin.remaining = 0;
+  j.blockers = j.blockers || []; j.dependsOn = j.dependsOn || []; j.specs = j.specs || {}; j.financing = j.financing || { mode: 'cash', payer: '', release: '' }; j.history = j.history || [];
+  return j;
+}
+function hist(j, text) { (j.history = j.history || []).unshift({ ts: iso(new Date()), by: me(), text }); j.history = j.history.slice(0, 300); }
+const stageIdx = j => flowOf(j).findIndex(s => s[0] === (j.ops && j.ops.stage));
+const stageLabel = (j, k = j.ops && j.ops.stage) => (flowOf(j).find(s => s[0] === k) || [k, j.ops && j.ops.closed ? 'Closed' : '—'])[1];
+function blockersOf(j) {
+  projInit(j);
+  const open = j.blockers.filter(b => !b.resolvedAt).map(b => ({ ...b, kind: 'blocker' }));
+  const deps = j.dependsOn.map(d => { const o = db.jobs.find(x => x.id === d.projectId); if (!o) return null; projInit(o); const met = o.status === 'completed' || o.ops.closed || (d.stage ? flowOf(o).findIndex(s => s[0] === o.ops.stage) > flowOf(o).findIndex(s => s[0] === d.stage) : false); return met ? null : { kind: 'dep', reason: `Waiting on ${o.number} (${DIV[o.division] ? DIV[o.division].name : ''})${d.stage ? ' to finish ' + stageLabel(o, d.stage) : ''}`, owner: (o.owner || ''), id: d.projectId }; }).filter(Boolean);
+  return [...open, ...deps];
+}
+// Finanzas del proyecto (montos antes de impuestos; los impuestos se muestran aparte)
+const projInvoices = j => db.invoices.filter(i => i.status !== 'void' && (i.jobId === j.id || (j.estimateId && i.estimateId === j.estimateId && !i.jobId)));
+const billLines = j => (db.bills || []).flatMap(b => (b.lines || []).filter(l => l.projectId === j.id).map(l => ({ ...l, bill: b })));
+const poBilled = po => sumBy((db.bills || []).flatMap(b => b.lines || []).filter(l => l.poId === po.id), l => l.amount);
+function finOf(j) {
+  projInit(j);
+  const f = j.fin, base = f.budget ? f.budget.price : subtotal(j.items), baseCost = f.budget ? f.budget.cost : costOf(j.items);
+  const coApproved = f.changeOrders.filter(c => c.status === 'approved');
+  const coPrice = sumBy(coApproved, c => c.price), coCost = sumBy(coApproved, c => c.cost);
+  const revenue = base + coPrice;
+  const lines = billLines(j), labor = sumBy(f.labor, l => num(l.hours) * num(l.rate));
+  const actual = sumBy(lines, l => l.amount) + sumBy(f.costs, c => c.amount) + labor;
+  const paidOut = sumBy(lines.filter(l => l.bill.paidAt), l => l.amount) + sumBy(f.costs.filter(c => c.paid), c => c.amount) + labor;
+  const pos = (db.pos || []).filter(p => p.projectId === j.id && p.status === 'approved');
+  const committed = sumBy(pos, p => Math.max(0, num(p.amount) - poBilled(p)));
+  const projected = actual + committed + num(f.remaining);
+  const gross = revenue - projected, pct = revenue ? gross / revenue : 0;
+  const invs = projInvoices(j), sent = invs.filter(i => i.status !== 'draft');
+  const billed = sumBy(sent, i => subtotal(i.items)), tax = sumBy(sent, i => taxOf(i.items)), collected = sumBy(invs, i => invPaid(i)), ar = sumBy(sent, i => invBal(i));
+  const byCat = {}; for (const c of COST_CATS) byCat[c] = 0;
+  lines.forEach(l => byCat[l.category || 'Other'] = num(byCat[l.category || 'Other']) + num(l.amount));
+  f.costs.forEach(c => byCat[c.category || 'Other'] = num(byCat[c.category || 'Other']) + num(c.amount));
+  byCat['Own labor'] += labor;
+  pos.forEach(p => { byCat['__c_' + (p.category || 'Other')] = num(byCat['__c_' + (p.category || 'Other')]) + Math.max(0, num(p.amount) - poBilled(p)); });
+  return { base, baseCost, coPrice, coCost, revenue, revisedCost: baseCost + coCost, actual, paidOut, committed, remaining: num(f.remaining), projected, gross, pct, billed, tax, collected, ar, unbilled: Math.max(0, revenue - billed), byCat, invs };
+}
+function finStatus(j) {
+  const F = finOf(j), invs = F.invs;
+  if (invs.some(i => i.disputed && invBal(i) > 0.009)) return ['Disputed', 'bad'];
+  if (invs.some(i => invStatus(i) === 'overdue')) return ['Overdue balance', 'bad'];
+  if (!F.billed) return invs.some(i => i.kind === 'deposit') ? ['Deposit pending', 'warn'] : ['Not invoiced', ''];
+  if (F.ar > 0.009) return F.billed + 0.009 < F.revenue ? ['Partially invoiced · balance due', 'warn'] : ['Invoiced · balance due', 'warn'];
+  if (F.billed + 0.009 < F.revenue) return ['Partially invoiced', 'info'];
+  return (j.status === 'completed' || j.ops.closed) ? ['Financially closed', 'ok'] : ['Fully invoiced & paid', 'ok'];
+}
+function salesStatusOf(j) {
+  const e = j.estimateId && db.estimates.find(x => x.id === j.estimateId);
+  if (e && e.status === 'approved') return ['Contract signed', 'ok'];
+  const l = db.leads.find(x => x.customerId === j.customerId && x.division === j.division);
+  return l ? [stageName(l.stage), l.stage === 'won' ? 'ok' : 'info'] : ['Direct job', ''];
+}
+const projAddress = j => { const c = cust(j.customerId), p = (c.properties || []).find(x => x.id === j.propertyId); return p ? [p.address, p.city, p.zip].filter(Boolean).join(', ') : [c.address, c.city, c.zip].filter(Boolean).join(', '); };
+const ownerName = j => j.owner || (j.techIds && j.techIds[0] && tech(j.techIds[0]) ? tech(j.techIds[0]).name : '');
+
+function projSummary(j) {
+  projInit(j);
+  const F = finOf(j), bl = blockersOf(j), fs = finStatus(j), ss = salesStatusOf(j);
+  const cell = (l, v) => `<div><div class="l">${l}</div><div class="b" style="font-size:14px">${v}</div></div>`;
+  return `<div class="card mb"><div class="card-b">
+    <div class="row mb" style="gap:6px"><span class="pill ${ss[1]}">Sales: ${esc(ss[0])}</span><span class="pill brand">Ops: ${esc(stageLabel(j))}</span><span class="pill ${fs[1]}">Finance: ${esc(fs[0])}</span>${bl.length ? `<span class="pill bad">⛔ Blocked (${bl.length})</span>` : ''}</div>
+    <div class="calc-out" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+      ${cell('Address', esc(projAddress(j)) || '—')}${cell('Service', DIV[j.division] ? DIV[j.division].name : '—')}${cell('Owner', esc(ownerName(j)) || '<span class="muted">Unassigned</span>')}
+      ${cell('Next action', j.nextAction ? esc(j.nextAction) : '<span class="muted">—</span>')}${cell('Due', j.nextDue ? `<span class="${parseLocal(j.nextDue) < sod(new Date()) ? 'down' : ''}">${fDate(parseLocal(j.nextDue))}</span>` : '—')}${cell('Expected install', j.expectedInstall ? fDate(parseLocal(j.expectedInstall)) : (j.start ? fDate(j.start) : '—'))}
+      ${canMoney() ? cell('Balance due', `<span class="${F.ar ? 'down' : ''}">${money2(F.ar)}</span>`) + cell('Projected margin', `<span class="${F.gross < 0 ? 'down' : 'up'}">${money(F.gross)} · ${pct2(F.pct)}</span>`) : ''}
+    </div>
+    ${bl.length ? `<div class="mt">${bl.map(b => `<div class="list-item"><span class="pill bad">⛔</span><div style="flex:1"><div class="b small">${esc(b.reason)}</div><div class="small muted">${b.owner ? 'Owner: ' + esc(b.owner) + ' · ' : ''}${b.followUp ? 'Follow up ' + fDate(parseLocal(b.followUp)) : ''}</div></div>${b.kind === 'blocker' ? `<button class="btn sm" data-act="resolveBlocker" data-id="${j.id}" data-b="${b.id}">Resolve</button>` : `<a class="btn sm" href="#/job/${b.id}">Open</a>`}</div>`).join('')}</div>` : ''}
+    <div class="row mt"><button class="btn sm" data-act="projNext" data-id="${j.id}">✎ Next action</button><button class="btn sm" data-act="addBlocker" data-id="${j.id}">⛔ Add blocker</button><button class="btn sm" data-act="addDep" data-id="${j.id}">⇢ Depends on…</button></div>
+  </div></div>`;
+}
+const PROJ_TABS = [['overview', 'Overview'], ['workflow', 'Workflow'], ['specs', 'Specs & financing'], ['financials', 'Financials'], ['billing', 'Billing'], ['history', 'History']];
+function projTabs(j, tab) { return `<div class="tabs">${PROJ_TABS.filter(([k]) => canMoney() || !['financials', 'billing'].includes(k)).map(([k, v]) => `<button data-act="tab" data-t="proj" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>`; }
+
+function projWorkflow(j) {
+  const f = flowOf(j), cur = stageIdx(j);
+  if (!f.length) return '<div class="card"><div class="empty">No workflow template for this service.</div></div>';
+  return `<div class="card mb"><div class="card-b"><div class="steps">${f.map(([k, l], i) => `<div class="${i <= cur || j.ops.closed ? 'on' : ''}">${l}</div>`).join('')}</div></div></div>
+  <div class="grid g2">${f.map(([k, l], i) => { const ts = j.ops.tasks[k] || [], done = ts.filter(t => t.done).length; return `<div class="card" style="${i === cur ? 'outline:2px solid var(--brand)' : i < cur ? 'opacity:.75' : ''}"><div class="card-h"><h3>${i + 1}. ${l}</h3><span class="small ${done === ts.length ? 'up' : 'muted'}">${done}/${ts.length}</span></div><div class="card-b">
+    ${ts.map(t => `<label class="check"><input type="checkbox" data-act-input="opsTask" data-id="${j.id}" data-s="${k}" data-t="${t.id}" ${t.done ? 'checked' : ''}><span style="flex:1;${t.done ? 'text-decoration:line-through;color:var(--muted)' : ''}">${esc(t.t)}</span><span class="small muted">${esc(t.owner || '')}</span></label>`).join('')}
+    <div class="row mt"><button class="btn sm ghost" data-act="opsAddTask" data-id="${j.id}" data-s="${k}">＋ Task</button>${i === cur ? `<button class="btn sm primary" data-act="stageAdvance" data-id="${j.id}">${i === f.length - 1 ? '✓ Close project' : 'Advance to ' + esc(f[i + 1][1]) + ' →'}</button>` : ''}</div>
+  </div></div>`; }).join('')}</div>
+  ${j.ops.exceptions.length ? `<div class="card mt"><div class="card-h"><h3>Authorized exceptions</h3></div><div class="card-b">${j.ops.exceptions.map(x => `<div class="list-item small"><div style="flex:1"><b>${esc(x.stage)}</b> — ${esc(x.reason)}</div><span class="muted">${esc(x.by)} · ${fDate(x.ts)}</span></div>`).join('')}</div></div>` : ''}`;
+}
+function projSpecs(j) {
+  const fields = SPEC_FIELDS[j.division] || [], s = j.specs, fz = j.financing;
+  return `<div class="grid g2"><div class="card"><div class="card-h"><h3>${DIV[j.division] ? DIV[j.division].name : ''} specs</h3></div><div class="card-b form">${fields.map(([k, l, t]) => `<label class="f">${l}<input class="inp" ${t === 'number' ? 'type="number" step="any"' : ''} data-act-input="projSpec" data-id="${j.id}" data-k="${k}" value="${esc(s[k] ?? '')}"></label>`).join('') || '<div class="muted">No fields for this service.</div>'}</div></div>
+  <div class="card"><div class="card-h"><h3>Financing & payer</h3></div><div class="card-b form" style="grid-template-columns:1fr">
+    <label class="f">Mode<select class="inp" data-act-input="projFinancing" data-id="${j.id}" data-k="mode">${FIN_MODES.map(([k, v]) => `<option value="${k}" ${fz.mode === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label class="f">Who pays Nexis (financier / customer / program)<input class="inp" data-act-input="projFinancing" data-id="${j.id}" data-k="payer" value="${esc(fz.payer || '')}"></label>
+    <label class="f">Documents that release each disbursement<textarea class="inp" data-act-input="projFinancing" data-id="${j.id}" data-k="release" placeholder="e.g. M1 40% at signed contract + permit · M2 50% at install photos · M3 10% at PTO">${esc(fz.release || '')}</textarea></label>
+    <label class="f">Property<select class="inp" data-act-input="projProp" data-id="${j.id}"><option value="">Customer address</option>${(cust(j.customerId).properties || []).map(p => `<option value="${p.id}" ${j.propertyId === p.id ? 'selected' : ''}>${esc(p.label || p.address)}</option>`).join('')}</select></label>
+    <label class="f">Expected install<input class="inp" type="date" data-act-input="projField" data-id="${j.id}" data-k="expectedInstall" value="${esc(j.expectedInstall || '')}"></label>
+    <label class="f">Project owner<input class="inp" list="ownerList" data-act-input="projField" data-id="${j.id}" data-k="owner" value="${esc(j.owner || '')}"><datalist id="ownerList">${db.techs.map(t => `<option value="${esc(t.name)}">`).join('')}</datalist></label>
+  </div></div></div>`;
+}
+function projFinancials(j) {
+  const F = finOf(j), f = j.fin, row = (l, v, cls = '', hint = '') => `<tr><td>${l}${hint ? `<div class="small muted">${hint}</div>` : ''}</td><td class="right b ${cls}">${v}</td></tr>`;
+  const pos = (db.pos || []).filter(p => p.projectId === j.id), lines = billLines(j);
+  return `<div class="grid g-2-1"><div>
+    <div class="card"><div class="card-h"><h3>Profitability</h3>${f.budget ? `<span class="small muted">Original budget locked ${fDate(f.budget.lockedAt)}</span>` : `<button class="btn sm primary" data-act="lockBudget" data-id="${j.id}">🔒 Lock original budget</button>`}</div><div class="table-wrap"><table>
+      ${row('Original contract', money2(F.base))}${row('+ Approved change orders', money2(F.coPrice))}${row('Approved contract value (expected revenue)', money2(F.revenue), '', `Taxes collected for remittance shown separately: ${money2(F.tax)}`)}
+      ${row('Actual cost', money2(F.actual), '', `Paid so far ${money2(F.paidOut)}`)}${row('+ Pending commitments', money2(F.committed), '', 'Approved POs / subcontracts not yet billed')}
+      <tr><td>+ Remaining cost estimate <div class="small muted">Work left with no commitment yet</div></td><td class="right"><input class="inp" type="number" step="any" style="width:130px;text-align:right" data-act-input="finRemaining" data-id="${j.id}" value="${num(f.remaining)}"></td></tr>
+      ${row('Projected final cost', money2(F.projected))}${row('Projected gross profit', `${money2(F.gross)} · ${pct2(F.pct)}`, F.gross < 0 ? 'down' : 'up')}
+      ${row('Revised budget cost', money2(F.revisedCost), '', 'Original budget + approved change-order costs')}
+    </table></div></div>
+    <div class="card mt"><div class="card-h"><h3>Budget vs actual by category</h3></div><div class="table-wrap"><table><thead><tr><th>Category</th><th class="right">Budget</th><th class="right">Actual</th><th class="right">Committed</th><th class="right">Variance</th></tr></thead><tbody>
+      ${COST_CATS.map(c => { const b = num((f.budget && f.budget.byCat || {})[c]), a = num(F.byCat[c]), cm = num(F.byCat['__c_' + c]); return b || a || cm ? `<tr><td>${c}</td><td class="right">${money(b)}</td><td class="right">${money(a)}</td><td class="right">${money(cm)}</td><td class="right ${b - a - cm < 0 ? 'down b' : 'up'}">${money(b - a - cm)}</td></tr>` : ''; }).join('')}
+    </tbody></table></div><div class="card-b small muted">Budget split comes from the locked original budget; edit it with "Budget split".<button class="btn sm" style="margin-left:8px" data-act="budgetSplit" data-id="${j.id}">Budget split</button></div></div>
+    <div class="card mt"><div class="card-h"><h3>Change orders (${f.changeOrders.length})</h3><button class="btn sm" data-act="addCO" data-id="${j.id}">＋ Change order</button></div><div class="card-b">${f.changeOrders.map(c => `<div class="list-item"><div style="flex:1"><div class="b">${esc(c.number)} · ${esc(c.desc)}</div><div class="small muted">Price ${money2(c.price)} · est. cost ${money2(c.cost)} · margin effect ${money2(num(c.price) - num(c.cost))}${c.evidence ? ' · ' + esc(c.evidence) : ''}${c.approvedBy ? ' · approved by ' + esc(c.approvedBy) : ''}</div></div><span class="pill ${c.status === 'approved' ? 'ok' : c.status === 'rejected' ? 'bad' : 'warn'}">${c.status}</span>${c.status === 'pending' && canApprove() ? `<button class="btn sm ok" data-act="coSet" data-id="${j.id}" data-c="${c.id}" data-s="approved">Approve</button><button class="btn sm" data-act="coSet" data-id="${j.id}" data-c="${c.id}" data-s="rejected">Reject</button>` : ''}</div>`).join('') || '<span class="muted small">No change orders.</span>'}</div></div>
+  </div><div>
+    <div class="card"><div class="card-h"><h3>Purchase orders (${pos.length})</h3><button class="btn sm" data-act="newPO" data-job="${j.id}">＋ PO</button></div><div class="card-b">${pos.map(p => `<div class="list-item"><div style="flex:1"><div class="b small">${esc(p.number)} · ${esc(p.vendor)}</div><div class="small muted">${esc(p.category)} · ${money2(p.amount)} · billed ${money2(poBilled(p))}</div></div><span class="pill ${p.status === 'approved' ? 'ok' : p.status === 'pending' ? 'warn' : ''}">${p.status}</span></div>`).join('') || '<span class="muted small">No POs.</span>'}</div></div>
+    <div class="card mt"><div class="card-h"><h3>Costs</h3><div class="row"><button class="btn sm" data-act="addCost" data-id="${j.id}">＋ Cost</button>${canRates() ? `<button class="btn sm" data-act="addLabor" data-id="${j.id}">＋ Labor</button>` : ''}</div></div><div class="card-b">
+      ${lines.map(l => `<div class="list-item small"><div style="flex:1">${esc(l.bill.vendor)} ${esc(l.bill.number || '')} · ${esc(l.category)}</div><b>${money2(l.amount)}</b></div>`).join('')}
+      ${f.costs.map(c => `<div class="list-item small"><div style="flex:1">${esc(c.vendor || 'Direct')} · ${esc(c.category)}${c.note ? ' · ' + esc(c.note) : ''}<div class="muted">${fDate(parseLocal(c.date))} · by ${esc(c.by || '')}</div></div><b>${money2(c.amount)}</b><button class="btn ghost sm danger" data-act="delCost" data-id="${j.id}" data-c="${c.id}">✕</button></div>`).join('')}
+      ${canRates() ? f.labor.map(l => `<div class="list-item small"><div style="flex:1">Labor · ${esc((tech(l.techId) || {}).name || l.who || '')} · ${l.hours}h × ${money2(l.rate)}</div><b>${money2(num(l.hours) * num(l.rate))}</b></div>`).join('') : (f.labor.length ? `<div class="small muted">Labor: ${f.labor.reduce((s, l) => s + num(l.hours), 0)}h logged (rates restricted)</div>` : '')}
+      ${!lines.length && !f.costs.length && !f.labor.length ? '<span class="muted small">No costs yet. Vendor bills from Purchasing land here automatically.</span>' : ''}
+    </div></div>
+  </div></div>`;
+}
+function projBilling(j) {
+  const F = finOf(j), fs = finStatus(j);
+  return `<div class="grid g4 mb">${kpi('Contract value', money2(F.revenue))}${kpi('Invoiced', money2(F.billed), `Unbilled ${money2(F.unbilled)}`)}${kpi('Collected', money2(F.collected))}${kpi('Balance due', money2(F.ar), `<span class="pill ${fs[1]}">${esc(fs[0])}</span>`)}</div>
+  <div class="card"><div class="card-h"><h3>Invoices & disbursements</h3><button class="btn sm ok" data-act="invoiceJob" data-id="${j.id}">$ Invoice</button></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Type</th><th>Issued</th><th>Due</th><th class="right">Amount</th><th class="right">Paid</th><th class="right">Balance</th><th>Status</th><th></th></tr></thead><tbody>
+  ${F.invs.map(i => `<tr class="click" data-go="#/invoice/${i.id}"><td class="b">${i.number}</td><td>${i.kind === 'deposit' ? 'Deposit' : i.milestone ? esc(i.milestone) : 'Invoice'}${i.payer ? `<div class="small muted">Payer: ${esc(i.payer)}</div>` : ''}</td><td>${fDate(i.createdAt)}</td><td>${fDate(parseLocal(i.due))}</td><td class="right">${money2(invTotal(i))}</td><td class="right">${money2(invPaid(i))}</td><td class="right b">${money2(invBal(i))}</td><td>${pill(INV_ST, invStatus(i))}${i.disputed ? ' <span class="pill bad">Disputed</span>' : ''}</td><td><button class="btn sm ghost" data-act="toggleDispute" data-inv="${i.id}">${i.disputed ? 'Clear dispute' : 'Dispute'}</button></td></tr>`).join('') || '<tr><td colspan="9" class="empty">No invoices yet.</td></tr>'}
+  </tbody></table></div></div>`;
+}
+function projHistory(j) {
+  return `<div class="card"><div class="card-h"><h3>Change log</h3></div><div class="card-b"><div class="timeline">${(j.history || []).map(h => `<div class="ev"><div>${esc(h.text)}</div><div class="small muted">${esc(h.by || '')} · ${new Date(h.ts).toLocaleString('en-US')}</div></div>`).join('') || '<div class="muted">No changes recorded yet.</div>'}</div></div></div>`;
+}
+
+/* ───────────── MY WORK ───────────── */
+ROUTES.mywork = () => {
+  const today = ymd(new Date()), myName = (db.techs.find(t => (t.email || '').toLowerCase() === me().toLowerCase()) || {}).name;
+  const mine = t => !myName || !t.assignee || (tech(t.assignee) || {}).name === myName;
+  const tasks = (db.tasks || []).filter(t => !t.done && t.due <= today && mine(t)).sort((a, b) => a.due.localeCompare(b.due));
+  const soon = addDays(new Date(), 7);
+  const installs = db.jobs.filter(j => j.status !== 'cancelled' && j.status !== 'completed' && ((j.start && new Date(j.start) <= soon && new Date(j.start) >= sod(new Date())) || (j.expectedInstall && parseLocal(j.expectedInstall) <= soon && parseLocal(j.expectedInstall) >= sod(new Date())))).sort((a, b) => String(a.start || a.expectedInstall).localeCompare(String(b.start || b.expectedInstall)));
+  const blocked = db.jobs.filter(j => j.status !== 'cancelled' && !(j.ops && j.ops.closed)).map(j => ({ j, b: blockersOf(j) })).filter(x => x.b.length);
+  const due = db.jobs.filter(j => j.nextDue && j.nextDue <= today && j.status !== 'cancelled');
+  const card = (title, body, n) => `<div class="card"><div class="card-h"><h3>${title} <span class="muted small">${n}</span></h3></div><div class="card-b">${body || '<div class="muted small">Nothing here ✓</div>'}</div></div>`;
+  const jl = j => `<div class="list-item click" data-go="#/job/${j.id}" style="cursor:pointer"><div style="flex:1;min-width:0"><div class="b">${j.number} · ${esc(j.title)}</div><div class="small muted">${esc(cust(j.customerId).name)} · ${esc(stageLabel(projInit(j)))}</div></div>${divPill(j.division)}</div>`;
+  return head('My Work', `${tasks.length} tasks due · ${blocked.length} blocked projects · ${installs.length} installs in the next 7 days`, `<a class="btn" href="#/tasks">All tasks</a>`) + `<div class="grid g2">
+    ${card('Tasks due today & overdue', tasks.slice(0, 12).map(t => `<div class="list-item"><span class="pill ${t.due < today ? 'bad' : 'warn'}">${t.due < today ? 'Overdue' : 'Today'}</span><div style="flex:1"><a href="#/tasks">${esc(t.title)}</a></div></div>`).join(''), tasks.length)}
+    ${card('Next actions due', due.map(j => `<div class="list-item click" data-go="#/job/${j.id}" style="cursor:pointer"><div style="flex:1"><div class="b small">${j.number} · ${esc(j.nextAction || '')}</div><div class="small muted">${esc(cust(j.customerId).name)}</div></div><span class="small down">${fDate(parseLocal(j.nextDue))}</span></div>`).join(''), due.length)}
+    ${card('Upcoming installs (7 days)', installs.map(jl).join(''), installs.length)}
+    ${card('Blocked projects', blocked.map(({ j, b }) => `<div class="list-item click" data-go="#/job/${j.id}" style="cursor:pointer"><span class="pill bad">⛔</span><div style="flex:1;min-width:0"><div class="b small">${j.number} · ${esc(j.title)}</div><div class="small muted">${esc(b[0].reason)}${b.length > 1 ? ` (+${b.length - 1})` : ''}</div></div></div>`).join(''), blocked.length)}
+  </div>`;
+};
+
+/* ───────────── PURCHASING: POs & vendor bills ───────────── */
+const projOptions = () => db.jobs.filter(j => j.status !== 'cancelled').map(j => [j.id, `${j.number} · ${j.title} (${cust(j.customerId).name})`]);
+ROUTES.purchasing = () => {
+  const tab = state.tabs.purch || 'pos', pos = db.pos || [], bills = db.bills || [];
+  const unassigned = bills.flatMap(b => (b.lines || []).filter(l => !l.projectId).map(l => ({ ...l, bill: b })));
+  return head('Purchasing & Vendor Bills', 'Commitments (POs / subcontracts) and vendor bills split across projects', `<button class="btn" data-act="newPO">＋ PO</button><button class="btn primary" data-act="newBill">＋ Vendor bill</button>`) +
+  `<div class="tabs">${[['pos', `Purchase orders (${pos.length})`], ['bills', `Vendor bills (${bills.length})`], ['unassigned', `Costs without project (${unassigned.length})`]].map(([k, v]) => `<button data-act="tab" data-t="purch" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>` +
+  (tab === 'pos' ? `<div class="card"><div class="table-wrap"><table><thead><tr><th>#</th><th>Vendor</th><th>Project</th><th>Category</th><th class="right">Amount</th><th class="right">Billed</th><th class="right">Open</th><th>Status</th><th></th></tr></thead><tbody>${pos.map(p => { const j = db.jobs.find(x => x.id === p.projectId); return `<tr><td class="b">${esc(p.number)}</td><td>${esc(p.vendor)}<div class="small muted">${esc(p.desc || '')}</div></td><td>${j ? `<a href="#/job/${j.id}">${j.number}</a>` : '—'}</td><td>${esc(p.category)}</td><td class="right">${money2(p.amount)}</td><td class="right">${money2(poBilled(p))}</td><td class="right b">${money2(Math.max(0, num(p.amount) - poBilled(p)))}</td><td><span class="pill ${p.status === 'approved' ? 'ok' : p.status === 'pending' ? 'warn' : ''}">${p.status}</span>${p.approvedBy ? `<div class="small muted">${esc(p.approvedBy)}</div>` : ''}</td><td class="right">${p.status === 'pending' && canApprove() ? `<button class="btn sm ok" data-act="poSet" data-id="${p.id}" data-s="approved">Approve</button>` : ''}${p.status !== 'cancelled' ? `<button class="btn sm ghost" data-act="poSet" data-id="${p.id}" data-s="cancelled">Cancel</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="9" class="empty">No purchase orders.</td></tr>'}</tbody></table></div></div>`
+  : tab === 'bills' ? `<div class="card"><div class="table-wrap"><table><thead><tr><th>Vendor</th><th>Bill #</th><th>Date</th><th>Split</th><th class="right">Total</th><th>Paid</th><th></th></tr></thead><tbody>${bills.map(b => `<tr><td class="b">${esc(b.vendor)}</td><td>${esc(b.number || '')}${b.attachment ? `<div class="small"><a href="${esc(b.attachment)}" target="_blank" rel="noopener">receipt ↗</a></div>` : ''}</td><td>${fDate(parseLocal(b.date))}</td><td class="small">${(b.lines || []).map(l => { const j = db.jobs.find(x => x.id === l.projectId); return `${j ? j.number : '<span class="down">No project</span>'} · ${esc(l.category)} · ${money2(l.amount)}`; }).join('<br>')}</td><td class="right b">${money2(sumBy(b.lines, l => l.amount))}</td><td>${b.paidAt ? `<span class="pill ok">Paid ${fDate(b.paidAt)}</span>` : `<button class="btn sm" data-act="billPaid" data-id="${b.id}">Mark paid</button>`}</td><td><button class="btn ghost sm danger" data-act="delBill" data-id="${b.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No vendor bills.</td></tr>'}</tbody></table></div></div>`
+  : `<div class="card"><div class="card-b">${unassigned.map(l => `<div class="list-item"><span class="pill warn">Exception</span><div style="flex:1">${esc(l.bill.vendor)} ${esc(l.bill.number || '')} · ${esc(l.category)}</div><b>${money2(l.amount)}</b><button class="btn sm" data-act="editBill" data-id="${l.bill.id}">Assign</button></div>`).join('') || '<div class="empty">Every cost is assigned to a project ✓</div>'}</div></div>`);
+};
+function poModal(projectId) {
+  form({ title: 'New purchase order / subcontract', fields: [{ k: 'projectId', label: 'Project', type: 'select', options: projOptions(), value: projectId, full: true }, { k: 'vendor', label: 'Vendor / subcontractor', required: true }, { k: 'category', label: 'Category', type: 'select', options: COST_CATS, value: 'Materials' }, { k: 'amount', label: 'Amount ($)', type: 'number', step: '0.01', required: true }, { k: 'desc', label: 'Description', full: true }],
+    saveLabel: canApprove() ? 'Create & approve' : 'Submit for approval',
+    onSave(v) {
+      const j = db.jobs.find(x => x.id === v.projectId); if (!j) { toast('Pick a project'); return false; }
+      const F = finOf(j), after = F.gross - num(v.amount);
+      const po = { id: uid(), number: 'PO-' + (1000 + (db.pos || []).length + 1), ...v, amount: num(v.amount), status: canApprove() ? 'approved' : 'pending', date: ymd(new Date()), createdBy: me(), approvedBy: canApprove() ? me() : '' };
+      (db.pos = db.pos || []).unshift(po); projInit(j); hist(j, `${po.number} ${po.status} — ${po.vendor} ${money2(po.amount)} (${po.category})`);
+      if (po.status === 'pending') db.tasks.unshift({ id: uid(), title: `Approve ${po.number}: ${po.vendor} ${money2(po.amount)} on ${j.number} (margin if added as new cost: ${money(after)})`, due: ymd(new Date()), done: false, assignee: '', customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Approvals', createdAt: iso(new Date()) });
+      toast(`${po.number} ${po.status === 'approved' ? 'approved' : 'sent for approval'}`);
+    } });
+}
+function billModal(bill) {
+  const isNew = !bill, d = JSON.parse(JSON.stringify(bill || { vendor: '', number: '', date: ymd(new Date()), attachment: '', lines: [{ projectId: '', category: 'Materials', amount: 0, poId: '' }] }));
+  const pOpts = [['', '— No project (exception) —'], ...projOptions()];
+  const draw = () => { $('#billEd').innerHTML = `<div class="form"><label class="f">Vendor<input class="inp" data-b="vendor" value="${esc(d.vendor)}"></label><label class="f">Bill #<input class="inp" data-b="number" value="${esc(d.number)}"></label><label class="f">Date<input class="inp" type="date" data-b="date" value="${esc(d.date)}"></label><label class="f">Receipt link (optional)<input class="inp" data-b="attachment" value="${esc(d.attachment || '')}" placeholder="https://…"></label></div>
+    <h4 style="margin:16px 0 6px">Split across projects <span class="small muted" style="font-weight:400">(negative amount = credit / return)</span></h4>
+    ${d.lines.map((l, i) => `<div class="row mb" style="align-items:flex-end;flex-wrap:wrap"><label class="f" style="flex:2;min-width:200px">Project<select class="inp" data-l="${i}" data-f="projectId">${pOpts.map(([v, t]) => `<option value="${v}" ${l.projectId === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label><label class="f" style="flex:1;min-width:130px">Category<select class="inp" data-l="${i}" data-f="category">${COST_CATS.map(c => `<option ${l.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label><label class="f" style="width:120px">Amount<input class="inp" type="number" step="0.01" data-l="${i}" data-f="amount" value="${num(l.amount)}"></label><label class="f" style="flex:1;min-width:140px">Against PO<select class="inp" data-l="${i}" data-f="poId"><option value="">—</option>${(db.pos || []).filter(p => p.status === 'approved' && (!l.projectId || p.projectId === l.projectId)).map(p => `<option value="${p.id}" ${l.poId === p.id ? 'selected' : ''}>${esc(p.number)} · ${esc(p.vendor)} (open ${money(Math.max(0, num(p.amount) - poBilled(p)))})</option>`).join('')}</select></label><button class="btn ghost sm danger" data-rm="${i}">✕</button></div>`).join('')}
+    <div class="row"><button class="btn sm" id="addLine">＋ Line</button><span class="b" style="margin-left:auto">Total ${money2(sumBy(d.lines, l => l.amount))}</span></div>`; };
+  modal({ title: isNew ? 'New vendor bill' : 'Edit vendor bill', wide: true, body: '<div id="billEd"></div>', foot: '<button class="btn" data-dismiss>Cancel</button><button class="btn primary" id="billSave">Save bill</button>', onMount(bg, close) {
+    bg.addEventListener('input', e => { const el = e.target; if (el.dataset.b) d[el.dataset.b] = el.value; if (el.dataset.l !== undefined && el.tagName === 'INPUT') d.lines[+el.dataset.l][el.dataset.f] = num(el.value); });
+    bg.addEventListener('change', e => { const el = e.target; if (el.dataset.l !== undefined && el.tagName === 'SELECT') { d.lines[+el.dataset.l][el.dataset.f] = el.value; if (el.dataset.f === 'projectId') { d.lines[+el.dataset.l].poId = ''; draw(); } else if (el.dataset.f === 'poId' && el.value) { const p = db.pos.find(x => x.id === el.value); d.lines[+el.dataset.l].category = p.category; d.lines[+el.dataset.l].projectId = p.projectId; if (!num(d.lines[+el.dataset.l].amount)) d.lines[+el.dataset.l].amount = Math.max(0, num(p.amount) - poBilled(p)); if (!d.vendor) d.vendor = p.vendor; draw(); } } });
+    bg.addEventListener('click', e => { if (e.target.closest('#addLine')) { d.lines.push({ projectId: '', category: 'Materials', amount: 0, poId: '' }); draw(); } const rm = e.target.closest('[data-rm]'); if (rm) { d.lines.splice(+rm.dataset.rm, 1); draw(); } });
+    $('#billSave', bg).onclick = () => {
+      if (!d.vendor.trim() || !d.lines.length) { toast('Vendor and at least one line are required'); return; }
+      const dup = (db.bills || []).find(b => b.id !== d.id && b.vendor.trim().toLowerCase() === d.vendor.trim().toLowerCase() && d.number && b.number === d.number);
+      if (dup) { toast(`Possible duplicate: ${dup.vendor} bill ${dup.number} already exists`); return; }
+      d.lines.forEach(l => { l.id = l.id || uid(); l.amount = num(l.amount); });
+      if (isNew) { d.id = uid(); d.createdBy = me(); d.createdAt = iso(new Date()); (db.bills = db.bills || []).unshift(d); } else Object.assign(bill, d);
+      new Set(d.lines.map(l => l.projectId).filter(Boolean)).forEach(pid => { const j = db.jobs.find(x => x.id === pid); if (j) { projInit(j); hist(j, `Vendor bill ${d.vendor} ${d.number || ''}: ${money2(sumBy(d.lines.filter(l => l.projectId === pid), l => l.amount))}`); } });
+      close(); save(); render(); toast('Vendor bill saved');
+    };
+    draw();
+  } });
+}
+
+/* ───────────── FINANCE DASHBOARD ───────────── */
+ROUTES.finance = () => {
+  const projects = db.jobs.filter(divOK).filter(j => j.status !== 'cancelled').map(j => ({ j, F: finOf(j), fs: finStatus(j) }));
+  const tot = k => sumBy(projects, x => x.F[k]);
+  const losses = projects.filter(x => x.F.gross < 0), doneUnbilled = projects.filter(x => (x.j.status === 'completed' || (x.j.ops && x.j.ops.closed)) && x.F.unbilled > 0.009);
+  const pays = allPayments(), wk = d => { const s = weekStart(d); return ymd(s); };
+  const weeks = {}; for (let i = -4; i <= 4; i++) weeks[ymd(addDays(weekStart(new Date()), i * 7))] = { in: 0, out: 0 };
+  pays.forEach(p => { const k = wk(p.date); if (weeks[k]) weeks[k].in += num(p.amount); });
+  (db.bills || []).filter(b => b.paidAt).forEach(b => { const k = wk(b.paidAt); if (weeks[k]) weeks[k].out += sumBy(b.lines, l => l.amount); });
+  db.invoices.filter(i => !['void', 'draft'].includes(i.status) && invBal(i) > 0).forEach(i => { const k = wk(parseLocal(i.due)); if (weeks[k] && parseLocal(i.due) >= sod(new Date())) weeks[k].expected = num(weeks[k].expected) + invBal(i); });
+  return head('Finance', 'Project profitability, receivables and cash. Open projects are provisional.') + `
+  <div class="grid g4 mb">${kpi('Contract value (open + closed)', kmoney(tot('revenue')))}${kpi('Projected gross profit', kmoney(tot('gross')), pct(tot('gross') / Math.max(1, tot('revenue'))))}${kpi('Balance due (A/R)', kmoney(tot('ar')))}${kpi('Pending commitments', kmoney(tot('committed')))}</div>
+  <div class="grid g2 mb">
+    <div class="card"><div class="card-h"><h3>Needs attention</h3></div><div class="card-b">${[...losses.map(x => `<div class="list-item click" data-go="#/job/${x.j.id}" style="cursor:pointer"><span class="pill bad">Loss</span><div style="flex:1">${x.j.number} · ${esc(x.j.title)}</div><b class="down">${money(x.F.gross)}</b></div>`), ...doneUnbilled.map(x => `<div class="list-item click" data-go="#/job/${x.j.id}" style="cursor:pointer"><span class="pill warn">Done, not invoiced</span><div style="flex:1">${x.j.number} · ${esc(x.j.title)}</div><b>${money(x.F.unbilled)}</b></div>`)].join('') || '<div class="muted small">Nothing urgent ✓</div>'}</div></div>
+    <div class="card"><div class="card-h"><h3>Cash by week</h3></div><div class="table-wrap"><table><thead><tr><th>Week of</th><th class="right">Collected</th><th class="right">Paid out</th><th class="right">Net</th><th class="right">Expected in</th></tr></thead><tbody>${Object.entries(weeks).map(([k, v]) => `<tr${k === ymd(weekStart(new Date())) ? ' style="font-weight:700"' : ''}><td>${fDate(parseLocal(k))}</td><td class="right">${money(v.in)}</td><td class="right">${money(v.out)}</td><td class="right ${v.in - v.out < 0 ? 'down' : ''}">${money(v.in - v.out)}</td><td class="right muted">${v.expected ? money(v.expected) : ''}</td></tr>`).join('')}</tbody></table></div></div>
+  </div>
+  <div class="card"><div class="card-h"><h3>Projects</h3></div><div class="table-wrap"><table><thead><tr><th>Project</th><th>Ops</th><th>Finance</th><th class="right">Contract</th><th class="right">Projected cost</th><th class="right">Gross</th><th class="right">Invoiced</th><th class="right">Collected</th><th class="right">Balance</th></tr></thead><tbody>
+  ${projects.map(({ j, F, fs }) => `<tr class="click" data-go="#/job/${j.id}"><td><div class="b">${j.number} · ${esc(j.title)}</div><div class="small muted">${esc(cust(j.customerId).name)} · ${DIV[j.division] ? DIV[j.division].name : ''}</div></td><td class="small">${esc(stageLabel(j))}</td><td><span class="pill ${fs[1]}">${esc(fs[0])}</span></td><td class="right">${money(F.revenue)}</td><td class="right">${money(F.projected)}</td><td class="right b ${F.gross < 0 ? 'down' : 'up'}">${money(F.gross)}<div class="small">${pct2(F.pct)}</div></td><td class="right">${money(F.billed)}</td><td class="right">${money(F.collected)}</td><td class="right b">${money(F.ar)}</td></tr>`).join('')}
+  </tbody></table></div></div>`;
+};
+
+/* ───────────── DUPLICATES & MERGE ───────────── */
+function duplicateGroups() {
+  const norm = { phone: c => String(c.phone || '').replace(/\D/g, '').slice(-10), email: c => String(c.email || '').trim().toLowerCase(), address: c => String(c.address || '').toLowerCase().replace(/[^a-z0-9]/g, '') + '|' + String(c.zip || ''), source: c => c.ghlId || '' };
+  const seen = new Map(), groups = [];
+  for (const [k, f] of Object.entries(norm)) {
+    const m = new Map(); db.customers.forEach(c => { const v = f(c); if (v && v.length > 4 && v !== '|') (m.get(v) || m.set(v, []).get(v)).push(c); });
+    m.forEach((list, v) => { if (list.length > 1) { const key = list.map(c => c.id).sort().join(','); if (!seen.has(key)) { seen.set(key, 1); groups.push({ by: k, list }); } } });
+  }
+  return groups;
+}
+ROUTES.duplicates = () => {
+  const g = duplicateGroups();
+  return head('Possible duplicates', 'Matched by phone, email, address or source ID. Merging keeps all history, projects and documents.') + `<div class="grid g2">${g.map(({ by, list }) => `<div class="card"><div class="card-h"><h3>Same ${by}</h3><span class="small muted">${list.length} records</span></div><div class="card-b">${list.map(c => `<div class="list-item"><div style="flex:1"><a href="#/customer/${c.id}" class="b">${esc(c.name)}</a><div class="small muted">${esc(c.phone)} · ${esc(c.email)} · ${esc(c.address)} · since ${fDate(c.createdAt)}</div></div><button class="btn sm" data-act="mergeKeep" data-keep="${c.id}" data-all="${list.map(x => x.id).join(',')}">Keep this one</button></div>`).join('')}</div></div>`).join('') || '<div class="card"><div class="empty">No duplicates found ✓</div></div>'}</div>`;
+};
+function mergeCustomers(keepId, ids) {
+  const keep = db.customers.find(c => c.id === keepId); if (!keep) return;
+  for (const id of ids) { if (id === keepId) continue; const o = db.customers.find(c => c.id === id); if (!o) continue;
+    for (const coll of ['leads', 'estimates', 'jobs', 'invoices', 'plans', 'tasks']) (db[coll] || []).forEach(r => { if (r.customerId === id) r.customerId = keepId; });
+    for (const k of ['phone', 'email', 'address', 'city', 'zip', 'ghlId']) if (!keep[k] && o[k]) keep[k] = o[k];
+    keep.equipment = [...(keep.equipment || []), ...(o.equipment || [])]; keep.properties = [...(keep.properties || []), ...(o.properties || [])];
+    keep.tags = [...new Set([...(keep.tags || []), ...(o.tags || [])])];
+    keep.notes = [keep.notes, o.notes ? `— merged from ${o.name} (${fDate(o.createdAt)}) —\n${o.notes}` : ''].filter(Boolean).join('\n');
+    (keep.mergedFrom = keep.mergedFrom || []).push({ id: o.id, name: o.name, phone: o.phone, email: o.email, at: iso(new Date()), by: me() });
+    db.customers = db.customers.filter(c => c.id !== id);
+    log(`Merged customer ${o.name} into ${keep.name}`);
+  }
+}
+
+ROUTES.job = id => {
+  const j = db.jobs.find(x => x.id === id); if (!j) return '<div class="empty">Project not found</div>';
+  projInit(j);
+  let tab = state.tabs.proj || 'overview'; if (!canMoney() && ['financials', 'billing'].includes(tab)) tab = 'overview';
+  if (tab === 'overview') { const html = jobOverview(id); const cut = html.indexOf('<div class="card mb"><div class="card-b"><div class="steps">'); return cut > 0 ? html.slice(0, cut) + projSummary(j) + projTabs(j, tab) + html.slice(cut) : html; }
+  return `<div class="small muted mb"><a href="#/jobs">Projects</a> / ${j.number}</div>` + head(`${j.number} · ${esc(j.title)}`, `${custLink(j.customerId)} · ${divPill(j.division)}`, pill(JOB_ST, j.status)) + projSummary(j) + projTabs(j, tab) +
+    ({ workflow: projWorkflow, specs: projSpecs, financials: projFinancials, billing: projBilling, history: projHistory }[tab] || projWorkflow)(j);
+};
+
 /* ───────────── TRABAJOS ───────────── */
 function jobModal(j, preset = {}) {
   const isNew = !j; j = j || {};
@@ -1111,20 +1398,20 @@ ROUTES.jobs = () => {
   const f = state.filters.job || 'open';
   const all = db.jobs.filter(divOK);
   const list = all.filter(j => f === 'all' ? true : f === 'open' ? !['completed', 'cancelled'].includes(j.status) : j.status === f).sort((a, b) => (a.start ? new Date(a.start) : 9e15) - (b.start ? new Date(b.start) : 9e15));
-  return head('Jobs', `${all.filter(j => !['completed', 'cancelled'].includes(j.status)).length} open jobs`, `<button class="btn" data-act="exportCsv" data-what="jobs">⇩ CSV</button><button class="btn primary" data-act="newJob">＋ Job</button>`) + `
+  return head('Projects', `${all.filter(j => !['completed', 'cancelled'].includes(j.status)).length} open projects`, `<button class="btn" data-act="exportCsv" data-what="jobs">⇩ CSV</button><button class="btn primary" data-act="newJob">＋ Job</button>`) + `
   <div class="card"><div class="toolbar">${[['open', 'Open'], ['all', 'All'], ...Object.entries(JOB_ST).map(([k, v]) => [k, v[0]])].map(([k, v]) => `<button class="btn sm ${f === k ? 'primary' : ''}" data-act="filt" data-f="job" data-v="${k}">${v} <span class="muted">${k === 'all' ? all.length : k === 'open' ? all.filter(j => !['completed', 'cancelled'].includes(j.status)).length : all.filter(j => j.status === k).length}</span></button>`).join('')}</div>
   <div class="table-wrap"><table><thead><tr><th>#</th><th>Job</th><th>Customer</th><th>Scheduled</th><th>Crew</th><th>Progress</th><th class="right">Amount</th><th>Status</th></tr></thead><tbody>
   ${list.map(j => { const done = j.checklist.filter(c => c.done).length; return `<tr class="click" data-go="#/job/${j.id}"><td class="b">${j.number}</td><td><div class="b">${esc(j.title)}</div>${divPill(j.division)}</td><td>${custLink(j.customerId)}<div class="small muted">${esc(cust(j.customerId).city || '')}</div></td><td>${j.start ? fDay(j.start) + '<div class="small muted">' + fTime(j.start) + ' · ' + j.duration + 'h</div>' : '<span class="muted">—</span>'}</td><td><div class="row">${j.techIds.map(t => avatar(tech(t))).join('') || '<span class="muted small">Unassigned</span>'}</div></td><td style="min-width:110px"><div class="progress"><div style="width:${j.checklist.length ? done / j.checklist.length * 100 : 0}%"></div></div><div class="small muted">${done}/${j.checklist.length}</div></td><td class="right">${money(totalOf(j.items))}</td><td>${pill(JOB_ST, j.status)}</td></tr>`; }).join('') || '<tr><td colspan="8" class="empty">No jobs</td></tr>'}
   </tbody></table></div></div>`;
 };
-ROUTES.job = id => {
-  const j = db.jobs.find(x => x.id === id); if (!j) return '<div class="empty">Job not found</div>';
+function jobOverview(id) {
+  const j = db.jobs.find(x => x.id === id); if (!j) return '<div class="empty">Project not found</div>';
   const c = cust(j.customerId), idx = JOB_FLOW.indexOf(j.status), next = JOB_FLOW[idx + 1];
   const nextLabel = { scheduled: 'Schedule', enroute: '🚚 On the way', inprogress: '▶ Start job', completed: '✓ Complete' }[next];
   const inv = j.invoiceId && db.invoices.find(i => i.id === j.invoiceId);
   const permits = db.permits.filter(p => p.jobId === j.id);
   const done = j.checklist.filter(x => x.done).length;
-  return `<div class="small muted mb"><a href="#/jobs">Jobs</a> / ${j.number}</div>` + head(`${j.number} · ${esc(j.title)}`, `${custLink(j.customerId)} · ${divPill(j.division)} · ${j.start ? fDay(j.start) + ' ' + fTime(j.start) + '–' + fTime(jobEnd(j)) : 'Unscheduled'}`,
+  return `<div class="small muted mb"><a href="#/jobs">Projects</a> / ${j.number}</div>` + head(`${j.number} · ${esc(j.title)}`, `${custLink(j.customerId)} · ${divPill(j.division)} · ${j.start ? fDay(j.start) + ' ' + fTime(j.start) + '–' + fTime(jobEnd(j)) : 'Unscheduled'}`,
     `${pill(JOB_ST, j.status)}<button class="btn" data-act="editJob" data-id="${j.id}">Edit</button>${next && j.status !== 'cancelled' ? (next === 'scheduled' ? `<button class="btn primary" data-act="editJob" data-id="${j.id}">Schedule</button>` : `<button class="btn primary" data-act="jobStatus" data-id="${j.id}" data-s="${next}">${nextLabel}</button>`) : ''}${inv ? `<a class="btn" href="#/invoice/${inv.id}">Invoice ${inv.number}</a>` : `<button class="btn ok" data-act="invoiceJob" data-id="${j.id}">$ Invoice</button>`}`) + `
   <div class="card mb"><div class="card-b"><div class="steps">${JOB_FLOW.map((s, i) => `<div class="${i <= idx ? 'on' : ''}">${JOB_ST[s][0]}</div>`).join('')}</div></div></div>
   <div class="grid g-2-1">
@@ -1480,8 +1767,9 @@ function invoiceFromJob(j) {
   const est = j.estimateId && byId('estimates', j.estimateId);
   const deps = est ? db.invoices.filter(i => i.status !== 'void' && (i.estimateId === est.id || (i.customerId === j.customerId && i.items.some(it => it.name.includes(est.number))))) : [];
   const items = j.items.map(x => ({ ...x, id: uid() }));
+  ((j.fin && j.fin.changeOrders) || []).filter(c => c.status === 'approved' && !c.invoicedIn).forEach(c => { items.push({ id: uid(), name: `${c.number}: ${c.desc}`, qty: 1, price: num(c.price), cost: num(c.cost) }); c.invoicedIn = 'pending'; });
   deps.forEach(d => items.push({ id: uid(), name: `Less deposit (${d.number})`, qty: 1, price: -subtotal(d.items), cost: 0 }));
-  const inv = createInvoice({ customerId: j.customerId, jobId: j.id, division: j.division, items }); j.invoiceId = inv.id; return inv;
+  const inv = createInvoice({ customerId: j.customerId, jobId: j.id, division: j.division, items }); j.invoiceId = inv.id; ((j.fin && j.fin.changeOrders) || []).forEach(c => { if (c.invoicedIn === 'pending') c.invoicedIn = inv.id; }); if (j.history) hist(j, `Invoice ${inv.number} created — ${money2(subtotal(items))}`); return inv;
 }
 const wfTriggerText = t => { const T = WF_TRIGGERS[t.type]; if (!T) return t.type; let s = T.label.replace('N days', `${num(t.days)} day${num(t.days) === 1 ? '' : 's'}`); if (t.stage && t.stage !== 'any') s += ` → ${stageName(t.stage)}`; if (t.status && t.status !== 'any') s += ` → ${JOB_ST[t.status]?.[0]}`; return s; };
 const wfCondText = k => { const p = []; if (k.division && k.division !== 'any') p.push('Division ' + DIV[k.division].name); if (num(k.minValue)) p.push('Amount ≥ ' + money(k.minValue)); if (k.source && k.source !== 'any') p.push('Source ' + srcEN(k.source)); return p.join(' · ') || 'Always'; };
@@ -1581,7 +1869,7 @@ function openPalette() {
   const pages = NAV.filter(n => n[0] !== 'sec').map(n => ({ label: n[2], type: 'Page', go: '#/' + n[0] }));
   const actions = [['New lead', 'newLead'], ['New customer', 'newCustomer'], ['New estimate', 'newEstimate'], ['New job', 'newJob'], ['New invoice', 'newInvoice']].map(([label, act]) => ({ label: '＋ ' + label, type: 'Action', act }));
   const records = () => [
-    ...db.customers.map(c => ({ label: c.name, sub: `${c.phone} · ${c.address}, ${c.city}`, type: 'Customer', go: '#/customer/' + c.id, hay: [c.name, c.phone, c.email, c.address, c.city].join(' ') })),
+    ...db.customers.map(c => ({ label: c.name, sub: `${c.phone} · ${c.address}, ${c.city}`, type: 'Customer', go: '#/customer/' + c.id, hay: [c.name, c.phone, c.email, c.address, c.city, ...(c.equipment || []).map(e => e.serial), ...(c.properties || []).map(p => p.address)].join(' ') })),
     ...db.jobs.map(j => ({ label: `${j.number} · ${j.title}`, sub: cust(j.customerId).name, type: 'Job', go: '#/job/' + j.id })),
     ...db.estimates.map(e => ({ label: `${e.number} · ${e.title}`, sub: cust(e.customerId).name, type: 'Estimate', go: '#/estimate/' + e.id })),
     ...db.invoices.map(i => ({ label: `${i.number} · ${money(invTotal(i))}`, sub: cust(i.customerId).name, type: 'Invoice', go: '#/invoice/' + i.id })),
@@ -1726,6 +2014,33 @@ const ACT = {
   delReqPhoto: el => confirmDlg('Delete this photo?', async () => { const j = byId('jobs', el.dataset.job), shot = (j.reqPhotos || []).find(x => x.id === el.dataset.shot); if (!shot) return; if (shot.path && cloud.on) await cloud.sb.storage.from('opsboss-photos').remove([shot.path]); j.reqPhotos = j.reqPhotos.filter(x => x.id !== shot.id); save(); render(); }),
   photoPdf: async el => { const j = byId('jobs', el.dataset.id), t = el.textContent; el.disabled = true; el.textContent = 'Building PDF…'; try { await photoPdf(j); } catch (e) { toast('PDF error: ' + e.message); } el.disabled = false; el.textContent = t; },
   inviteLink: el => inviteLinkModal(el.dataset.email, el.dataset.role, el.dataset.name),
+  projNext: el => { const j = byId('jobs', el.dataset.id); form({ title: 'Next action', fields: [{ k: 'nextAction', label: 'Next action', full: true, value: j.nextAction || '', required: true }, { k: 'nextDue', label: 'Due date', type: 'date', value: j.nextDue || ymd(new Date()) }, { k: 'owner', label: 'Owner', value: j.owner || ownerName(j) }], onSave(v) { Object.assign(j, v); hist(j, `Next action: ${v.nextAction} (due ${v.nextDue}, ${v.owner || 'no owner'})`); } }); },
+  addBlocker: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Add blocker', fields: [{ k: 'reason', label: 'What is blocking?', full: true, required: true }, { k: 'owner', label: 'Who resolves it', value: j.owner || '' }, { k: 'followUp', label: 'Follow up on', type: 'date', value: ymd(addDays(new Date(), 2)) }], onSave(v) { j.blockers.push({ id: uid(), ...v, createdAt: iso(new Date()), by: me() }); hist(j, `⛔ Blocked: ${v.reason}`); db.tasks.unshift({ id: uid(), title: `Unblock ${j.number}: ${v.reason}`, due: v.followUp || ymd(new Date()), done: false, assignee: '', customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Blocker', createdAt: iso(new Date()) }); } }); },
+  resolveBlocker: el => { const j = byId('jobs', el.dataset.id), b = j.blockers.find(x => x.id === el.dataset.b); if (!b) return; b.resolvedAt = iso(new Date()); b.resolvedBy = me(); hist(j, `✓ Blocker resolved: ${b.reason}`); save(); render(); },
+  addDep: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Depends on another project', fields: [{ k: 'projectId', label: 'Project that must go first', type: 'select', options: projOptions().filter(([id]) => id !== j.id), full: true }, { k: 'stage', label: 'Until it finishes stage (blank = until completed)', value: '', ph: 'e.g. install' }], onSave(v) { const o = db.jobs.find(x => x.id === v.projectId); if (!o) return false; const st = flowOf(o).find(s => s[0] === v.stage || s[1].toLowerCase() === String(v.stage).toLowerCase()); j.dependsOn.push({ projectId: o.id, stage: st ? st[0] : '' }); hist(j, `Depends on ${o.number}${st ? ' finishing ' + st[1] : ''}`); } }); },
+  stageAdvance: el => {
+    const j = projInit(byId('jobs', el.dataset.id)), f = flowOf(j), i = stageIdx(j), [k, l] = f[i], open = (j.ops.tasks[k] || []).filter(t => !t.done), bl = blockersOf(j);
+    const go = reason => { if (reason) j.ops.exceptions.push({ stage: l, reason, by: me(), ts: iso(new Date()) }); if (i === f.length - 1) { j.ops.closed = true; hist(j, `Project closed${reason ? ' (exception: ' + reason + ')' : ''}`); } else { j.ops.stage = f[i + 1][0]; hist(j, `Stage: ${l} → ${f[i + 1][1]}${reason ? ' (exception: ' + reason + ')' : ''}`); emit('job.status', 'job', j, { to: 'stage:' + f[i + 1][0] }); } save(); render(); };
+    if (!open.length && !bl.length) return go('');
+    modal({ title: 'Advance with exception?', body: `<p>${open.length ? `${open.length} task(s) in <b>${esc(l)}</b> are not done: ${open.map(t => esc(t.t)).join(', ')}.` : ''} ${bl.length ? `The project has ${bl.length} open blocker(s).` : ''}</p>${canApprove() || cloud.role === 'ops' ? '<label class="f">Reason (recorded in history)<textarea class="inp" id="excReason"></textarea></label>' : '<p class="small muted">Only Operations, Finance or Admin can authorize exceptions.</p>'}`, foot: `<button class="btn" data-dismiss>Cancel</button>${canApprove() || cloud.role === 'ops' ? '<button class="btn primary" id="excGo">Advance with exception</button>' : ''}`, onMount(bg, close) { const b = $('#excGo', bg); if (b) b.onclick = () => { const r = $('#excReason', bg).value.trim(); if (!r) { toast('A reason is required'); return; } close(); go(r); }; } });
+  },
+  opsAddTask: el => { const j = byId('jobs', el.dataset.id); form({ title: 'Add workflow task', fields: [{ k: 't', label: 'Task', full: true, required: true }, { k: 'owner', label: 'Owner' }], onSave(v) { j.ops.tasks[el.dataset.s].push({ id: uid(), t: v.t, owner: v.owner, done: false }); } }); },
+  lockBudget: el => { const j = projInit(byId('jobs', el.dataset.id)); j.fin.budget = { price: subtotal(j.items), cost: costOf(j.items), byCat: { Materials: costOf(j.items) }, lockedAt: iso(new Date()), by: me() }; hist(j, `Original budget locked: ${money2(j.fin.budget.price)} price / ${money2(j.fin.budget.cost)} cost`); save(); render(); },
+  budgetSplit: el => { const j = projInit(byId('jobs', el.dataset.id)); if (!j.fin.budget) { toast('Lock the original budget first'); return; } const bc = j.fin.budget.byCat || {}; form({ title: 'Budget split by category', fields: COST_CATS.map(c => ({ k: c, label: c, type: 'number', step: '0.01', value: bc[c] || '' })), onSave(v) { const byCat = {}; let t = 0; for (const c of COST_CATS) if (num(v[c])) { byCat[c] = num(v[c]); t += num(v[c]); } j.fin.budget.byCat = byCat; j.fin.budget.cost = t; hist(j, `Budget split updated (total cost ${money2(t)})`); } }); },
+  addCO: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'New change order', fields: [{ k: 'desc', label: 'Description', full: true, required: true }, { k: 'price', label: 'Price to customer ($)', type: 'number', step: '0.01' }, { k: 'cost', label: 'Estimated cost ($)', type: 'number', step: '0.01' }, { k: 'evidence', label: 'Evidence (photo link, note)', full: true }], onSave(v) { const co = { id: uid(), number: `CO-${j.fin.changeOrders.length + 1}`, ...v, price: num(v.price), cost: num(v.cost), status: 'pending', createdBy: me(), createdAt: iso(new Date()) }; j.fin.changeOrders.push(co); hist(j, `${co.number} requested: ${co.desc} — ${money2(co.price)} price / ${money2(co.cost)} cost`); if (!canApprove()) db.tasks.unshift({ id: uid(), title: `Approve ${co.number} on ${j.number}: ${co.desc} (${money2(co.price)})`, due: ymd(new Date()), done: false, assignee: '', customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Approvals', createdAt: iso(new Date()) }); } }); },
+  coSet: el => { const j = byId('jobs', el.dataset.id), co = j.fin.changeOrders.find(x => x.id === el.dataset.c); co.status = el.dataset.s; co.approvedBy = me(); co.decidedAt = iso(new Date()); hist(j, `${co.number} ${co.status} by ${me()}`); save(); render(); },
+  newPO: el => poModal(el.dataset.job),
+  poSet: el => { const po = (db.pos || []).find(x => x.id === el.dataset.id); po.status = el.dataset.s; if (po.status === 'approved') { po.approvedBy = me(); po.approvedAt = iso(new Date()); } const j = db.jobs.find(x => x.id === po.projectId); if (j) { projInit(j); hist(j, `${po.number} ${po.status} by ${me()}`); } save(); render(); },
+  newBill: () => billModal(null),
+  editBill: el => billModal((db.bills || []).find(b => b.id === el.dataset.id)),
+  delBill: el => confirmDlg('Delete this vendor bill?', () => { db.bills = db.bills.filter(b => b.id !== el.dataset.id); }),
+  billPaid: el => { const b = db.bills.find(x => x.id === el.dataset.id); b.paidAt = iso(new Date()); b.paidBy = me(); save(); render(); },
+  addCost: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Add direct cost', fields: [{ k: 'category', label: 'Category', type: 'select', options: COST_CATS }, { k: 'amount', label: 'Amount ($, negative = credit/return)', type: 'number', step: '0.01', required: true }, { k: 'vendor', label: 'Vendor / paid to' }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }, { k: 'note', label: 'Note / receipt link', full: true }], onSave(v) { j.fin.costs.push({ id: uid(), ...v, amount: num(v.amount), by: me(), paid: true }); hist(j, `Cost ${v.category} ${money2(v.amount)} ${v.vendor || ''}`); } }); },
+  delCost: el => { const j = byId('jobs', el.dataset.id); const c = j.fin.costs.find(x => x.id === el.dataset.c); j.fin.costs = j.fin.costs.filter(x => x.id !== el.dataset.c); hist(j, `Cost removed: ${c ? c.category + ' ' + money2(c.amount) : ''}`); save(); render(); },
+  addLabor: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Log crew hours', fields: [{ k: 'techId', label: 'Crew member', type: 'select', options: techOptions() }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'rate', label: 'Loaded hourly cost ($)', type: 'number', step: '0.01', value: db.settings.laborRate || 45 }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { j.fin.labor.push({ id: uid(), ...v, hours: num(v.hours), rate: num(v.rate), by: me() }); hist(j, `Labor logged: ${v.hours}h`); } }); },
+  toggleDispute: el => { const i = byId('invoices', el.dataset.inv); i.disputed = !i.disputed; log(`${i.number} ${i.disputed ? 'marked disputed' : 'dispute cleared'}`); save(); render(); },
+  mergeKeep: el => { const ids = el.dataset.all.split(','), keep = byId('customers', el.dataset.keep); confirmDlg(`Merge ${ids.length - 1} record(s) into <b>${esc(keep.name)}</b>? Projects, estimates, invoices, tasks and notes move to this customer.`, () => { mergeCustomers(el.dataset.keep, ids); toast('Customers merged'); }); },
+  addProperty: el => { const c = byId('customers', el.dataset.id); form({ title: 'Add property', fields: [{ k: 'label', label: 'Label', ph: 'e.g. Rental on Elm St' }, { k: 'address', label: 'Address', required: true, full: true }, { k: 'city', label: 'City' }, { k: 'zip', label: 'ZIP' }, { k: 'access', label: 'Access info (gate code, lockbox)', full: true }], onSave(v) { (c.properties = c.properties || []).push({ id: uid(), ...v }); } }); },
   taskSend: el => { const t = byId('tasks', el.dataset.id); t.done = true; t.doneAt = iso(new Date()); log(`${t.channel === 'email' ? 'Email' : 'SMS'} sent to ${cust(t.customerId).name}`); save(); setTimeout(render, 300); location.href = el.getAttribute('href'); },
   removeMember: el => confirmDlg('Remove this person’s access to OpsBoss?', async () => { const { error } = await cloud.sb.from('opsboss_members').delete().eq('user_id', el.dataset.id); toast(error ? error.message : 'Access removed'); render(); }),
   removeInvite: async el => { const { error } = await cloud.sb.from('opsboss_invites').delete().eq('email', el.dataset.email); toast(error ? error.message : 'Invitation removed'); ROUTES['settings:after'](); },
@@ -1762,6 +2077,12 @@ const INPUT = {
     render();
   },
   photoReqs: el => { db.settings.photoReqs = db.settings.photoReqs || {}; db.settings.photoReqs[el.dataset.k] = el.value.split('\n').map(x => x.trim()).filter(Boolean); save(); toast('Photo checklist saved'); },
+  opsTask: el => { const j = byId('jobs', el.dataset.id), t = j.ops.tasks[el.dataset.s].find(x => x.id === el.dataset.t); t.done = el.checked; t.doneBy = me(); t.doneAt = iso(new Date()); hist(j, `${el.checked ? '✓' : '↺'} ${t.t}`); save(); render(); },
+  projSpec: el => { const j = projInit(byId('jobs', el.dataset.id)); const old = j.specs[el.dataset.k]; j.specs[el.dataset.k] = el.type === 'number' ? num(el.value) : el.value; hist(j, `Spec ${el.dataset.k}: ${old ?? '—'} → ${j.specs[el.dataset.k]}`); save(); },
+  projFinancing: el => { const j = projInit(byId('jobs', el.dataset.id)); j.financing[el.dataset.k] = el.value; hist(j, `Financing ${el.dataset.k} updated`); save(); },
+  projProp: el => { const j = byId('jobs', el.dataset.id); j.propertyId = el.value; hist(j, 'Property changed'); save(); render(); },
+  projField: el => { const j = projInit(byId('jobs', el.dataset.id)); j[el.dataset.k] = el.value; hist(j, `${el.dataset.k}: ${el.value}`); save(); },
+  finRemaining: el => { const j = projInit(byId('jobs', el.dataset.id)); const old = j.fin.remaining; j.fin.remaining = num(el.value); hist(j, `Remaining cost estimate ${money2(old)} → ${money2(j.fin.remaining)}`); save(); render(); },
   photos: async el => { const j = byId('jobs', el.dataset.id); for (const f of el.files) { const d = await compressImage(f); if (d) j.photos.push(d); } save(); render(); toast('Photos added'); },
   importJson: el => { const f = el.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (!d.customers || !d.settings) throw 0; db = normalize(d); save(); render(); toast('Backup imported ✓'); } catch (e) { toast('Invalid file'); } }; r.readAsText(f); },
 };
