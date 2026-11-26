@@ -64,7 +64,7 @@ const assert = (c, m) => { if (!c) { console.error('FAIL:', m); process.exitCode
   const sim = await p.textContent('.modal');
   assert(/Simulated commission/.test(sim) && /rule "Sales rep — standard"/.test(sim), 'commission simulation shows amount and rule trace');
   await p.fill('#cmRep', 'Carlos Rivera'); await p.click('#cmOk'); await p.waitForTimeout(200);
-  d = await DB(); const cm = d.jobs.find(j => j.id === cj.id).fin.commissions[0];
+  d = await DB(); const cm = ((d.comp || []).find(c => c.id === cj.id) || { commissions: [] }).commissions[0]; assert(!('commissions' in d.jobs.find(j => j.id === cj.id).fin), 'commissions are stored apart from the project record');
   assert(cm && cm.status === 'approved' && cm.amount > 0, `commission approved: $${cm && cm.amount}`);
   await go('#/commissions'); await p.click('[data-act="commRuleVersion"]'); await p.waitForTimeout(200);
   await p.fill('[name=rate]', '12'); await p.fill('[name=from]', '2026-12-01'); await p.click('[data-save]'); await p.waitForTimeout(200);

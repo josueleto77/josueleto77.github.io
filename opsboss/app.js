@@ -205,7 +205,8 @@ function seed() {
 }
 
 function normalize(d) {
-  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts', 'tickets', 'warranties'].forEach(k => d[k] = d[k] || []);
+  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts', 'tickets', 'warranties', 'comp'].forEach(k => d[k] = d[k] || []);
+  migrateComp(d);
   if (!d.workflows) d.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t));
   if (d.settings && migrateEn(d)) d._migrated = true;
   return d;
@@ -262,16 +263,20 @@ function migrateEn(d) {
 
 /* ───────────── Nube (Supabase) ───────────── */
 const CFG = window.OPSBOSS_CONFIG || {};
-const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts', 'tickets', 'warranties'];
+const COLLS = ['customers', 'leads', 'estimates', 'comp', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts', 'tickets', 'warranties'];
 const TABLE = 'opsboss_records';
 const ROLE_LABEL = { owner: 'Owner', admin: 'Admin (direction)', sales: 'Sales', ops: 'Operations', purchasing: 'Purchasing', finance: 'Finance', office: 'Office', tech: 'Field technician', sub: 'Subcontractor' };
 const cloud = { on: false, sb: null, user: null, role: null, shadow: new Map(), timer: null, busy: false, again: false, pendingRender: false };
 const canon = v => JSON.stringify(v, (k, val) => val && typeof val === 'object' && !Array.isArray(val) ? Object.keys(val).sort().reduce((o, key) => (o[key] = val[key], o), {}) : val);
 const SEP = '\u0001';
+const PRIVATE_SETTINGS = ['commRules', 'techRates'];
 function snapshot() {
   const m = new Map();
-  COLLS.forEach(c => (db[c] || []).forEach(r => { if (r && r.id) m.set(c + SEP + r.id, canon(r)); }));
-  if (db.settings) m.set('settings' + SEP + 'main', canon(db.settings));
+  COLLS.forEach(c => { if (c === 'comp' && !canRates()) return; (db[c] || []).forEach(r => { if (r && r.id) m.set(c + SEP + r.id, canon(r)); }); });
+  if (db.settings) {
+    const main = { ...db.settings }; PRIVATE_SETTINGS.forEach(k => delete main[k]); m.set('settings' + SEP + 'main', canon(main));
+    if (canRates()) { const pv = {}; PRIVATE_SETTINGS.forEach(k => { if (db.settings[k] !== undefined) pv[k] = db.settings[k]; }); m.set('settings' + SEP + 'private', canon(pv)); }
+  }
   return m;
 }
 function setSync(st, msg) {
@@ -284,14 +289,20 @@ async function sync() {
   if (cloud.busy) { cloud.again = true; return; }
   cloud.busy = true; setSync('saving');
   try {
-    const cur = snapshot(), ups = [], dels = {};
+    const cur = snapshot(), ups = [], dels = {}, rejected = [];
     for (const [k, v] of cur) if (cloud.shadow.get(k) !== v) { const [coll, id] = k.split(SEP); ups.push({ coll, id, data: JSON.parse(v), _k: k, _v: v }); }
     for (const k of cloud.shadow.keys()) if (!cur.has(k)) { const [coll, id] = k.split(SEP); (dels[coll] = dels[coll] || []).push(id); }
     for (let i = 0; i < ups.length; i += 200) {
       const chunk = ups.slice(i, i + 200);
       const { error } = await cloud.sb.from(TABLE).upsert(chunk.map(({ coll, id, data }) => ({ coll, id, data })));
-      if (error) throw error;
-      chunk.forEach(u => cloud.shadow.set(u._k, u._v));
+      if (error) {
+        if (!permErr(error)) throw error;
+        for (const u of chunk) {
+          const { error: e1 } = await cloud.sb.from(TABLE).upsert([{ coll: u.coll, id: u.id, data: u.data }]);
+          if (e1 && !permErr(e1)) throw e1;
+          cloud.shadow.set(u._k, u._v); if (e1) rejected.push(u);
+        }
+      } else chunk.forEach(u => cloud.shadow.set(u._k, u._v));
     }
     for (const [coll, ids] of Object.entries(dels)) for (let i = 0; i < ids.length; i += 200) {
       const part = ids.slice(i, i + 200);
@@ -300,6 +311,7 @@ async function sync() {
       part.forEach(id => cloud.shadow.delete(coll + SEP + id));
     }
     setSync('ok');
+    if (rejected.length) rejectedRows(rejected);
   } catch (e) {
     console.error('OpsBoss sync', e);
     setSync(navigator.onLine === false ? 'offline' : 'error', e.message || String(e));
@@ -309,6 +321,19 @@ async function sync() {
     if (cloud.again) { cloud.again = false; sync(); }
   }
 }
+const permErr = e => e && (e.code === '42501' || /row-level security|permission denied|not allowed/i.test(e.message || ''));
+// El servidor rechazó cambios que este rol no puede hacer: se avisa y se recarga la versión del servidor.
+async function rejectedRows(list) {
+  const names = { jobs: 'projects', customers: 'customers', settings: 'settings', pos: 'purchase orders', bills: 'vendor bills', ledger: 'accounting', comp: 'rates & commissions', permits: 'permits', techs: 'team', pricebook: 'price book', invoices: 'invoices', estimates: 'estimates', leads: 'leads' };
+  toast(`Not saved — your role (${ROLE_LABEL[cloud.role] || cloud.role}) can’t change ${[...new Set(list.map(u => names[u.coll] || u.coll))].join(', ')}`);
+  for (const u of list) {
+    const { data } = await cloud.sb.from(TABLE).select('coll,id,data').eq('coll', u.coll).eq('id', u.id).maybeSingle();
+    if (u.coll === 'settings') continue;
+    if (data) { cloud.shadow.set(u._k, canon(data.data)); const arr = db[u.coll]; if (arr) { const i = arr.findIndex(x => x.id === u.id); if (i >= 0) arr[i] = data.data; else arr.unshift(data.data); } }
+    else { cloud.shadow.delete(u._k); if (db[u.coll]) db[u.coll] = db[u.coll].filter(x => x.id !== u.id); }
+  }
+  remoteRender();
+}
 async function cloudLoad() {
   const rows = [];
   for (let from = 0; ; from += 1000) {
@@ -317,7 +342,9 @@ async function cloudLoad() {
     rows.push(...data); if (data.length < 1000) break;
   }
   const d = { settings: null }; COLLS.forEach(c => d[c] = []);
-  rows.forEach(r => { if (r.coll === 'settings') d.settings = r.data; else if (d[r.coll]) d[r.coll].push(r.data); });
+  let priv = null;
+  rows.forEach(r => { if (r.coll === 'settings') { if (r.id === 'private') priv = r.data; else d.settings = r.data; } else if (d[r.coll]) d[r.coll].push(r.data); });
+  if (priv && d.settings) Object.assign(d.settings, priv);
   const by = k => (a, b) => String(b[k] || '').localeCompare(String(a[k] || ''));
   ['customers', 'leads', 'estimates', 'jobs', 'invoices'].forEach(c => d[c].sort(by('createdAt')));
   d.activity.sort(by('ts'));
@@ -335,7 +362,7 @@ function applyRemote(p) {
   } else {
     const v = canon(p.new.data); if (cloud.shadow.get(key) === v) return;
     cloud.shadow.set(key, v);
-    if (coll === 'settings') db.settings = p.new.data;
+    if (coll === 'settings') { if (id === 'private') db.settings = { ...(db.settings || {}), ...p.new.data }; else { const keep = {}; PRIVATE_SETTINGS.forEach(k => { if (db.settings && db.settings[k] !== undefined) keep[k] = db.settings[k]; }); db.settings = { ...p.new.data, ...keep }; } }
     else if (db[coll]) { const i = db[coll].findIndex(x => x.id === id); if (i >= 0) db[coll][i] = p.new.data; else db[coll].unshift(p.new.data); }
   }
   remoteRender();
@@ -435,7 +462,7 @@ const NAV = [
   ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['alerts', '🔔', 'Alerts'], ['dashboard', '◧', 'Dashboard'], ['boards', '▥', 'Team dashboards'], ['tasks', '☑', 'Tasks'], ['field', '📱', 'Field work orders'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
   ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Projects'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'], ['service', '🛠', 'Service & warranties'],
   ['sec', 'Projects'], ['permits', '⚑', 'Permits & Inspections'], ['tools', '∑', 'Calculators'],
-  ['sec', 'Business'], ['finance', '◔', 'Finance'], ['accounting', '⚖', 'Accounting (QuickBooks)'], ['exceptions', '⚠', 'Exceptions'], ['purchasing', '⛟', 'Purchasing & Bills'], ['commissions', '%', 'Commissions'], ['workflows', '⚡', 'Workflows'], ['runs', '⟳', 'Automation log'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
+  ['sec', 'Business'], ['finance', '◔', 'Finance'], ['accounting', '⚖', 'Accounting (QuickBooks)'], ['exceptions', '⚠', 'Exceptions'], ['purchasing', '⛟', 'Purchasing & Bills'], ['commissions', '%', 'Commissions'], ['workflows', '⚡', 'Workflows'], ['runs', '⟳', 'Automation log'], ['audit', '🛡', 'Audit log'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
 ];
 function renderNav() {
   const route = (location.hash.slice(2).split('?')[0] || 'mywork').split('/')[0];
@@ -443,14 +470,24 @@ function renderNav() {
   let exN = 0; try { exN = isFin() ? exceptionsOpen().length : 0; } catch (e) { exN = 0; }
   const active = parentOf[route] || route;
   const badges = { service: (db.tickets || []).filter(t => t.status === 'new').length, tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length, exceptions: exN, runs: (db.runs || []).filter(r => r.status === 'error').length };
-  $('#nav').innerHTML = NAV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
+  const NAVV = NAV.filter(n => n[0] === 'sec' || routeAllowed(n[0])).filter((n, i, a) => n[0] !== 'sec' || (a[i + 1] && a[i + 1][0] !== 'sec'));
+  $('#nav').innerHTML = NAVV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
   $('#divFilter').innerHTML = [['all', 'All'], ...divOptions()].map(([k, v]) => `<button data-div="${k}" class="${state.div === k ? 'on' : ''}">${k !== 'all' ? `<span class="div-dot d-${k}"></span> ` : ''}${v}</button>`).join('');
 }
 const ROUTES = {};
+// Páginas por rol (el servidor aplica los mismos límites a los datos).
+const ROLE_ALLOW = { sub: ['mywork', 'alerts', 'tasks', 'field', 'wo', 'photos', 'schedule'] };
+const ROLE_DENY = {
+  tech: ['finance', 'accounting', 'exceptions', 'purchasing', 'commissions', 'runs', 'reports', 'audit'],
+  sales: ['accounting', 'exceptions', 'purchasing', 'commissions', 'runs', 'finance', 'audit'],
+  office: ['accounting', 'exceptions', 'commissions', 'runs', 'audit'],
+  ops: ['accounting', 'commissions', 'audit'], purchasing: ['accounting', 'commissions', 'audit'],
+};
+const routeAllowed = r => { if (!cloud.on || !cloud.role) return true; const a = ROLE_ALLOW[cloud.role]; if (a) return a.includes(r); return !(ROLE_DENY[cloud.role] || []).includes(r); };
 function render() {
   const [route, id] = (location.hash.slice(2).split('?')[0] || 'mywork').split('/');
   renderNav(); renderBell();
-  const fn = ROUTES[route] || ROUTES.dashboard;
+  const fn = !routeAllowed(route || 'mywork') ? () => head('Not available', '') + `<div class="card"><div class="empty">This page isn’t available for your role (${esc(ROLE_LABEL[cloud.role] || cloud.role)}). Ask an admin if you need access.</div></div>` : (ROUTES[route] || ROUTES.dashboard);
   $('#view').innerHTML = fn(id) || '';
   const after = ROUTES[route + ':after']; after && after(id);
 }
@@ -1134,18 +1171,29 @@ function blockersOf(j) {
 const projInvoices = j => db.invoices.filter(i => i.status !== 'void' && (i.jobId === j.id || (j.estimateId && i.estimateId === j.estimateId && !i.jobId)));
 const billLines = j => (db.bills || []).flatMap(b => (b.lines || []).filter(l => l.projectId === j.id).map(l => ({ ...l, bill: b })));
 const poBilled = po => sumBy((db.bills || []).flatMap(b => b.lines || []).filter(l => l.poId === po.id), l => l.amount);
+// Tarifas por entrada de mano de obra y comisiones viven en "comp" (solo owner/admin/finance las leen).
+// Los demás roles usan los totales que calcula el servidor (fin.laborCost, fin.commPaid, fin.commOpen).
+function compOf(j, create) { db.comp = db.comp || []; let c = db.comp.find(x => x.id === j.id); if (!c && create) { c = { id: j.id, labor: {}, commissions: [] }; db.comp.push(c); } if (c) { c.labor = c.labor || {}; c.commissions = c.commissions || []; } return c; }
+function laborRateOf(j, l) { const c = compOf(j); return c && c.labor[l.id] != null ? num(c.labor[l.id]) : techRate(tech(l.techId)); }
+function laborCostOf(j) { const f = j.fin; if (canRates()) return sumBy(f.labor, l => num(l.hours) * laborRateOf(j, l)); return f.laborCost != null ? num(f.laborCost) : sumBy(f.labor, l => num(l.hours) * num(db.settings.laborRate || 45)); }
+const commsOf = j => canRates() ? ((compOf(j) || {}).commissions || []) : [];
+function migrateComp(d) {
+  d.comp = d.comp || [];
+  (d.jobs || []).forEach(j => { const f = j.fin; if (!f) return; const has = (f.commissions && f.commissions.length) || (f.labor || []).some(l => l.rate != null); if (!has) { delete f.commissions; return; } let c = d.comp.find(x => x.id === j.id); if (!c) { c = { id: j.id, labor: {}, commissions: [] }; d.comp.push(c); } (f.labor || []).forEach(l => { if (l.rate != null) { if (c.labor[l.id] == null) c.labor[l.id] = num(l.rate); delete l.rate; } }); if (f.commissions) { if (!c.commissions.length) c.commissions = f.commissions; delete f.commissions; } });
+  (d.tickets || []).forEach(t => (t.time || []).forEach(x => { delete x.rate; }));
+}
 function finOf(j) {
   projInit(j);
   const f = j.fin, base = f.budget ? f.budget.price : subtotal(j.items), baseCost = f.budget ? f.budget.cost : costOf(j.items);
   const coApproved = f.changeOrders.filter(c => c.status === 'approved');
   const coPrice = sumBy(coApproved, c => c.price), coCost = sumBy(coApproved, c => c.cost);
   const revenue = base + coPrice;
-  const lines = billLines(j), labor = sumBy(f.labor, l => num(l.hours) * num(l.rate));
+  const lines = billLines(j), labor = laborCostOf(j);
   const actual = sumBy(lines, l => l.amount) + sumBy(f.costs, c => c.amount) + labor;
   const paidOut = sumBy(lines.filter(l => l.bill.paidAt), l => l.amount) + sumBy(f.costs.filter(c => c.paid), c => c.amount) + labor;
   const pos = (db.pos || []).filter(p => p.projectId === j.id && p.status === 'approved');
   const committed = sumBy(pos, p => Math.max(0, num(p.amount) - poBilled(p)));
-  const comms = (f.commissions || []).filter(c => c.status !== 'void'), commPaid = sumBy(comms.filter(c => c.status === 'paid'), c => c.amount), commOpen = sumBy(comms.filter(c => c.status === 'approved'), c => c.amount);
+  const comms = commsOf(j).filter(c => c.status !== 'void'), commPaid = canRates() ? sumBy(comms.filter(c => c.status === 'paid'), c => c.amount) : num(f.commPaid), commOpen = canRates() ? sumBy(comms.filter(c => c.status === 'approved'), c => c.amount) : num(f.commOpen);
   const remaining = f.remainingSet ? num(f.remaining) : Math.max(0, baseCost + coCost - actual - committed);
   const projected = actual + commPaid + committed + commOpen + remaining;
   const gross = revenue - projected, pct = revenue ? gross / revenue : 0;
@@ -1237,11 +1285,11 @@ function projFinancials(j) {
     <div class="card mt"><div class="card-h"><h3>Costs</h3><div class="row"><button class="btn sm" data-act="addCost" data-id="${j.id}">＋ Cost</button>${canRates() ? `<button class="btn sm" data-act="addLabor" data-id="${j.id}">＋ Labor</button>` : ''}</div></div><div class="card-b">
       ${lines.map(l => `<div class="list-item small"><div style="flex:1">${esc(l.bill.vendor)} ${esc(l.bill.number || '')} · ${esc(l.category)}</div><b>${money2(l.amount)}</b></div>`).join('')}
       ${f.costs.map(c => `<div class="list-item small"><div style="flex:1">${esc(c.vendor || 'Direct')} · ${esc(c.category)}${c.note ? ' · ' + esc(c.note) : ''}<div class="muted">${fDate(parseLocal(c.date))} · by ${esc(c.by || '')}</div></div><b>${money2(c.amount)}</b><button class="btn ghost sm danger" data-act="delCost" data-id="${j.id}" data-c="${c.id}">✕</button></div>`).join('')}
-      ${canRates() ? f.labor.map(l => `<div class="list-item small"><div style="flex:1">Labor · ${esc((tech(l.techId) || {}).name || l.who || '')} · ${l.hours}h × ${money2(l.rate)}</div><b>${money2(num(l.hours) * num(l.rate))}</b></div>`).join('') : (f.labor.length ? `<div class="small muted">Labor: ${f.labor.reduce((s, l) => s + num(l.hours), 0)}h logged (rates restricted)</div>` : '')}
+      ${canRates() ? f.labor.map(l => `<div class="list-item small"><div style="flex:1">Labor · ${esc((tech(l.techId) || {}).name || l.who || '')} · ${l.hours}h × ${money2(laborRateOf(j, l))}</div><b>${money2(num(l.hours) * laborRateOf(j, l))}</b></div>`).join('') : (f.labor.length ? `<div class="small muted">Labor: ${f.labor.reduce((s, l) => s + num(l.hours), 0)}h logged (rates restricted)</div>` : '')}
       ${!lines.length && !f.costs.length && !f.labor.length ? '<span class="muted small">No costs yet. Vendor bills from Purchasing land here automatically.</span>' : ''}
     </div></div>
     ${(() => { const o = overheadOf(j, F); return `<div class="card mt"><div class="card-h"><h3>After overhead</h3></div><div class="card-b"><div class="calc-out"><div><div class="l">Allocated overhead</div><div class="b">${money2(o.amount)}</div></div><div><div class="l">Result after overhead</div><div class="b ${o.after < 0 ? 'down' : 'up'}">${money2(o.after)}</div></div></div><p class="small muted">Rule: ${esc(o.rule)}. Change it in Settings → Overhead allocation rule.</p></div></div>`; })()}
-    ${canRates() ? `<div class="card mt"><div class="card-h"><h3>Commissions</h3><button class="btn sm" data-act="commSim" data-id="${j.id}">Simulate / approve</button></div><div class="card-b">${(f.commissions || []).map(c => `<div class="list-item small"><div style="flex:1">${esc(c.rep)} · ${esc(c.ruleName)}<div class="muted">${esc(c.trace || '')}</div></div><b>${money2(c.amount)}</b><span class="pill ${c.status === 'paid' ? 'ok' : c.status === 'void' ? '' : 'info'}">${c.status}</span></div>`).join('') || '<span class="muted small">No commission yet. Simulate it before approving.</span>'}</div></div>` : ''}
+    ${canRates() ? `<div class="card mt"><div class="card-h"><h3>Commissions</h3><button class="btn sm" data-act="commSim" data-id="${j.id}">Simulate / approve</button></div><div class="card-b">${commsOf(j).map(c => `<div class="list-item small"><div style="flex:1">${esc(c.rep)} · ${esc(c.ruleName)}<div class="muted">${esc(c.trace || '')}</div></div><b>${money2(c.amount)}</b><span class="pill ${c.status === 'paid' ? 'ok' : c.status === 'void' ? '' : 'info'}">${c.status}</span></div>`).join('') || '<span class="muted small">No commission yet. Simulate it before approving.</span>'}</div></div>` : ''}
   </div></div>`;
 }
 function projBilling(j) {
@@ -1252,7 +1300,7 @@ function projBilling(j) {
   </tbody></table></div></div>`;
 }
 function projHistory(j) {
-  return `<div class="card"><div class="card-h"><h3>Change log</h3></div><div class="card-b"><div class="timeline">${(j.history || []).map(h => `<div class="ev"><div>${esc(h.text)}</div><div class="small muted">${esc(h.by || '')} · ${new Date(h.ts).toLocaleString('en-US')}</div></div>`).join('') || '<div class="muted">No changes recorded yet.</div>'}</div></div></div>`;
+  return `<div class="card"><div class="card-h"><h3>Change log</h3></div><div class="card-b"><div class="timeline">${(j.history || []).map(h => `<div class="ev"><div>${esc(h.text)}</div><div class="small muted">${esc(h.by || '')} · ${new Date(h.ts).toLocaleString('en-US')}</div></div>`).join('') || '<div class="muted">No changes recorded yet.</div>'}</div></div></div><div id="srvAudit"></div>`;
 }
 
 /* ───────────── MY WORK ───────────── */
@@ -1609,15 +1657,33 @@ ROUTES.team = () => {
 };
 function techModal(t) {
   const isNew = !t; t = t || { color: '#6366f1', division: 'hvac' };
-  form({ title: isNew ? 'New technician' : 'Edit technician', fields: [{ k: 'name', label: 'Name', value: t.name, required: true }, { k: 'role', label: 'Role', value: t.role }, { k: 'division', label: 'Division', type: 'select', options: divOptions(), value: t.division }, { k: 'phone', label: 'Phone', value: t.phone }, { k: 'color', label: 'Schedule color', type: 'color', value: t.color }],
+  form({ title: isNew ? 'New technician' : 'Edit technician', fields: [{ k: 'name', label: 'Name', value: t.name, required: true }, { k: 'role', label: 'Role', value: t.role }, { k: 'division', label: 'Division', type: 'select', options: divOptions(), value: t.division }, { k: 'phone', label: 'Phone', value: t.phone }, { k: 'email', label: 'Login email (links them to their work orders)', type: 'email', value: t.email }, { k: 'color', label: 'Schedule color', type: 'color', value: t.color }, ...(canRates() ? [{ k: 'rate', label: 'Loaded hourly cost ($/h · private)', type: 'number', step: '0.01', value: (db.settings.techRates || {})[t.id] ?? '' }] : [])],
     extraFoot: isNew ? '' : '<button class="btn danger" id="tDel" style="margin-right:auto">Delete</button>',
-    onSave(v) { if (isNew) db.techs.push({ id: uid(), ...v }); else Object.assign(t, v); } });
+    onSave(v) { const rate = v.rate; delete v.rate; v.email = String(v.email || '').trim().toLowerCase(); let id = t.id; if (isNew) { id = uid(); db.techs.push({ id, ...v }); } else Object.assign(t, v); if (canRates() && rate !== undefined && rate !== '' && num(rate) > 0) { db.settings.techRates = { ...(db.settings.techRates || {}), [id]: num(rate) }; } } });
   if (!isNew) $('#tDel').onclick = () => { $('.modal-bg:last-child').remove(); confirmDlg('Delete this technician? Their jobs will become unassigned.', () => { db.techs = db.techs.filter(x => x.id !== t.id); db.jobs.forEach(j => j.techIds = j.techIds.filter(x => x !== t.id)); }); };
 }
 
 /* ───────────── CONFIGURACIÓN ───────────── */
 const canAdmin = () => !cloud.on || ['owner', 'admin'].includes(cloud.role);
+const AUDIT_COLL = { jobs: 'Project', invoices: 'Invoice', pos: 'Purchase order', bills: 'Vendor bill', estimates: 'Estimate', comp: 'Rates & commissions', settings: 'Settings', tickets: 'Ticket' };
+const auditHref = a => ({ jobs: '#/job/', invoices: '#/invoice/', estimates: '#/estimate/', tickets: '#/ticket/', comp: '#/job/' }[a.coll] ? { jobs: '#/job/', invoices: '#/invoice/', estimates: '#/estimate/', tickets: '#/ticket/', comp: '#/job/' }[a.coll] + a.record_id : a.coll === 'pos' || a.coll === 'bills' ? '#/purchasing' : '#/settings');
+const auditRow = a => `<tr><td class="small">${new Date(a.at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td class="small">${esc(a.email || 'system')}<div class="muted">${esc(ROLE_LABEL[a.role] || a.role || 'automation')}</div></td><td class="small"><a href="${auditHref(a)}">${esc(AUDIT_COLL[a.coll] || a.coll)} ${esc(a.label || '')}</a></td><td class="small b">${esc(a.field)}</td><td class="small">${a.old_value != null ? `<span class="muted" style="text-decoration:line-through">${esc(String(a.old_value).slice(0, 120))}</span> → ` : ''}${esc(String(a.new_value ?? '').slice(0, 160))}</td></tr>`;
+ROUTES.audit = () => head('Audit log', 'Recorded by the server: who changed stages, statuses, costs, payments, approvals, rates and commissions') + `<div class="tabs">${[['', 'All'], ...Object.entries(AUDIT_COLL)].map(([k, v]) => `<button data-act="filt" data-f="auc" data-v="${k}" class="${(state.filters.auc || '') === k ? 'on' : ''}">${v}</button>`).join('')}</div><div class="card"><div class="table-wrap"><table><thead><tr><th>When</th><th>Who</th><th>Record</th><th>Field</th><th>Change</th></tr></thead><tbody id="auditBody"><tr><td colspan="5" class="empty">${cloud.on ? 'Loading…' : 'The audit log is kept by the server — sign in to the cloud workspace to see it.'}</td></tr></tbody></table></div></div>`;
+ROUTES['audit:after'] = async () => {
+  if (!cloud.on) return;
+  let q = cloud.sb.from('opsboss_audit').select('*').order('at', { ascending: false }).limit(400);
+  if (state.filters.auc) q = q.eq('coll', state.filters.auc);
+  const { data, error } = await q; const b = $('#auditBody'); if (!b) return;
+  b.innerHTML = error ? `<tr><td colspan="5" class="empty">${esc(error.message)}</td></tr>` : (data || []).map(auditRow).join('') || '<tr><td colspan="5" class="empty">No changes recorded yet.</td></tr>';
+};
+ROUTES['job:after'] = async id => {
+  const box = $('#srvAudit'); if (!box || !cloud.on || !['owner', 'admin', 'finance'].includes(cloud.role)) return;
+  const { data } = await cloud.sb.from('opsboss_audit').select('*').in('coll', ['jobs', 'comp']).eq('record_id', id).order('at', { ascending: false }).limit(100);
+  if ($('#srvAudit')) $('#srvAudit').innerHTML = `<div class="card mt"><div class="card-h"><h3>Server audit</h3><span class="small muted">recorded by the database, cannot be edited</span></div><div class="table-wrap"><table><tbody>${(data || []).map(auditRow).join('') || '<tr><td class="empty">No changes recorded yet.</td></tr>'}</tbody></table></div></div>`;
+};
+const canEditSettings = () => !cloud.on || ['owner', 'admin', 'finance'].includes(cloud.role);
 ROUTES['settings:after'] = async () => {
+  if (!canEditSettings()) { $$('#view [data-act-input]').forEach(el => { if (el.dataset.actInput !== 'memberRole') el.disabled = true; }); const h = $('#view .page-head'); if (h && !$('#roNote')) h.insertAdjacentHTML('afterend', `<div class="auth-msg mb" id="roNote">Settings are read-only for your role (${esc(ROLE_LABEL[cloud.role] || cloud.role)}). Owner, admin and finance can change them.</div>`); }
   const box = $('#acl'); if (!box) return;
   const [{ data: mem, error: e1 }, inv] = await Promise.all([cloud.sb.from('opsboss_members').select('*').order('created_at'), canAdmin() ? cloud.sb.from('opsboss_invites').select('*').order('created_at') : Promise.resolve({ data: [] })]);
   if (!$('#acl')) return;
@@ -2057,7 +2123,7 @@ const ACT = {
   billPaid: el => { const b = db.bills.find(x => x.id === el.dataset.id); b.paidAt = iso(new Date()); b.paidBy = me(); save(); render(); },
   addCost: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Add direct cost', fields: [{ k: 'category', label: 'Category', type: 'select', options: COST_CATS }, { k: 'amount', label: 'Amount ($, negative = credit/return)', type: 'number', step: '0.01', required: true }, { k: 'vendor', label: 'Vendor / paid to' }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }, { k: 'note', label: 'Note / receipt link', full: true }], onSave(v) { j.fin.costs.push({ id: uid(), ...v, amount: num(v.amount), by: me(), paid: true }); hist(j, `Cost ${v.category} ${money2(v.amount)} ${v.vendor || ''}`); } }); },
   delCost: el => { const j = byId('jobs', el.dataset.id); const c = j.fin.costs.find(x => x.id === el.dataset.c); j.fin.costs = j.fin.costs.filter(x => x.id !== el.dataset.c); hist(j, `Cost removed: ${c ? c.category + ' ' + money2(c.amount) : ''}`); save(); render(); },
-  addLabor: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Log crew hours', fields: [{ k: 'techId', label: 'Crew member', type: 'select', options: techOptions() }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'rate', label: 'Loaded hourly cost ($)', type: 'number', step: '0.01', value: db.settings.laborRate || 45 }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { j.fin.labor.push({ id: uid(), ...v, hours: num(v.hours), rate: num(v.rate), by: me() }); hist(j, `Labor logged: ${v.hours}h`); } }); },
+  addLabor: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Log crew hours', fields: [{ k: 'techId', label: 'Crew member', type: 'select', options: techOptions() }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'rate', label: 'Loaded hourly cost ($)', type: 'number', step: '0.01', value: db.settings.laborRate || 45 }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { const lid = uid(); compOf(j, true).labor[lid] = num(v.rate); j.fin.labor.push({ id: lid, techId: v.techId, hours: num(v.hours), date: v.date, by: me() }); hist(j, `Labor logged: ${v.hours}h`); } }); },
   toggleDispute: el => { const i = byId('invoices', el.dataset.inv); i.disputed = !i.disputed; log(`${i.number} ${i.disputed ? 'marked disputed' : 'dispute cleared'}`); save(); render(); },
   mergeKeep: el => { const ids = el.dataset.all.split(','), keep = byId('customers', el.dataset.keep); confirmDlg(`Merge ${ids.length - 1} record(s) into <b>${esc(keep.name)}</b>? Projects, estimates, invoices, tasks and notes move to this customer.`, () => { mergeCustomers(el.dataset.keep, ids); toast('Customers merged'); }); },
   addProperty: el => { const c = byId('customers', el.dataset.id); form({ title: 'Add property', fields: [{ k: 'label', label: 'Label', ph: 'e.g. Rental on Elm St' }, { k: 'address', label: 'Address', required: true, full: true }, { k: 'city', label: 'City' }, { k: 'zip', label: 'ZIP' }, { k: 'access', label: 'Access info (gate code, lockbox)', full: true }], onSave(v) { (c.properties = c.properties || []).push({ id: uid(), ...v }); } }); },
@@ -2267,13 +2333,13 @@ async function enter(user) {
     cloud.role = role;
     await ghlLoadConfig();
     const { d, count } = await cloudLoad();
-    db = d;
+    db = d; migrateComp(db);
     cloud.shadow = snapshot();
     migrateEn(db);
     if (!db.settings) { const b = blankDb(); db.settings = b.settings; if (!db.pricebook.length) db.pricebook = b.pricebook; }
     if (count && !db.workflows.length && !db.settings.wfSeeded) { db.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t)); db.settings.wfSeeded = true; }
     cloud.on = true; $('#auth').hidden = true; setSync('ok');
-    if (role === 'tech' && (!location.hash || location.hash === '#/' || location.hash === '#/dashboard')) location.hash = '#/field';
+    if (['tech', 'sub'].includes(role) && (!location.hash || location.hash === '#/' || location.hash === '#/dashboard')) location.hash = '#/field';
     subscribe(); start(); sync();
     if (!count && canAdmin()) firstRun();
   } catch (e) { authScreen('setup', esc(e.message || String(e))); } finally { cloud.entering = false; }
@@ -2426,7 +2492,7 @@ function commPayable(j, r) {
 function commSimulate(j, rep) {
   projInit(j);
   const r = commRuleFor(j); if (!r) return null;
-  const F = finOf(j), existing = sumBy((j.fin.commissions || []).filter(c => c.status !== 'void'), c => c.amount);
+  const F = finOf(j), existing = sumBy(commsOf(j).filter(c => c.status !== 'void'), c => c.amount);
   const basisAmt = r.basis === 'gross' ? F.gross + existing : F.revenue;
   const amount = Math.max(0, Math.round((basisAmt * num(r.rate) / 100 + num(r.flat)) * 100) / 100);
   return { rule: r, basisAmt, amount, rep, pay: commPayable(j, r), trace: `${r.basis === 'gross' ? 'Projected gross profit (before commissions)' : 'Approved contract value'} ${money2(basisAmt)} × ${num(r.rate)}%${num(r.flat) ? ' + ' + money2(r.flat) : ''} = ${money2(amount)} · rule "${r.name}" effective ${r.from}${r.to ? ' → ' + r.to : ''}` };
@@ -2437,13 +2503,13 @@ function commModal(j) {
   modal({ title: `Commission · ${j.number}`, body: `<label class="f">Sales rep<input class="inp" id="cmRep" list="cmReps" value="${esc(j.salesRep || '')}"><datalist id="cmReps">${reps.map(n => `<option value="${esc(n)}">`).join('')}</datalist></label><div id="cmOut" class="mt"></div>`, foot: `<button class="btn" data-dismiss>Close</button>${canApprove() ? '<button class="btn primary" id="cmOk">Approve commission</button>' : ''}`, onMount(bg, close) {
     const draw = () => { const s = commSimulate(j, $('#cmRep', bg).value); $('#cmOut', bg).innerHTML = s ? `<div class="card"><div class="card-b"><div class="kpi"><div class="l">Simulated commission</div><div class="v">${money2(s.amount)}</div></div><p class="small">${esc(s.trace)}</p><p class="small">Payable when: <b>${COMM_PAY[s.rule.payWhen]}</b> — ${s.pay.ok ? '<span class="pill ok">condition met</span>' : `<span class="pill warn">not yet (${esc(s.pay.why)})</span>`}</p><p class="small muted">Approving adds it to the project as a pending commission cost; marking it paid moves it to actual cost.</p></div></div>` : '<div class="auth-msg bad">No commission rule is effective for this project’s contract date and service. Add one in Commissions.</div>'; };
     $('#cmRep', bg).oninput = draw; draw();
-    const okb = $('#cmOk', bg); if (okb) okb.onclick = () => { const rep = $('#cmRep', bg).value.trim(); if (!rep) { toast('Choose the sales rep'); return; } const s = commSimulate(j, rep); if (!s) return; j.salesRep = rep; (j.fin.commissions = j.fin.commissions || []).push({ id: uid(), rep, ruleId: s.rule.id, ruleName: s.rule.name, ruleFrom: s.rule.from, basis: s.rule.basis, basisAmt: s.basisAmt, rate: s.rule.rate, flat: s.rule.flat, amount: s.amount, payWhen: s.rule.payWhen, status: 'approved', approvedBy: me(), approvedAt: iso(new Date()), trace: s.trace }); hist(j, `Commission approved for ${rep}: ${money2(s.amount)} (${s.rule.name})`); runLog('commission.approve', `${j.number} · ${rep} · ${money2(s.amount)}`); close(); save(); render(); toast('Commission approved'); };
+    const okb = $('#cmOk', bg); if (okb) okb.onclick = () => { const rep = $('#cmRep', bg).value.trim(); if (!rep) { toast('Choose the sales rep'); return; } const s = commSimulate(j, rep); if (!s) return; j.salesRep = rep; compOf(j, true).commissions.push({ id: uid(), rep, ruleId: s.rule.id, ruleName: s.rule.name, ruleFrom: s.rule.from, basis: s.rule.basis, basisAmt: s.basisAmt, rate: s.rule.rate, flat: s.rule.flat, amount: s.amount, payWhen: s.rule.payWhen, status: 'approved', approvedBy: me(), approvedAt: iso(new Date()), trace: s.trace }); hist(j, `Commission approved for ${rep}: ${money2(s.amount)} (${s.rule.name})`); runLog('commission.approve', `${j.number} · ${rep} · ${money2(s.amount)}`); close(); save(); render(); toast('Commission approved'); };
   } });
 }
 ROUTES.commissions = () => {
   if (!canRates()) return head('Commissions', '') + '<div class="card"><div class="empty">Restricted: only owner, admin and finance can see compensation.</div></div>';
   p3Init();
-  const rows = db.jobs.flatMap(j => (projInit(j).fin.commissions || []).map(c => ({ j, c, pay: commPayable(j, c) })));
+  const rows = db.jobs.flatMap(j => commsOf(projInit(j)).map(c => ({ j, c, pay: commPayable(j, c) })));
   const rules = [...db.settings.commRules].sort((a, b) => a.name.localeCompare(b.name) || b.from.localeCompare(a.from));
   return head('Commissions', 'Versioned rules by effective date · simulate before approving · payable when the rule’s condition is met', '<button class="btn primary" data-act="commRuleNew">＋ Rule</button>') + `
   <div class="grid g4 mb">${kpi('Approved, not paid', money(sumBy(rows.filter(r => r.c.status === 'approved'), r => r.c.amount)))}${kpi('Payable now', money(sumBy(rows.filter(r => r.c.status === 'approved' && r.pay.ok), r => r.c.amount)))}${kpi('Paid', money(sumBy(rows.filter(r => r.c.status === 'paid'), r => r.c.amount)))}${kpi('Rules (all versions)', rules.length)}</div>
@@ -2625,7 +2691,7 @@ function monthlyResults(year, basis) {
   } else {
     db.invoices.filter(i => !['void', 'draft'].includes(i.status) && inY(ymd(i.createdAt))).forEach(i => { const M = months[mo(ymd(i.createdAt))], v = subtotal(i.items), dv = i.division || 'other'; M.rev[dv] = num(M.rev[dv]) + v; M.revT += v; });
     (db.bills || []).filter(b => inY(b.date)).forEach(b => b.lines.forEach(l => { if (l.projectId) months[mo(b.date)].cost += num(l.amount); else months[mo(b.date)].oh += num(l.amount); }));
-    db.jobs.forEach(j => { projInit(j); j.fin.costs.filter(c => inY(c.date)).forEach(c => months[mo(c.date)].cost += num(c.amount)); j.fin.labor.filter(l => inY(l.date)).forEach(l => months[mo(l.date)].cost += num(l.hours) * num(l.rate)); (j.fin.commissions || []).filter(c => c.status === 'paid' && inY(ymd(c.paidAt))).forEach(c => months[mo(ymd(c.paidAt))].cost += num(c.amount)); });
+    db.jobs.forEach(j => { projInit(j); j.fin.costs.filter(c => inY(c.date)).forEach(c => months[mo(c.date)].cost += num(c.amount)); j.fin.labor.filter(l => inY(l.date)).forEach(l => months[mo(l.date)].cost += num(l.hours) * laborRateOf(j, l)); commsOf(j).filter(c => c.status === 'paid' && inY(ymd(c.paidAt))).forEach(c => months[mo(ymd(c.paidAt))].cost += num(c.amount)); });
     allPayments().filter(p => inY(ymd(p.date))).forEach(p => months[mo(ymd(p.date))].cin += num(p.amount));
     (db.bills || []).filter(b => b.paidAt && inY(ymd(b.paidAt))).forEach(b => months[mo(ymd(b.paidAt))].cout += sumBy(b.lines, l => l.amount));
   }
@@ -2806,8 +2872,8 @@ Object.assign(ACT, {
   commSim: el => commModal(projInit(byId('jobs', el.dataset.id))),
   commRuleNew: () => commRuleModal(null),
   commRuleVersion: el => commRuleModal(db.settings.commRules.find(r => r.id === el.dataset.r)),
-  commPaid: el => { const j = projInit(byId('jobs', el.dataset.id)), c = j.fin.commissions.find(x => x.id === el.dataset.c); const pay = commPayable(j, c); const go = () => { c.status = 'paid'; c.paidAt = iso(new Date()); c.paidBy = me(); hist(j, `Commission paid to ${c.rep}: ${money2(c.amount)}`); runLog('commission.paid', `${j.number} · ${c.rep} · ${money2(c.amount)}`); }; if (!pay.ok) confirmDlg(`The payment condition is not met yet (${esc(pay.why)}). Mark as paid anyway?`, go); else { go(); save(); render(); } },
-  commVoid: el => { const j = projInit(byId('jobs', el.dataset.id)), c = j.fin.commissions.find(x => x.id === el.dataset.c); const why = prompt('Reason to void this commission?'); if (!why) return; c.status = 'void'; c.voidReason = why; c.voidBy = me(); hist(j, `Commission voided (${c.rep}): ${why}`); save(); render(); },
+  commPaid: el => { const j = projInit(byId('jobs', el.dataset.id)), c = commsOf(j).find(x => x.id === el.dataset.c); const pay = commPayable(j, c); const go = () => { c.status = 'paid'; c.paidAt = iso(new Date()); c.paidBy = me(); hist(j, `Commission paid to ${c.rep}: ${money2(c.amount)}`); runLog('commission.paid', `${j.number} · ${c.rep} · ${money2(c.amount)}`); }; if (!pay.ok) confirmDlg(`The payment condition is not met yet (${esc(pay.why)}). Mark as paid anyway?`, go); else { go(); save(); render(); } },
+  commVoid: el => { const j = projInit(byId('jobs', el.dataset.id)), c = commsOf(j).find(x => x.id === el.dataset.c); const why = prompt('Reason to void this commission?'); if (!why) return; c.status = 'void'; c.voidReason = why; c.voidBy = me(); hist(j, `Commission voided (${c.rep}): ${why}`); save(); render(); },
   ledgerMatch: () => { const n = autoMatchLedger(); runLog('ledger.match', `Auto-match assigned ${n} transaction${n === 1 ? '' : 's'} to projects`, { system: 'QuickBooks' }); save(); render(); toast(`${n} transaction${n === 1 ? '' : 's'} matched`); },
   excResolve: el => { p3Init(); const s = excState(el.dataset.id), to = el.dataset.s; let note = ''; if (to !== 'open') { note = prompt(to === 'resolved' ? 'How was it resolved?' : 'Why ignore it?') || ''; if (to === 'ignored' && !note) { toast('A reason is required to ignore an exception'); return; } } s.status = to; s.note = note || s.note; s.resolvedBy = to === 'open' ? '' : me(); s.resolvedAt = to === 'open' ? '' : iso(new Date()); (s.history = s.history || []).unshift({ ts: iso(new Date()), by: me(), text: `${to}${note ? ': ' + note : ''}` }); save(); render(); },
   qbExport: el => qbExport(el.dataset.k, el),
@@ -2861,7 +2927,7 @@ function p4Init() {
   s.counters = s.counters || {};
 }
 const myTech = () => db.techs.find(t => (t.email || '').toLowerCase() === me().toLowerCase()) || (state.iam && tech(state.iam));
-const techRate = t => num((t && t.rate) || db.settings.laborRate || 45);
+const techRate = t => { const r = (db.settings.techRates || {})[t && t.id]; return num(r != null && r !== '' ? r : (db.settings.laborRate || 45)); };
 const dl = (d, n) => ymd(addDays(parseLocal(d), n));
 
 // ── Upload queue (photos taken offline or when the upload fails) ──
@@ -2989,7 +3055,7 @@ function sigPad(title, onDone) {
 
 // ── Service tickets & warranties ──
 const tkNum = () => { p4Init(); const max = Math.max(1000, num(db.settings.counters.ticket), ...db.tickets.map(t => parseInt(String(t.number || '').replace(/\D/g, ''), 10) || 0)); db.settings.counters.ticket = max + 1; return 'T-' + (max + 1); };
-const tkCost = t => sumBy(t.time, x => num(x.hours) * num(x.rate)) + sumBy(t.parts, x => num(x.qty) * num(x.cost));
+const tkCost = t => sumBy(t.time, x => num(x.hours) * techRate(tech(x.techId))) + sumBy(t.parts, x => num(x.qty) * num(x.cost));
 function tkWarranty(t) {
   const on = ymd(t.createdAt || new Date());
   return db.warranties.filter(w => (w.jobId && w.jobId === t.jobId) || (!t.jobId && w.customerId === t.customerId)).filter(w => w.start <= on && w.end >= on);
@@ -3049,7 +3115,7 @@ ROUTES.ticket = id => {
     <div class="card mb"><div class="card-b">${t.description ? `<p style="white-space:pre-wrap">${esc(t.description)}</p>` : '<p class="muted small">No details.</p>'}${t.contact ? `<p class="small"><b>Customer contact preference:</b> ${esc(t.contact)}</p>` : ''}${t.resolution ? `<div class="auth-msg ok mt"><b>Resolution:</b> ${esc(t.resolution)}</div>` : ''}</div></div>
     <div class="card mb"><div class="card-h"><h3>Visit</h3></div><div class="card-b">${visit ? `<div class="list-item"><div style="flex:1"><a href="#/wo/${visit.id}" class="b">${visit.number}</a> · ${visit.start ? fDay(visit.start) + ' ' + fTime(visit.start) : 'not scheduled'} · ${esc((tech((visit.techIds || [])[0]) || {}).name || 'unassigned')}</div>${pill(JOB_ST, visit.status)}</div>` : `<p class="small muted">Schedule a service visit; it shows up in Schedule & Dispatch and in the technician’s work orders.</p><button class="btn primary" data-act="tkVisit" data-id="${t.id}">📅 Schedule visit</button>`}</div></div>
     <div class="card mb"><div class="card-h"><h3>Time & parts</h3><div class="row"><button class="btn sm" data-act="tkTime" data-id="${t.id}">＋ Time</button><button class="btn sm" data-act="tkPart" data-id="${t.id}">＋ Part</button></div></div><div class="card-b">
-      ${t.time.map(x => `<div class="list-item small"><div style="flex:1">⏱ ${esc((tech(x.techId) || {}).name || '')} · ${fDate(parseLocal(x.date))}</div><b>${num(x.hours)} h${canRates() ? ' · ' + money2(num(x.hours) * num(x.rate)) : ''}</b></div>`).join('')}
+      ${t.time.map(x => `<div class="list-item small"><div style="flex:1">⏱ ${esc((tech(x.techId) || {}).name || '')} · ${fDate(parseLocal(x.date))}</div><b>${num(x.hours)} h${canRates() ? ' · ' + money2(num(x.hours) * techRate(tech(x.techId))) : ''}</b></div>`).join('')}
       ${t.parts.map(x => `<div class="list-item small"><div style="flex:1">📦 ${esc(x.name)} × ${num(x.qty)}</div>${canMoney() ? `<b>${money2(num(x.qty) * num(x.cost))}</b>` : ''}</div>`).join('')}
       ${!t.time.length && !t.parts.length ? '<span class="muted small">Nothing logged.</span>' : ''}
       ${canMoney() ? `<div class="row mt" style="justify-content:space-between"><b>Cost to resolve: ${money2(tkCost(t))}</b>${t.warranty ? `<span class="small muted">Charged to ${j ? j.number : 'the project'} as Warranty cost when resolved</span>` : t.invoiceId ? `<a class="btn sm" href="#/invoice/${t.invoiceId}">Invoice ${(db.invoices.find(i => i.id === t.invoiceId) || {}).number || ''}</a>` : `<button class="btn sm ok" data-act="tkInvoice" data-id="${t.id}">$ Invoice customer</button>`}</div>` : ''}
@@ -3101,11 +3167,11 @@ Object.assign(ACT, {
   woClock: el => {
     const j = projInit(byId('jobs', el.dataset.id)), mt = myTech(); if (!mt) { toast('Choose who you are first'); return; }
     j.clock = j.clock || {};
-    if (j.clock[mt.id]) { const h = Math.max(0.25, Math.round((Date.now() - new Date(j.clock[mt.id])) / 36e5 * 4) / 4); j.fin.labor.push({ id: uid(), techId: mt.id, hours: h, rate: techRate(mt), date: ymd(new Date()), by: me(), src: 'clock', from: j.clock[mt.id], to: iso(new Date()) }); delete j.clock[mt.id]; hist(j, `${mt.name} clocked out: ${h} h`); toast(`Clocked out · ${h} h logged`); }
+    if (j.clock[mt.id]) { const h = Math.max(0.25, Math.round((Date.now() - new Date(j.clock[mt.id])) / 36e5 * 4) / 4); const lid = uid(); if (canRates()) compOf(j, true).labor[lid] = techRate(mt); j.fin.labor.push({ id: lid, techId: mt.id, hours: h, date: ymd(new Date()), by: me(), src: 'clock', from: j.clock[mt.id], to: iso(new Date()) }); delete j.clock[mt.id]; hist(j, `${mt.name} clocked out: ${h} h`); toast(`Clocked out · ${h} h logged`); }
     else { j.clock[mt.id] = iso(new Date()); hist(j, `${mt.name} clocked in`); toast('Clocked in'); }
     save(); render();
   },
-  woHours: el => { const j = projInit(byId('jobs', el.dataset.id)), mt = myTech(); form({ title: 'Add hours', fields: [{ k: 'techId', label: 'Crew member', type: 'select', options: techOptions(), value: mt ? mt.id : '' }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { if (!v.techId) { toast('Choose the crew member'); return false; } j.fin.labor.push({ id: uid(), techId: v.techId, hours: num(v.hours), rate: techRate(tech(v.techId)), date: v.date, by: me(), src: 'field' }); hist(j, `Hours logged: ${tech(v.techId).name} ${v.hours} h`); } }); },
+  woHours: el => { const j = projInit(byId('jobs', el.dataset.id)), mt = myTech(); form({ title: 'Add hours', fields: [{ k: 'techId', label: 'Crew member', type: 'select', options: techOptions(), value: mt ? mt.id : '' }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { if (!v.techId) { toast('Choose the crew member'); return false; } const lid = uid(); if (canRates()) compOf(j, true).labor[lid] = techRate(tech(v.techId)); j.fin.labor.push({ id: lid, techId: v.techId, hours: num(v.hours), date: v.date, by: me(), src: 'field' }); hist(j, `Hours logged: ${tech(v.techId).name} ${v.hours} h`); } }); },
   woIssue: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Report a problem', fields: [{ k: 'text', label: 'What happened?', type: 'textarea', full: true, required: true }, { k: 'stops', label: 'Does it stop the work?', type: 'select', options: [['no', 'No — keep working'], ['yes', 'Yes — work cannot continue']] }], onSave(v) {
     const i = { id: uid(), text: v.text, stops: v.stops === 'yes', by: me(), ts: iso(new Date()) }; (j.issues = j.issues || []).push(i);
     db.tasks.unshift({ id: uid(), title: `Field problem ${j.number}: ${v.text.slice(0, 80)}`, notes: v.text, due: ymd(new Date()), assignee: '', done: false, customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Field report', createdAt: iso(new Date()) });
@@ -3128,7 +3194,7 @@ Object.assign(ACT, {
   tkStatus: el => { const t = db.tickets.find(x => x.id === el.dataset.id); tkHist(t, `Status ${t.status} → ${el.dataset.s}`); t.status = el.dataset.s; if (el.dataset.s === 'inprogress') { t.resolvedAt = ''; } save(); render(); },
   tkResolve: el => { const t = db.tickets.find(x => x.id === el.dataset.id); form({ title: 'Resolve ' + t.number, fields: [{ k: 'resolution', label: 'What was done?', type: 'textarea', full: true, required: true }], onSave(v) { t.resolution = v.resolution; t.status = 'resolved'; t.resolvedAt = iso(new Date()); tkPostCost(t); tkHist(t, 'Resolved: ' + v.resolution); runLog('ticket.resolved', `${t.number} resolved in ${((new Date(t.resolvedAt) - new Date(t.createdAt)) / DAY).toFixed(1)} days · cost ${money2(tkCost(t))}${t.warranty ? ' (warranty)' : ''}`); } }); },
   tkVisit: el => { const t = db.tickets.find(x => x.id === el.dataset.id); const j = { id: uid(), number: nextNum('job'), customerId: t.customerId, division: t.division || 'hvac', title: `Service ${t.number}: ${t.title}`, techIds: t.assignee ? [t.assignee] : [], start: null, duration: 2, status: 'unscheduled', items: [], checklist: [], photos: [], ticketId: t.id, notes: t.description || '', propertyId: ((db.jobs.find(x => x.id === t.jobId)) || {}).propertyId, createdAt: iso(new Date()) }; db.jobs.unshift(j); t.visitJobId = j.id; t.status = 'scheduled'; tkHist(t, `Service visit ${j.number} created`); save(); jobModal(j); },
-  tkTime: el => { const t = db.tickets.find(x => x.id === el.dataset.id); form({ title: 'Log time · ' + t.number, fields: [{ k: 'techId', label: 'Technician', type: 'select', options: techOptions(), value: t.assignee }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { if (!v.techId) { toast('Choose the technician'); return false; } t.time.push({ id: uid(), techId: v.techId, hours: num(v.hours), rate: techRate(tech(v.techId)), date: v.date, by: me() }); tkHist(t, `Time: ${tech(v.techId).name} ${v.hours} h`); if (t.status === 'resolved') tkPostCost(t); } }); },
+  tkTime: el => { const t = db.tickets.find(x => x.id === el.dataset.id); form({ title: 'Log time · ' + t.number, fields: [{ k: 'techId', label: 'Technician', type: 'select', options: techOptions(), value: t.assignee }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { if (!v.techId) { toast('Choose the technician'); return false; } t.time.push({ id: uid(), techId: v.techId, hours: num(v.hours), date: v.date, by: me() }); tkHist(t, `Time: ${tech(v.techId).name} ${v.hours} h`); if (t.status === 'resolved') tkPostCost(t); } }); },
   tkPart: el => { const t = db.tickets.find(x => x.id === el.dataset.id); form({ title: 'Part used · ' + t.number, fields: [{ k: 'pb', label: 'From price book', type: 'select', options: pbOpts(t.division), full: true }, { k: 'name', label: 'Or name', full: true }, { k: 'qty', label: 'Quantity', type: 'number', step: 'any', value: 1 }, ...(canMoney() ? [{ k: 'cost', label: 'Unit cost ($, blank = price book)', type: 'number', step: '0.01' }] : [])], onSave(v) { const p = v.pb && db.pricebook.find(x => x.id === v.pb), name = p ? p.name : v.name; if (!name) { toast('Choose a part or type its name'); return false; } t.parts.push({ id: uid(), name, qty: num(v.qty) || 1, cost: num(v.cost) || (p ? num(p.cost) : 0), price: p ? num(p.price) : 0, by: me() }); tkHist(t, `Part: ${name} × ${num(v.qty) || 1}`); if (t.status === 'resolved') tkPostCost(t); } }); },
   tkInvoice: el => { const t = db.tickets.find(x => x.id === el.dataset.id), s = db.settings; const hrs = sumBy(t.time, x => x.hours); const items = [...(hrs ? [{ id: uid(), name: `Service labor — ${t.number} ${t.title}`, qty: hrs, price: num(s.serviceRate), cost: 0 }] : []), ...t.parts.map(p => ({ id: uid(), name: p.name, qty: p.qty, price: p.price || Math.round(num(p.cost) * (1 + num(s.partsMarkup) / 100) * 100) / 100, cost: p.cost }))]; if (!items.length) { toast('Log time or parts first'); return; } const inv = createInvoice({ customerId: t.customerId, jobId: t.visitJobId || null, division: t.division, items, note: `Service ticket ${t.number}` }); t.invoiceId = inv.id; tkHist(t, `Invoice ${inv.number} created`); save(); location.hash = '#/invoice/' + inv.id; },
   wReg: el => { const w = db.warranties.find(x => x.id === el.dataset.id); const n = prompt(`Registration / confirmation number for ${w.type}:`); if (n === null) return; w.registered = true; w.regNumber = n; w.registeredAt = iso(new Date()); w.registeredBy = me(); const t = db.tasks.find(x => x.dedupe === 'wreg:' + w.jobId + ':' + w.type); if (t) { t.done = true; t.doneAt = iso(new Date()); } runLog('warranty.registered', `${w.type} registered${n ? ' #' + n : ''}`); save(); render(); },

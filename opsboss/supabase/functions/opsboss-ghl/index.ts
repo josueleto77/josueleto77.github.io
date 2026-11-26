@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method' }, 405);
   try {
     const role = await memberRole(req.headers.get('Authorization'));
-    if (!role) return json({ error: 'unauthorized' }, 401);
+    if (!role || role === 'sub') return json({ error: 'unauthorized' }, 401); // subcontractors don't message customers
     const cfg = await config();
     if (!cfg.token || !cfg.locationId) return json({ error: 'not_configured' }, 400);
     const L = cfg.locationId;
