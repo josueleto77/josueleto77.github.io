@@ -61,3 +61,11 @@ Los mensajes automáticos empiezan en **modo de prueba**: no se envían hasta ac
 
 Sirve la raíz del repo (`python3 -m http.server 8765`) y ejecuta:
 `node opsboss/tests/acceptance-financial.js` y `node opsboss/tests/phase3.js`.
+
+## Campo y posventa (Fase 4)
+
+- **Field work orders** (menú Field): cada trabajo abre su orden móvil con alcance, tareas, fotos, horas (reloj de entrada/salida), materiales, números de serie, reporte de problemas y firma del cliente. Las fotos tomadas sin señal se guardan en el teléfono y se suben solas al volver la conexión (o con “Retry now”).
+- Al **completar** una instalación se crea el paquete de entrega (PDF), se piden las tareas que falten (fotos, series, inspecciones, firma), arrancan las garantías y el equipo queda en la ficha del cliente.
+- **Service & warranties**: tickets ligados al proyecto y al equipo, visita en el calendario, tiempo y repuestos, costo de garantía cargado al proyecto original o factura al cliente.
+- **Portal del proyecto**: en el proyecto, botón “Customer portal” → link para el cliente con avance, visitas, documentos, facturas/pagos, garantías y solicitudes de servicio (sin costos ni notas internas).
+- Prueba: `node opsboss/tests/phase4.js`.

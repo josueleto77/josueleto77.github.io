@@ -205,7 +205,7 @@ function seed() {
 }
 
 function normalize(d) {
-  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts'].forEach(k => d[k] = d[k] || []);
+  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts', 'tickets', 'warranties'].forEach(k => d[k] = d[k] || []);
   if (!d.workflows) d.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t));
   if (d.settings && migrateEn(d)) d._migrated = true;
   return d;
@@ -262,7 +262,7 @@ function migrateEn(d) {
 
 /* ───────────── Nube (Supabase) ───────────── */
 const CFG = window.OPSBOSS_CONFIG || {};
-const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts'];
+const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts', 'tickets', 'warranties'];
 const TABLE = 'opsboss_records';
 const ROLE_LABEL = { owner: 'Owner', admin: 'Admin (direction)', sales: 'Sales', ops: 'Operations', purchasing: 'Purchasing', finance: 'Finance', office: 'Office', tech: 'Field technician', sub: 'Subcontractor' };
 const cloud = { on: false, sb: null, user: null, role: null, shadow: new Map(), timer: null, busy: false, again: false, pendingRender: false };
@@ -432,17 +432,17 @@ const confirmDlg = (msg, yes) => { return modal({ title: 'Confirm', body: `<p>${
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
-  ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['alerts', '🔔', 'Alerts'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📷', 'Field Photos'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
-  ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Projects'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'],
+  ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['alerts', '🔔', 'Alerts'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📱', 'Field work orders'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
+  ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Projects'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'], ['service', '🛠', 'Service & warranties'],
   ['sec', 'Projects'], ['permits', '⚑', 'Permits & Inspections'], ['tools', '∑', 'Calculators'],
   ['sec', 'Business'], ['finance', '◔', 'Finance'], ['accounting', '⚖', 'Accounting (QuickBooks)'], ['exceptions', '⚠', 'Exceptions'], ['purchasing', '⛟', 'Purchasing & Bills'], ['commissions', '%', 'Commissions'], ['workflows', '⚡', 'Workflows'], ['runs', '⟳', 'Automation log'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
 ];
 function renderNav() {
   const route = (location.hash.slice(2).split('?')[0] || 'mywork').split('/')[0];
-  const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices', photos: 'field', duplicates: 'customers' };
+  const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices', photos: 'field', wo: 'field', ticket: 'service', duplicates: 'customers' };
   let exN = 0; try { exN = isFin() ? exceptionsOpen().length : 0; } catch (e) { exN = 0; }
   const active = parentOf[route] || route;
-  const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length, exceptions: exN, runs: (db.runs || []).filter(r => r.status === 'error').length };
+  const badges = { service: (db.tickets || []).filter(t => t.status === 'new').length, tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length, exceptions: exN, runs: (db.runs || []).filter(r => r.status === 'error').length };
   $('#nav').innerHTML = NAV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
   $('#divFilter').innerHTML = [['all', 'All'], ...divOptions()].map(([k, v]) => `<button data-div="${k}" class="${state.div === k ? 'on' : ''}">${k !== 'all' ? `<span class="div-dot d-${k}"></span> ` : ''}${v}</button>`).join('');
 }
@@ -980,9 +980,11 @@ async function savePhoto(j, req, file) {
   const shot = { id: uid(), reqId: req.id, label: req.label, takenAt: iso(when), by: cloud.user ? cloud.user.email : 'local' };
   if (cloud.on) {
     const path = `jobs/${j.id}/${req.id}-${shot.id}.jpg`;
-    const { error } = await cloud.sb.storage.from('opsboss-photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
-    if (error) throw error;
     shot.path = path;
+    let err = null;
+    if (navigator.onLine === false) err = new Error('offline');
+    else { try { const { error } = await cloud.sb.storage.from('opsboss-photos').upload(path, blob, { contentType: 'image/jpeg', upsert: false }); err = error; } catch (e) { err = e; } }
+    if (err) { shot.pending = true; await uqPut({ id: shot.id, jobId: j.id, path, blob, label: req.label, error: navigator.onLine === false ? '' : (err.message || String(err)), ts: iso(when) }); uqRefresh(); toast('📶 Saved on this phone — it will upload when the connection is back'); }
   } else shot.data = await blobToDataUrl(blob);
   (j.reqPhotos = j.reqPhotos || []).push(shot);
   log(`📷 ${req.label} — ${j.number}`);
@@ -992,9 +994,10 @@ async function savePhoto(j, req, file) {
 const photoUrlCache = new Map();
 async function photoUrls(shots) {
   const out = {}, need = [];
+  if (shots.some(s => s.pending)) { try { const all = await uqAll(); shots.filter(s => s.pending).forEach(s => { const it = all.find(x => x.id === s.id); if (it) out[s.id] = URL.createObjectURL(it.blob); }); } catch (e) { /* sin cola */ } }
   for (const s of shots) {
     if (s.data) out[s.id] = s.data;
-    else if (s.path) { const c = photoUrlCache.get(s.path); if (c && c.exp > Date.now()) out[s.id] = c.url; else need.push(s); }
+    else if (s.path && !s.pending) { const c = photoUrlCache.get(s.path); if (c && c.exp > Date.now()) out[s.id] = c.url; else need.push(s); }
   }
   if (need.length && cloud.on) {
     const { data } = await cloud.sb.storage.from('opsboss-photos').createSignedUrls(need.map(s => s.path), 3600);
@@ -1006,13 +1009,13 @@ const photoProgress = st => `<div class="progress" style="height:10px"><div styl
 
 ROUTES.field = () => {
   const q = (state.filters.fq || '').toLowerCase(), today = new Date();
-  const jobs = db.jobs.filter(divOK).filter(j => j.status !== 'cancelled' && photoReqs(j.division).length)
+  const jobs = db.jobs.filter(divOK).filter(j => j.status !== 'cancelled')
     .filter(j => !q || [j.number, j.title, cust(j.customerId).name, cust(j.customerId).address].join(' ').toLowerCase().includes(q))
     .map(j => ({ j, st: photoStatus(j), rank: j.status === 'inprogress' ? 0 : j.start && sameDay(j.start, today) ? 1 : j.status === 'completed' ? 4 : 2 }))
     .sort((a, b) => a.rank - b.rank || (a.st.missing.length ? 0 : 1) - (b.st.missing.length ? 0 : 1));
-  return head('Field Photos', 'Required project photos for financiers and QA — tap a job, then tap each photo to take it.') + `
+  return head('Field work orders', 'Tap a job to open its work order: scope, tasks, photos, hours, materials, serials and customer sign-off.') + uqBar() + `
   <div class="card mb"><div class="toolbar"><input id="fq" placeholder="Search job #, customer, address…" value="${esc(state.filters.fq || '')}" style="flex:1;min-width:200px"></div></div>
-  <div class="grid g3">${jobs.map(({ j, st }) => { const c = cust(j.customerId); return `<div class="card click" data-go="#/photos/${j.id}" style="cursor:pointer"><div class="card-b">
+  <div class="grid g3">${jobs.map(({ j, st }) => { const c = cust(j.customerId); return `<div class="card click" data-go="#/wo/${j.id}" style="cursor:pointer"><div class="card-b">
     <div class="row" style="justify-content:space-between"><b>${j.number}</b>${pill(JOB_ST, j.status)}</div>
     <div class="b mt">${esc(j.title)}</div><div class="small muted">${esc(c.name)} · ${esc([c.address, c.city].filter(Boolean).join(', '))}</div>
     <div class="row mt" style="justify-content:space-between">${divPill(j.division)}<span class="small ${st.missing.length ? 'down b' : 'up b'}">${st.missing.length ? `${st.missing.length} required missing` : '✓ All required photos'}</span></div>
@@ -1186,7 +1189,7 @@ function projSummary(j) {
       ${canMoney() ? cell('Balance due', `<span class="${F.ar ? 'down' : ''}">${money2(F.ar)}</span>`) + cell('Projected margin', `<span class="${F.gross < 0 ? 'down' : 'up'}">${money(F.gross)} · ${pct2(F.pct)}</span>`) : ''}
     </div>
     ${bl.length ? `<div class="mt">${bl.map(b => `<div class="list-item"><span class="pill bad">⛔</span><div style="flex:1"><div class="b small">${esc(b.reason)}</div><div class="small muted">${b.owner ? 'Owner: ' + esc(b.owner) + ' · ' : ''}${b.followUp ? 'Follow up ' + fDate(parseLocal(b.followUp)) : ''}</div></div>${b.kind === 'blocker' ? `<button class="btn sm" data-act="resolveBlocker" data-id="${j.id}" data-b="${b.id}">Resolve</button>` : `<a class="btn sm" href="#/job/${b.id}">Open</a>`}</div>`).join('')}</div>` : ''}
-    <div class="row mt"><button class="btn sm" data-act="projNext" data-id="${j.id}">✎ Next action</button><button class="btn sm" data-act="addBlocker" data-id="${j.id}">⛔ Add blocker</button><button class="btn sm" data-act="addDep" data-id="${j.id}">⇢ Depends on…</button></div>
+    <div class="row mt"><button class="btn sm" data-act="projNext" data-id="${j.id}">✎ Next action</button><button class="btn sm" data-act="addBlocker" data-id="${j.id}">⛔ Add blocker</button><button class="btn sm" data-act="addDep" data-id="${j.id}">⇢ Depends on…</button><a class="btn sm" href="#/wo/${j.id}">📱 Work order</a><button class="btn sm" data-act="projPortal" data-id="${j.id}">🌐 Customer portal</button><button class="btn sm" data-act="handoverPdf" data-id="${j.id}">⇩ Handover</button></div>
   </div></div>`;
 }
 const PROJ_TABS = [['overview', 'Overview'], ['workflow', 'Workflow'], ['specs', 'Specs & financing'], ['financials', 'Financials'], ['billing', 'Billing'], ['history', 'History']];
@@ -1651,7 +1654,7 @@ ROUTES.settings = () => {
         ${cloud.ghl && cloud.ghl.webhookKey ? `<details class="mt"><summary class="b small">Webhook URLs for HighLevel workflows</summary><p class="small muted">In HighLevel, add a <b>Webhook</b> action (method POST) to a workflow and paste the URL for that event:</p>${[['lead', 'New lead → Marketing Leads · Warm Leads (trigger: Contact Created / Form Submitted)'], ['reply', 'Customer replied → task to reply (trigger: Customer Replied)'], ['call', 'Call logged → activity, task if missed (trigger: Call Status)']].map(([ev, label]) => `<label class="f mt">${label}<input class="inp" readonly onclick="this.select()" value="${esc(CFG.url + '/functions/v1/opsboss-ghl-webhook?event=' + ev + '&key=' + cloud.ghl.webhookKey)}"></label>`).join('')}<p class="small muted mt">Optional: add <code>&division=solar</code>, <code>roofing</code> or <code>hvac</code> to the lead URL so leads land in the right division.</p></details>` : ''}`
         : `<p class="small muted">${ghlOn() ? 'Messages and calls sync with HighLevel.' : 'Ask an admin to connect HighLevel.'}</p>`}
       </div></div>` : ''}
-      ${p3SettingsCards()}
+      ${p3SettingsCards()}${p4SettingsCard()}
       <div class="card mt"><div class="card-h"><h3>Data & backup</h3></div><div class="card-b"><p class="small muted">${cloud.on ? 'Data is stored in Supabase and shared live with your team. Export a backup from time to time.' : 'Local mode: data is stored only in this browser. Export backups often.'}</p><div class="row"><button class="btn" data-act="exportJson">⇩ Export backup (JSON)</button>${canAdmin() ? `<label class="btn">⇧ Import backup<input type="file" accept="application/json" hidden data-act-input="importJson"></label><button class="btn danger" data-act="resetDemo">Reset demo data</button><button class="btn danger" data-act="wipe">Start blank</button>` : ''}</div></div></div>
       ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>Team & access</h3><span class="pill brand">Your role: ${ROLE_LABEL[cloud.role] || cloud.role}</span></div><div class="card-b" id="acl"><span class="muted small">Loading…</span></div></div>` : ''}
     </div>
@@ -2206,7 +2209,7 @@ function renderUserBox() {
   else if (CFG.url) b.innerHTML = `<div>Local demo mode · <button data-act="exitDemo">Sign in</button></div>`;
   else b.innerHTML = '';
 }
-function start() { p3Init(); if (cloud.on) cloud.sb.from('opsboss_members').select('name,email').then(({ data }) => { cloud.members = data || []; }); setTimeout(alertScan, 4000); if (!window.__alTimer) window.__alTimer = setInterval(alertScan, 30 * 60 * 1000); renderUserBox(); renderInstall(); render(); setTimeout(processPortal, 1200); setTimeout(processGhlLeads, 1400); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
+function start() { p3Init(); p4Init(); if (cloud.on) { setTimeout(() => { uqRefresh(); uqFlush(); }, 2500); if (!window.__uqTimer) window.__uqTimer = setInterval(() => uqFlush(), 120000); } if (cloud.on) cloud.sb.from('opsboss_members').select('name,email').then(({ data }) => { cloud.members = data || []; }); setTimeout(alertScan, 4000); if (!window.__alTimer) window.__alTimer = setInterval(alertScan, 30 * 60 * 1000); renderUserBox(); renderInstall(); render(); setTimeout(processPortal, 1200); setTimeout(processGhlLeads, 1400); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
 function authScreen(mode = 'login', msg = '', kind = 'bad') {
   const el = $('#auth'); el.hidden = false;
   const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
@@ -2360,7 +2363,8 @@ function alertsAll() {
   (db.appts || []).filter(a => a.status === 'booked' && a.start && ymd(a.start) <= tmr && new Date(a.start) >= new Date()).forEach(a => { const t = (db.tasks || []).find(x => x.id === a.prepTaskId); if (!t || !t.done) add({ key: 'appt:' + a.id, kind: 'Visit tomorrow', sev: 'info', title: `${a.title}`, text: `${fDay(a.start)} ${fTime(a.start)} · prep not done`, href: '#/schedule', age: 0 }); });
   calConflicts().forEach(c => add({ key: 'cal:' + c.key, kind: 'Schedule conflict', sev: 'warn', title: c.title, text: c.text, href: '#/schedule', age: 0 }));
   if (isFin()) { const ex = exceptionsOpen(); if (ex.length) add({ key: 'exc:count', kind: 'Accounting exceptions', sev: 'warn', title: `${ex.length} accounting exception${ex.length > 1 ? 's' : ''} to review`, text: [...new Set(ex.map(e => EXC_KIND[e.kind]))].join(' · '), href: '#/exceptions', age: 0 }); }
-  (db.alerts || []).filter(a => a.kind && a.kind !== 'ack' && !(a.readBy || []).includes(me()) && daysSince(a.ts) < 14).forEach(a => add({ key: 'note:' + a.id, kind: a.kind === 'lead.new' ? 'New lead' : 'Notice', sev: a.sev || 'info', title: a.title, text: a.text, href: a.link ? ({ lead: '#/pipeline', job: '#/job/', invoice: '#/invoice/' }[a.link.kind] || '#/') + (['job', 'invoice'].includes(a.link.kind) ? a.link.id : '') : '#/alerts', age: daysSince(a.ts), stored: a.id }));
+  (db.alerts || []).filter(a => a.kind && a.kind !== 'ack' && !(a.readBy || []).includes(me()) && daysSince(a.ts) < 14).forEach(a => add({ key: 'note:' + a.id, kind: a.kind === 'lead.new' ? 'New lead' : a.kind === 'ticket.new' ? 'Service request' : 'Notice', sev: a.sev || 'info', title: a.title, text: a.text, href: a.link ? ({ lead: '#/pipeline', job: '#/job/', invoice: '#/invoice/', ticket: '#/ticket/' }[a.link.kind] || '#/') + (['job', 'invoice', 'ticket'].includes(a.link.kind) ? a.link.id : '') : '#/alerts', age: daysSince(a.ts), stored: a.id }));
+  p4Alerts(add);
   const acks = new Map((db.alerts || []).filter(a => a.kind === 'ack').map(a => [a.ackKey, a]));
   return out.map(a => { const k = acks.get(a.key); return { ...a, acked: !!(k && (!k.until || k.until > iso(new Date())) && (k.level || 1) >= (a.level || 1)) }; }).sort((a, b) => ({ bad: 0, warn: 1, info: 2 }[a.sev] - { bad: 0, warn: 1, info: 2 }[b.sev]) || b.age - a.age);
 }
@@ -2834,6 +2838,321 @@ Object.assign(INPUT, {
   custConsent: el => { const c = byId('customers', el.dataset.id); c.consent = { sms: true, email: true, call: true, ...(c.consent || {}) }; c.consent[el.dataset.ch] = el.checked; (c.consentLog = c.consentLog || []).unshift({ ts: iso(new Date()), by: me(), text: `${el.dataset.ch.toUpperCase()} ${el.checked ? 'opt-in' : 'opt-out'}` }); save(); render(); },
   custLang: el => { byId('customers', el.dataset.id).lang = el.value; save(); },
 });
+
+
+/* ═════════════ PHASE 4 — FIELD & POST-SALE ═════════════ */
+const P4_COLLS = ['tickets', 'warranties'];
+const TK_ST = { new: ['New', 'warn'], scheduled: ['Scheduled', 'info'], inprogress: ['In progress', 'brand'], resolved: ['Resolved', 'ok'], closed: ['Closed', ''] };
+const TK_PRI = { low: ['Low', ''], normal: ['Normal', 'info'], high: ['High', 'warn'], urgent: ['Urgent', 'bad'] };
+const SERIAL_DEFAULTS = { solar: ['Inverter / microinverters', 'Battery', 'Production meter / gateway', 'Solar modules (one serial is enough)'], hvac: ['Outdoor unit', 'Indoor unit / air handler', 'Thermostat'], roofing: [] };
+const WARRANTY_DEFAULTS = {
+  solar: [['Workmanship', 'Nexis Power', 10, false], ['Roof penetrations (leaks)', 'Nexis Power', 10, false], ['Solar modules — product', 'Manufacturer', 25, true], ['Inverter / microinverters', 'Manufacturer', 25, true], ['Battery', 'Manufacturer', 10, true]],
+  hvac: [['Workmanship / labor', 'Nexis Power', 2, false], ['Parts (registered)', 'Manufacturer', 10, true], ['Compressor', 'Manufacturer', 10, true]],
+  roofing: [['Workmanship', 'Nexis Power', 10, false], ['Roof system — manufacturer', 'Manufacturer', 25, true]],
+};
+function p4Init() {
+  P4_COLLS.forEach(k => db[k] = db[k] || []);
+  const s = db.settings;
+  if (!s.serialReqs) s.serialReqs = JSON.parse(JSON.stringify(SERIAL_DEFAULTS));
+  if (!s.warrantyDefaults) s.warrantyDefaults = JSON.parse(JSON.stringify(WARRANTY_DEFAULTS));
+  if (s.serviceRate == null) s.serviceRate = 125;
+  if (s.partsMarkup == null) s.partsMarkup = 40;
+  s.counters = s.counters || {};
+}
+const myTech = () => db.techs.find(t => (t.email || '').toLowerCase() === me().toLowerCase()) || (state.iam && tech(state.iam));
+const techRate = t => num((t && t.rate) || db.settings.laborRate || 45);
+const dl = (d, n) => ymd(addDays(parseLocal(d), n));
+
+// ── Upload queue (photos taken offline or when the upload fails) ──
+const UQ = { db: null, list: [] };
+function uqOpen() { return UQ.db || (UQ.db = new Promise((res, rej) => { try { const r = indexedDB.open('opsboss-uploads', 1); r.onupgradeneeded = () => r.result.createObjectStore('q', { keyPath: 'id' }); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } })); }
+async function uqTx(mode, fn) { const d = await uqOpen(); return new Promise((res, rej) => { const tx = d.transaction('q', mode), st = tx.objectStore('q'); const out = fn(st); tx.oncomplete = () => res(out && out.result !== undefined ? out.result : out); tx.onerror = () => rej(tx.error); }); }
+const uqPut = item => uqTx('readwrite', st => st.put(item));
+const uqDel = id => uqTx('readwrite', st => st.delete(id));
+const uqAll = () => uqTx('readonly', st => st.getAll());
+async function uqRefresh() { try { UQ.list = (await uqAll()) || []; } catch (e) { UQ.list = []; } const b = $('#uqBar'); if (b) b.outerHTML = uqBar(); }
+const uqBar = () => { const n = UQ.list.length, failed = UQ.list.filter(x => x.error).length; return `<div id="uqBar">${n ? `<div class="card mb" style="border-color:${failed ? 'var(--bad)' : 'var(--warn)'}"><div class="card-b row" style="justify-content:space-between;flex-wrap:wrap"><span class="small b">${failed ? `⚠ ${failed} upload${failed > 1 ? 's' : ''} failed` : `⏳ ${n} photo${n > 1 ? 's' : ''} waiting to upload`}${navigator.onLine === false ? ' · you are offline' : ''}</span><span class="small muted">${failed ? esc(UQ.list.find(x => x.error).error) : 'They upload automatically when the connection is back.'}</span><button class="btn sm primary" data-act="uqRetry">↻ Retry now</button></div></div>` : ''}</div>`; };
+async function uqFlush(manual) {
+  if (!cloud.on || UQ.busy) return; UQ.busy = true; let ok = 0;
+  try {
+    for (const it of (await uqAll()) || []) {
+      try {
+        const { error } = await cloud.sb.storage.from('opsboss-photos').upload(it.path, it.blob, { contentType: 'image/jpeg', upsert: true });
+        if (error) throw error;
+        await uqDel(it.id); ok++;
+        const j = db.jobs.find(x => x.id === it.jobId), s = j && (j.reqPhotos || []).find(x => x.id === it.id);
+        if (s) { delete s.pending; s.uploadedAt = iso(new Date()); }
+      } catch (e) { it.error = e.message || String(e); it.attempts = (it.attempts || 0) + 1; it.lastTry = iso(new Date()); await uqPut(it); }
+    }
+  } finally { UQ.busy = false; }
+  if (ok) { runLog('photos.upload', `${ok} queued photo${ok > 1 ? 's' : ''} uploaded`); save(); }
+  await uqRefresh(); if (ok || manual) { toast(ok ? `📷 ${ok} photo${ok > 1 ? 's' : ''} uploaded` : 'Still waiting for a connection'); render(); }
+}
+window.addEventListener('online', () => setTimeout(() => uqFlush(), 1500));
+
+// ── Handover (completion package) ──
+function handoverStatus(j) {
+  projInit(j);
+  const st = photoStatus(j), pend = (j.reqPhotos || []).filter(s => s.pending).length;
+  const reqSerials = (db.settings.serialReqs || {})[j.division] || [], eq = j.installedEquip || [];
+  const missingSerials = reqSerials.filter(t => !eq.some(e => e.type === t && String(e.serial || '').trim()));
+  const permits = db.permits.filter(p => p.jobId === j.id), openPermits = permits.filter(p => !['passed', 'approved'].includes(p.status));
+  const F = finOf(j);
+  return [
+    { key: 'photos', label: 'Required photos', ok: !st.missing.length && !pend, detail: st.missing.length ? `${st.missing.length} missing` : pend ? `${pend} still uploading` : `${st.requiredDone}/${st.required}`, href: '#/photos/' + j.id },
+    { key: 'serials', label: 'Equipment serial numbers', ok: !missingSerials.length, detail: missingSerials.length ? 'Missing: ' + missingSerials.join(', ') : `${eq.length} recorded`, href: '#/wo/' + j.id },
+    { key: 'inspections', label: 'Permits & inspections', ok: !openPermits.length, detail: permits.length ? (openPermits.length ? openPermits.map(p => `${p.type}: ${PERMIT_ST[p.status] ? PERMIT_ST[p.status][0] : p.status}`).join(', ') : 'All passed') : 'None on file', href: '#/permits' },
+    { key: 'signoff', label: 'Customer sign-off', ok: !!j.signoff, detail: j.signoff ? `${j.signoff.name} · ${fDate(j.signoff.at)}` : 'Not signed', href: '#/wo/' + j.id },
+    { key: 'invoice', label: 'Final invoice', ok: F.revenue <= 0.009 || F.unbilled <= 0.009, detail: F.unbilled > 0.009 ? money2(F.unbilled) + ' not invoiced' : 'Invoiced', href: '#/job/' + j.id },
+  ];
+}
+// Al completar la instalación: pide lo que falta, registra garantías y guarda el equipo en el cliente. Idempotente.
+function onCompleted(j) {
+  p4Init(); projInit(j);
+  const c = cust(j.customerId), today = ymd(new Date()), items = handoverStatus(j); let tasks = 0, wn = 0;
+  items.filter(i => !i.ok && i.key !== 'invoice').forEach(i => { const dedupe = 'ho:' + j.id + ':' + i.key; if (db.tasks.some(t => t.dedupe === dedupe && !t.done)) return; db.tasks.unshift({ id: uid(), title: `Handover ${j.number}: ${i.label} — ${i.detail}`, due: today, assignee: (j.techIds || [])[0] || '', done: false, customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Installation complete', createdAt: iso(new Date()), dedupe }); tasks++; });
+  if (!db.warranties.some(w => w.jobId === j.id) && !j.ticketId) {
+    for (const [type, provider, years, reg] of ((db.settings.warrantyDefaults || {})[j.division] || [])) {
+      const eqm = (j.installedEquip || []).find(e => type.toLowerCase().includes(String(e.type).split(' ')[0].toLowerCase()));
+      db.warranties.push({ id: uid(), jobId: j.id, customerId: j.customerId, division: j.division, type, provider, item: eqm ? [eqm.brand, eqm.model].filter(Boolean).join(' ') : '', serial: eqm ? eqm.serial : '', start: today, end: dl(today, Math.round(num(years) * 365.25)), years: num(years), needsRegistration: !!reg, registered: !reg, registerBy: reg ? dl(today, 60) : '', createdAt: iso(new Date()) });
+      if (reg) db.tasks.unshift({ id: uid(), title: `Register ${type} warranty with the manufacturer (${j.number})`, due: dl(today, 30), assignee: '', done: false, customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Warranty registration', createdAt: iso(new Date()), dedupe: 'wreg:' + j.id + ':' + type });
+      wn++;
+    }
+  }
+  (j.installedEquip || []).forEach(e => { c.equipment = c.equipment || []; if (c.equipment.some(x => x.fromJob === j.id && x.serial === e.serial && x.type === e.type)) return; const w = db.warranties.filter(x => x.jobId === j.id).sort((a, b) => b.end.localeCompare(a.end))[0]; c.equipment.push({ id: uid(), type: e.type, brand: e.brand || '', model: e.model || '', serial: e.serial || '', installed: today, warranty: w ? w.end : '', fromJob: j.id }); });
+  j.handover = { ...(j.handover || {}), completedAt: iso(new Date()), ready: items.every(i => i.ok) };
+  hist(j, `Installation complete: ${wn} warranties registered, ${tasks} handover task${tasks === 1 ? '' : 's'} created`);
+  runLog('job.completed', `${j.number}: handover ${items.filter(i => i.ok).length}/${items.length} ready · ${wn} warranties started · ${tasks} tasks`, { key: 'complete:' + j.id });
+}
+async function handoverPdf(j) {
+  await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+  const { jsPDF } = window.jspdf, doc = new jsPDF({ unit: 'pt', format: 'letter' }), s = db.settings, c = cust(j.customerId), M = 40;
+  const pt = x => String(x ?? '').replace(/[—–]/g, '-').replace(/·/g, '|').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x00-\xFF]/g, '');
+  let y = 60; const line = (t, size = 10, bold = false, color = 20) => { if (y > 740) { doc.addPage(); y = 50; } doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(color); const w = doc.splitTextToSize(pt(t), 532); doc.text(w, M, y); y += w.length * (size + 4); };
+  line(s.company || 'OpsBoss', 18, true); line([s.address, s.phone, s.email, s.license].filter(Boolean).join(' · '), 9, false, 110); y += 12;
+  line('Project Handover Package', 16, true); line(`${j.number} · ${j.title}`, 11); line(`${c.name} · ${projAddress(j)}`, 10, false, 90); line(`Completed: ${fDate(j.completedAt || new Date())}`, 10, false, 90); y += 10;
+  line('Checklist', 12, true); handoverStatus(j).forEach(i => line(`${i.ok ? '[x]' : '[ ]'} ${i.label} — ${i.detail}`)); y += 8;
+  line('Installed equipment', 12, true); (j.installedEquip || []).forEach(e => line(`${e.type}: ${[e.brand, e.model].filter(Boolean).join(' ')} · S/N ${e.serial || '-'}`)); if (!(j.installedEquip || []).length) line('None recorded', 10, false, 120); y += 8;
+  line('Warranties', 12, true); db.warranties.filter(w => w.jobId === j.id).forEach(w => line(`${w.type} (${w.provider}) · ${fDate(parseLocal(w.start))} to ${fDate(parseLocal(w.end))}${w.needsRegistration ? (w.registered ? ' · registered ' + (w.regNumber || '') : ' · registration pending') : ''}`)); y += 8;
+  line('Permits & inspections', 12, true); db.permits.filter(p => p.jobId === j.id).forEach(p => line(`${p.type} · ${p.jurisdiction || ''} · #${p.number || '-'} · ${PERMIT_ST[p.status] ? PERMIT_ST[p.status][0] : p.status}`)); y += 8;
+  if (j.signoff) { line('Customer sign-off', 12, true); line(`${j.signoff.name} · ${new Date(j.signoff.at).toLocaleString('en-US')}`); if (j.signoff.sig) { if (y > 640) { doc.addPage(); y = 50; } try { doc.addImage(j.signoff.sig, 'PNG', M, y, 220, 80); y += 90; } catch (e) { /* firma no disponible */ } } }
+  line('Service & warranty claims: ' + [s.phone, s.email].filter(Boolean).join(' · '), 9, false, 110);
+  doc.save(`${j.number}-handover.pdf`);
+  runLog('handover.pdf', `${j.number}: handover package generated`);
+}
+
+// ── Mobile work order ──
+ROUTES.wo = id => {
+  const j = db.jobs.find(x => x.id === id); if (!j) return '<div class="empty">Work order not found</div>';
+  projInit(j); p4Init();
+  const c = cust(j.customerId), st = photoStatus(j), mt = myTech(), prop = (c.properties || []).find(p => p.id === j.propertyId) || {};
+  const addr = projAddress(j), today = ymd(new Date());
+  const stage = j.ops.stage, tasks = (j.ops.tasks[stage] || []);
+  const clockOn = mt && j.clock && j.clock[mt.id];
+  const hoursToday = sumBy(j.fin.labor.filter(l => l.date === today), l => l.hours);
+  const reqSerials = (db.settings.serialReqs || {})[j.division] || [];
+  const next = { scheduled: ['enroute', '🚐 On my way'], unscheduled: ['enroute', '🚐 On my way'], enroute: ['inprogress', '▶ Start work'], inprogress: ['completed', '✓ Complete job'] }[j.status];
+  const ho = handoverStatus(j), permits = db.permits.filter(p => p.jobId === j.id);
+  const sec = (title, body, extra = '') => `<div class="card mb"><div class="card-h"><h3>${title}</h3>${extra}</div><div class="card-b">${body}</div></div>`;
+  return `<div class="small muted mb"><a href="#/field">Field</a> / ${j.number}</div>` + uqBar() + `
+  <div class="card mb"><div class="card-b">
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap"><div><div class="b" style="font-size:18px">${j.number} · ${esc(j.title)}</div><div class="small muted">${divPill(j.division)} ${j.start ? fDay(j.start) + ' ' + fTime(j.start) + ' · ' + num(j.duration) + ' h' : 'Not scheduled'} · Stage: ${esc(stageLabel(j))}</div></div>${pill(JOB_ST, j.status)}</div>
+    <div class="mt"><div class="b">${esc(c.name)}</div><a class="small" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}" target="_blank" rel="noopener">📍 ${esc(addr || 'No address')}</a>${prop.access || (c.property || {}).access ? `<div class="small mt"><b>Access:</b> ${esc(prop.access || c.property.access)}</div>` : ''}${j.notes ? `<div class="small mt"><b>Instructions:</b> ${esc(j.notes)}</div>` : ''}</div>
+    <div class="row mt" style="flex-wrap:wrap">${c.phone ? `<a class="btn" href="tel:${esc(c.phone)}">📞 Call</a><a class="btn" href="sms:${esc(c.phone)}">✉ Text</a>` : ''}${next ? `<button class="btn primary" data-act="jobStatus" data-id="${j.id}" data-s="${next[0]}">${next[1]}</button>` : ''}<button class="btn danger" data-act="woIssue" data-id="${j.id}">⚠ Report a problem</button></div>
+  </div></div>
+  ${sec('⏱ Time', `${mt ? `<div class="row" style="flex-wrap:wrap"><button class="btn ${clockOn ? 'danger' : 'primary'}" data-act="woClock" data-id="${j.id}">${clockOn ? `■ Clock out (since ${fTime(j.clock[mt.id])})` : '▶ Clock in'}</button><span class="small muted">You: ${esc(mt.name)}</span></div>` : `<label class="f">Who are you?<select class="inp" data-act-input="iam">${techOptions().map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></label>`}
+    <div class="small mt">${j.fin.labor.length ? j.fin.labor.slice(-6).map(l => `<div class="list-item small"><div style="flex:1">${esc((tech(l.techId) || {}).name || l.who || '')} · ${fDate(parseLocal(l.date))}</div><b>${num(l.hours)} h</b></div>`).join('') : '<span class="muted">No hours logged yet.</span>'}</div>
+    <div class="row mt"><span class="small b">Today: ${hoursToday} h</span><button class="btn sm" data-act="woHours" data-id="${j.id}">＋ Add hours</button></div>`)}
+  ${sec('✓ Tasks — ' + esc(stageLabel(j)), tasks.map(t => `<label class="check" style="padding:8px 0"><input type="checkbox" data-act-input="opsTask" data-id="${j.id}" data-s="${stage}" data-t="${t.id}" ${t.done ? 'checked' : ''}><span>${esc(t.t)}${t.doneBy ? ` <span class="small muted">· ${esc(t.doneBy)}</span>` : ''}</span></label>`).join('') + ((j.checklist || []).length ? `<details class="mt"><summary class="small b">Job checklist (${j.checklist.filter(t => t.done).length}/${j.checklist.length})</summary>${j.checklist.map(t => `<label class="check" style="padding:8px 0"><input type="checkbox" data-act-input="check" data-id="${j.id}" data-c="${t.id}" ${t.done ? 'checked' : ''}><span>${esc(t.t)}</span></label>`).join('')}</details>` : '') || '<span class="muted small">No tasks for this stage.</span>')}
+  ${sec('📷 Photos', `${photoProgress(st)}<div class="row mt" style="justify-content:space-between"><span class="small">${st.done}/${st.total} photos · ${st.missing.length ? `<b class="down">${st.missing.length} required missing</b>` : '<b class="up">All required ✓</b>'}${(j.reqPhotos || []).some(s => s.pending) ? ` · ⏳ ${(j.reqPhotos || []).filter(s => s.pending).length} uploading` : ''}</span><a class="btn primary" href="#/photos/${j.id}">Open checklist</a></div>`)}
+  ${sec('🔧 Scope', (j.items || []).map(i => `<div class="list-item small"><div style="flex:1">${esc(i.name)}</div><b>× ${num(i.qty)}</b></div>`).join('') || '<span class="muted small">No line items.</span>')}
+  ${sec('📦 Materials used', (j.materials || []).map(m => `<div class="list-item small"><div style="flex:1">${esc(m.name)}${m.serial ? ` · S/N ${esc(m.serial)}` : ''}<div class="muted">${esc(m.by || '')} · ${fDate(m.ts)}</div></div><b>× ${num(m.qty)} ${esc(m.unit || '')}</b><button class="btn ghost sm danger" data-act="woMatDel" data-id="${j.id}" data-m="${m.id}">✕</button></div>`).join('') || '<span class="muted small">Nothing logged yet.</span>', `<button class="btn sm" data-act="woMat" data-id="${j.id}">＋ Material</button>`)}
+  ${sec('🏷 Equipment & serial numbers', `${reqSerials.map(t => { const e = (j.installedEquip || []).find(x => x.type === t); return `<div class="list-item small"><span class="pill ${e && e.serial ? 'ok' : 'warn'}">${e && e.serial ? '✓' : 'Needed'}</span><div style="flex:1"><b>${esc(t)}</b>${e ? `<div class="muted">${esc([e.brand, e.model].filter(Boolean).join(' '))} · S/N ${esc(e.serial || '—')}</div>` : ''}</div><button class="btn sm" data-act="woEquip" data-id="${j.id}" data-t="${esc(t)}">${e ? 'Edit' : 'Add'}</button></div>`; }).join('')}${(j.installedEquip || []).filter(e => !reqSerials.includes(e.type)).map(e => `<div class="list-item small"><span class="pill ok">✓</span><div style="flex:1"><b>${esc(e.type)}</b><div class="muted">${esc([e.brand, e.model].filter(Boolean).join(' '))} · S/N ${esc(e.serial || '—')}</div></div><button class="btn sm" data-act="woEquip" data-id="${j.id}" data-e="${e.id}">Edit</button></div>`).join('')}`, `<button class="btn sm" data-act="woEquip" data-id="${j.id}">＋ Other</button>`)}
+  ${(j.issues || []).length ? sec('⚠ Problems reported', j.issues.map(i => `<div class="list-item small"><span class="pill ${i.resolvedAt ? 'ok' : i.stops ? 'bad' : 'warn'}">${i.resolvedAt ? 'Resolved' : i.stops ? 'Stops work' : 'Open'}</span><div style="flex:1">${esc(i.text)}<div class="muted">${esc(i.by)} · ${fDate(i.ts)}</div></div></div>`).join('')) : ''}
+  ${sec('📄 Documents', `${permits.map(p => `<div class="list-item small"><div style="flex:1">${esc(p.type)} permit ${p.number ? '#' + esc(p.number) : ''}</div>${pill(PERMIT_ST, p.status)}</div>`).join('') || '<div class="small muted">No permits on file.</div>'}<div class="row mt" style="flex-wrap:wrap"><button class="btn sm" data-act="photoPdf" data-id="${j.id}">⇩ Photo report</button><button class="btn sm" data-act="handoverPdf" data-id="${j.id}">⇩ Handover package</button></div>`)}
+  ${sec('✍ Customer sign-off', j.signoff ? `<div class="row"><img src="${j.signoff.sig}" alt="Signature" style="height:60px;background:#fff;border:1px solid var(--border);border-radius:8px"><div class="small"><b>${esc(j.signoff.name)}</b><br>${new Date(j.signoff.at).toLocaleString('en-US')}</div></div>` : `<p class="small muted">Ask the customer to review the work and sign on the screen.</p><button class="btn primary" data-act="woSign" data-id="${j.id}">✍ Collect signature</button>`)}
+  ${sec('Handover checklist', ho.map(i => `<div class="list-item small"><span class="pill ${i.ok ? 'ok' : 'warn'}">${i.ok ? '✓' : '…'}</span><div style="flex:1"><a href="${i.href}">${esc(i.label)}</a><div class="muted">${esc(i.detail)}</div></div></div>`).join(''))}`;
+};
+ROUTES['wo:after'] = () => { uqRefresh(); };
+function sigPad(title, onDone) {
+  modal({ title, body: `<label class="f">Customer name<input class="inp" id="sgName"></label><p class="small muted mt">Sign below</p><canvas id="sgPad" style="width:100%;height:180px;border:2px dashed var(--border);border-radius:12px;background:#fff;touch-action:none"></canvas><button class="btn sm mt" id="sgClear">Clear</button>`, foot: '<button class="btn" data-dismiss>Cancel</button><button class="btn primary" id="sgOk">Save signature</button>', onMount(bg, close) {
+    const cv = $('#sgPad', bg), ctx = cv.getContext('2d'); const fit = () => { const r = cv.getBoundingClientRect(); cv.width = r.width * 2; cv.height = r.height * 2; ctx.scale(2, 2); ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0f172a'; }; fit();
+    let drawing = false, ink = false; const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    cv.onpointerdown = e => { drawing = true; ink = true; cv.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.moveTo(...pos(e)); };
+    cv.onpointermove = e => { if (!drawing) return; ctx.lineTo(...pos(e)); ctx.stroke(); };
+    cv.onpointerup = () => { drawing = false; };
+    $('#sgClear', bg).onclick = () => { ctx.clearRect(0, 0, cv.width, cv.height); ink = false; };
+    $('#sgOk', bg).onclick = () => { const n = $('#sgName', bg).value.trim(); if (n.length < 2 || !ink) { toast('Name and signature are required'); return; } onDone({ name: n, sig: cv.toDataURL('image/png'), at: iso(new Date()), by: me() }); close(); save(); render(); };
+  } });
+}
+
+// ── Service tickets & warranties ──
+const tkNum = () => { p4Init(); const max = Math.max(1000, num(db.settings.counters.ticket), ...db.tickets.map(t => parseInt(String(t.number || '').replace(/\D/g, ''), 10) || 0)); db.settings.counters.ticket = max + 1; return 'T-' + (max + 1); };
+const tkCost = t => sumBy(t.time, x => num(x.hours) * num(x.rate)) + sumBy(t.parts, x => num(x.qty) * num(x.cost));
+function tkWarranty(t) {
+  const on = ymd(t.createdAt || new Date());
+  return db.warranties.filter(w => (w.jobId && w.jobId === t.jobId) || (!t.jobId && w.customerId === t.customerId)).filter(w => w.start <= on && w.end >= on);
+}
+function tkHist(t, text) { (t.history = t.history || []).unshift({ ts: iso(new Date()), by: me(), text }); }
+// Publica el costo del ticket: garantía → costo del proyecto original (categoría Warranty); si no, queda facturable.
+function tkPostCost(t) {
+  const j = t.jobId && db.jobs.find(x => x.id === t.jobId); if (!j) return;
+  projInit(j); j.fin.costs = j.fin.costs.filter(c => c.ticketId !== t.id);
+  if (t.warranty && tkCost(t) > 0) { j.fin.costs.push({ id: uid(), category: 'Warranty', amount: Math.round(tkCost(t) * 100) / 100, vendor: 'Service ' + t.number, note: t.title, date: ymd(new Date()), by: me(), paid: true, ticketId: t.id, receipt: 'ticket' }); hist(j, `Warranty service ${t.number}: ${money2(tkCost(t))} charged to this project`); }
+}
+function ticketModal(t, preset = {}) {
+  p4Init();
+  const isNew = !t; t = t || { priority: 'normal', source: 'phone', ...preset };
+  const custJobs = cid => [['', '— None —'], ...db.jobs.filter(j => j.customerId === cid).map(j => [j.id, `${j.number} · ${j.title}`])];
+  form({ title: isNew ? 'New service ticket' : 'Edit ' + t.number, fields: [
+    { k: 'customerId', label: 'Customer', type: 'select', options: custOptions(), value: t.customerId },
+    { k: 'jobId', label: 'Project', type: 'select', options: custJobs(t.customerId || (db.customers[0] || {}).id), value: t.jobId || '' },
+    { k: 'title', label: 'Problem', full: true, required: true, value: t.title, ph: 'e.g. Inverter shows a red light' },
+    { k: 'description', label: 'Details', type: 'textarea', full: true, value: t.description },
+    { k: 'priority', label: 'Priority', type: 'select', options: Object.entries(TK_PRI).map(([k, v]) => [k, v[0]]), value: t.priority },
+    { k: 'source', label: 'Source', type: 'select', options: [['phone', 'Phone'], ['portal', 'Customer portal'], ['email', 'Email / text'], ['internal', 'Internal / inspection']], value: t.source },
+    { k: 'assignee', label: 'Technician', type: 'select', options: techOptions(), value: t.assignee || '' },
+  ], onSave(v) {
+    const j = v.jobId && db.jobs.find(x => x.id === v.jobId);
+    if (isNew) { const nt = { id: uid(), number: tkNum(), ...v, division: j ? j.division : (state.div !== 'all' ? state.div : 'hvac'), status: 'new', createdAt: iso(new Date()), time: [], parts: [], history: [] }; nt.warranty = tkWarranty(nt).length > 0; tkHist(nt, `Ticket opened (${v.source})${nt.warranty ? ' · under warranty' : ''}`); db.tickets.unshift(nt); runLog('ticket.new', `${nt.number} ${nt.title} · ${cust(nt.customerId).name}`); setTimeout(() => location.hash = '#/ticket/' + nt.id); }
+    else { Object.assign(t, v); tkHist(t, 'Details updated'); }
+  } });
+  const sel = $('[name=customerId]'); if (sel) sel.onchange = () => { $('[name=jobId]').innerHTML = custJobs(sel.value).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join(''); };
+}
+ROUTES.service = () => {
+  p4Init();
+  const tab = state.tabs.svc || 'tickets', T = db.tickets.filter(t => divOK(t));
+  const open = T.filter(t => !['resolved', 'closed'].includes(t.status)), done = T.filter(t => t.resolvedAt && daysSince(t.resolvedAt) <= 90);
+  const avg = done.length ? sumBy(done, t => (new Date(t.resolvedAt) - new Date(t.createdAt)) / DAY) / done.length : 0;
+  const yr = T.filter(t => daysSince(t.createdAt) <= 365), rep = {}; yr.forEach(t => { const k = (t.jobId || t.customerId) + '|' + String(t.title).toLowerCase().split(/\W+/).filter(w => w.length > 3).slice(0, 2).join(' '); (rep[k] = rep[k] || []).push(t); });
+  const repeats = Object.values(rep).filter(x => x.length > 1);
+  const exp = db.warranties.filter(w => w.end >= ymd(new Date()) && w.end <= dl(ymd(new Date()), 90)), unreg = db.warranties.filter(w => w.needsRegistration && !w.registered);
+  const tRow = t => `<tr class="click" data-go="#/ticket/${t.id}"><td class="b">${t.number}</td><td>${esc(t.title)}<div class="small muted">${esc(cust(t.customerId).name)}${t.jobId ? ' · ' + ((db.jobs.find(j => j.id === t.jobId) || {}).number || '') : ''}</div></td><td>${pill(TK_PRI, t.priority)}</td><td>${t.warranty ? '<span class="pill ok">Warranty</span>' : '<span class="pill">Billable</span>'}</td><td>${esc((tech(t.assignee) || {}).name || '—')}</td><td class="small">${ago(t.createdAt)}</td><td>${pill(TK_ST, t.status)}</td>${canMoney() ? `<td class="right">${money(tkCost(t))}</td>` : ''}</tr>`;
+  let body = '';
+  if (tab === 'tickets') body = `<div class="card"><div class="table-wrap"><table><thead><tr><th>#</th><th>Problem</th><th>Priority</th><th>Coverage</th><th>Tech</th><th>Opened</th><th>Status</th>${canMoney() ? '<th class="right">Cost</th>' : ''}</tr></thead><tbody>${[...open, ...T.filter(t => !open.includes(t)).slice(0, 30)].map(tRow).join('') || '<tr><td colspan="8" class="empty">No tickets yet.</td></tr>'}</tbody></table></div></div>`;
+  if (tab === 'warranties') body = `<div class="card"><div class="table-wrap"><table><thead><tr><th>Project</th><th>Warranty</th><th>Provider</th><th>Item / serial</th><th>Start</th><th>End</th><th>Registration</th></tr></thead><tbody>${db.warranties.filter(w => divOK(w)).sort((a, b) => a.end.localeCompare(b.end)).map(w => { const j = db.jobs.find(x => x.id === w.jobId); return `<tr><td>${j ? `<a href="#/job/${j.id}">${j.number}</a>` : '—'}<div class="small muted">${esc(cust(w.customerId).name)}</div></td><td class="b">${esc(w.type)}</td><td>${esc(w.provider)}</td><td class="small">${esc(w.item || '')}${w.serial ? ' · S/N ' + esc(w.serial) : ''}</td><td>${fDate(parseLocal(w.start))}</td><td class="${w.end < ymd(new Date()) ? 'muted' : ''}">${fDate(parseLocal(w.end))}</td><td>${w.needsRegistration ? (w.registered ? `<span class="pill ok">Registered${w.regNumber ? ' · ' + esc(w.regNumber) : ''}</span>` : `<button class="btn sm" data-act="wReg" data-id="${w.id}">Mark registered</button><div class="small ${w.registerBy < ymd(new Date()) ? 'down' : 'muted'}">by ${fDate(parseLocal(w.registerBy))}</div>`) : '<span class="small muted">Not required</span>'}</td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">Warranties start automatically when an installation is completed.</td></tr>'}</tbody></table></div></div>`;
+  if (tab === 'repeats') body = `<div class="card"><div class="card-b">${repeats.map(list => `<div class="list-item"><span class="pill warn">×${list.length}</span><div style="flex:1"><b>${esc(list[0].title)}</b><div class="small muted">${esc(cust(list[0].customerId).name)} · ${list.map(t => `<a href="#/ticket/${t.id}">${t.number}</a>`).join(', ')}</div></div>${canMoney() ? `<b>${money(sumBy(list, tkCost))}</b>` : ''}</div>`).join('') || '<div class="empty">No repeated problems in the last 12 months ✓</div>'}</div></div>`;
+  return head('Service & warranties', 'Service tickets linked to projects and equipment, warranty tracking and post-sale cost', '<button class="btn primary" data-act="tkNew">＋ Ticket</button>') + `
+  <div class="grid g4 mb">${kpi('Open tickets', open.length, `${open.filter(t => !t.assignee).length} unassigned`)}${kpi('Avg. resolution', avg ? avg.toFixed(1) + ' days' : '—', 'last 90 days')}${kpi('Repeated problems', repeats.length, 'last 12 months')}${canMoney() ? kpi('Post-sale cost (12 mo)', money(sumBy(yr, tkCost)), `${money(sumBy(yr.filter(t => t.warranty), tkCost))} under warranty`) : kpi('Warranties expiring', exp.length, 'next 90 days')}</div>
+  ${unreg.length ? `<div class="card mb" style="border-color:var(--warn)"><div class="card-b small">⚠ ${unreg.length} manufacturer warrant${unreg.length > 1 ? 'ies' : 'y'} not registered yet — <a href="#/service" data-act="tab" data-t="svc" data-v="warranties">review</a></div></div>` : ''}
+  <div class="tabs">${[['tickets', `Tickets (${open.length} open)`], ['warranties', `Warranties (${db.warranties.length})`], ['repeats', 'Repeated problems']].map(([k, v]) => `<button data-act="tab" data-t="svc" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>${body}`;
+};
+ROUTES.ticket = id => {
+  p4Init();
+  const t = db.tickets.find(x => x.id === id); if (!t) return '<div class="empty">Ticket not found</div>';
+  const c = cust(t.customerId), j = t.jobId && db.jobs.find(x => x.id === t.jobId), ws = tkWarranty(t), prior = db.tickets.filter(x => x.customerId === t.customerId && x.id !== t.id);
+  const visit = t.visitJobId && db.jobs.find(x => x.id === t.visitJobId);
+  const nextSt = { new: ['inprogress', 'Start work'], scheduled: ['inprogress', 'Start work'], inprogress: null }[t.status];
+  return `<div class="small muted mb"><a href="#/service">Service</a> / ${t.number}</div>` + head(`${t.number} · ${esc(t.title)}`, `${esc(c.name)} · opened ${fDate(t.createdAt)} via ${esc(t.source)} ${pill(TK_PRI, t.priority)}`, `${pill(TK_ST, t.status)}<button class="btn" data-act="tkEdit" data-id="${t.id}">Edit</button>${nextSt ? `<button class="btn" data-act="tkStatus" data-id="${t.id}" data-s="${nextSt[0]}">${nextSt[1]}</button>` : ''}${!['resolved', 'closed'].includes(t.status) ? `<button class="btn ok" data-act="tkResolve" data-id="${t.id}">✓ Resolve</button>` : t.status === 'resolved' ? `<button class="btn" data-act="tkStatus" data-id="${t.id}" data-s="closed">Close</button><button class="btn ghost" data-act="tkStatus" data-id="${t.id}" data-s="inprogress">Reopen</button>` : ''}`) + `
+  <div class="grid g-2-1"><div>
+    <div class="card mb"><div class="card-b">${t.description ? `<p style="white-space:pre-wrap">${esc(t.description)}</p>` : '<p class="muted small">No details.</p>'}${t.contact ? `<p class="small"><b>Customer contact preference:</b> ${esc(t.contact)}</p>` : ''}${t.resolution ? `<div class="auth-msg ok mt"><b>Resolution:</b> ${esc(t.resolution)}</div>` : ''}</div></div>
+    <div class="card mb"><div class="card-h"><h3>Visit</h3></div><div class="card-b">${visit ? `<div class="list-item"><div style="flex:1"><a href="#/wo/${visit.id}" class="b">${visit.number}</a> · ${visit.start ? fDay(visit.start) + ' ' + fTime(visit.start) : 'not scheduled'} · ${esc((tech((visit.techIds || [])[0]) || {}).name || 'unassigned')}</div>${pill(JOB_ST, visit.status)}</div>` : `<p class="small muted">Schedule a service visit; it shows up in Schedule & Dispatch and in the technician’s work orders.</p><button class="btn primary" data-act="tkVisit" data-id="${t.id}">📅 Schedule visit</button>`}</div></div>
+    <div class="card mb"><div class="card-h"><h3>Time & parts</h3><div class="row"><button class="btn sm" data-act="tkTime" data-id="${t.id}">＋ Time</button><button class="btn sm" data-act="tkPart" data-id="${t.id}">＋ Part</button></div></div><div class="card-b">
+      ${t.time.map(x => `<div class="list-item small"><div style="flex:1">⏱ ${esc((tech(x.techId) || {}).name || '')} · ${fDate(parseLocal(x.date))}</div><b>${num(x.hours)} h${canRates() ? ' · ' + money2(num(x.hours) * num(x.rate)) : ''}</b></div>`).join('')}
+      ${t.parts.map(x => `<div class="list-item small"><div style="flex:1">📦 ${esc(x.name)} × ${num(x.qty)}</div>${canMoney() ? `<b>${money2(num(x.qty) * num(x.cost))}</b>` : ''}</div>`).join('')}
+      ${!t.time.length && !t.parts.length ? '<span class="muted small">Nothing logged.</span>' : ''}
+      ${canMoney() ? `<div class="row mt" style="justify-content:space-between"><b>Cost to resolve: ${money2(tkCost(t))}</b>${t.warranty ? `<span class="small muted">Charged to ${j ? j.number : 'the project'} as Warranty cost when resolved</span>` : t.invoiceId ? `<a class="btn sm" href="#/invoice/${t.invoiceId}">Invoice ${(db.invoices.find(i => i.id === t.invoiceId) || {}).number || ''}</a>` : `<button class="btn sm ok" data-act="tkInvoice" data-id="${t.id}">$ Invoice customer</button>`}</div>` : ''}
+    </div></div>
+    <div class="card"><div class="card-h"><h3>History</h3></div><div class="card-b"><div class="timeline">${(t.history || []).map(h => `<div class="ev"><div>${esc(h.text)}</div><div class="small muted">${esc(h.by || '')} · ${new Date(h.ts).toLocaleString('en-US')}</div></div>`).join('')}</div></div></div>
+  </div><div>
+    <div class="card mb"><div class="card-h"><h3>Coverage</h3></div><div class="card-b"><label class="check"><input type="checkbox" data-act-input="tkWarranty" data-id="${t.id}" ${t.warranty ? 'checked' : ''}><span><b>Under warranty</b> (no charge to the customer)</span></label>${ws.map(w => `<div class="list-item small"><span class="pill ok">Active</span><div style="flex:1">${esc(w.type)} · ${esc(w.provider)}<div class="muted">until ${fDate(parseLocal(w.end))}</div></div></div>`).join('') || '<div class="small muted mt">No active warranty found for this project.</div>'}</div></div>
+    <div class="card mb"><div class="card-h"><h3>Assigned</h3></div><div class="card-b"><select class="inp" data-act-input="tkAssign" data-id="${t.id}">${techOptions().map(([v, n]) => `<option value="${v}" ${t.assignee === v ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div></div>
+    <div class="card mb"><div class="card-h"><h3>Project & equipment</h3></div><div class="card-b">${j ? `<a href="#/job/${j.id}" class="b">${j.number} · ${esc(j.title)}</a><div class="small muted">Completed ${j.completedAt ? fDate(j.completedAt) : '—'}</div>` : '<span class="small muted">No project linked.</span>'}${(c.equipment || []).map(e => `<div class="list-item small"><div style="flex:1"><b>${esc(e.type)}</b> ${esc([e.brand, e.model].filter(Boolean).join(' '))}<div class="muted">S/N ${esc(e.serial || '—')} · installed ${fDate(parseLocal(e.installed))}</div></div></div>`).join('')}</div></div>
+    <div class="card"><div class="card-h"><h3>Previous tickets (${prior.length})</h3></div><div class="card-b">${prior.map(x => `<div class="list-item small"><a href="#/ticket/${x.id}">${x.number}</a><div style="flex:1">${esc(x.title)}</div>${pill(TK_ST, x.status)}</div>`).join('') || '<span class="muted small">None.</span>'}</div></div>
+  </div></div>`;
+};
+
+// ── Project → customer portal link ──
+async function projectPortalLink(j) {
+  if (!cloud.on) { toast('The customer portal works in the cloud workspace (sign in).'); return; }
+  try {
+    const { data: tok, error } = await cloud.sb.rpc('opsboss_portal_link', { p_kind: 'project', p_id: j.id });
+    if (error) throw error;
+    const url = location.origin + location.pathname.replace(/[^/]*$/, '') + 'portal.html?p=' + tok, c = cust(j.customerId);
+    modal({ title: 'Customer project portal', body: `<p class="small">${esc(c.name)} can follow the project, see visits, documents, invoices and warranties, pay, and request service. Costs, margins and internal notes are never shown.</p><label class="f">Link<input class="inp" readonly value="${esc(url)}" onclick="this.select()"></label><label class="f mt">Message shown to the customer (optional)<textarea class="inp" id="ppNote" placeholder="e.g. Your permit was approved — we’ll call to schedule the install.">${esc(j.portalNote || '')}</textarea></label>`, foot: `<button class="btn" data-dismiss>Close</button><button class="btn" id="ppSave">Save message</button>${c.phone ? `<a class="btn primary" href="sms:${esc(c.phone)}?body=${encodeURIComponent(`Hi ${c.name}, follow your ${db.settings.company} project here: ${url}`)}">✉ Text link</a>` : ''}`, onMount(bg, close) { $('#ppSave', bg).onclick = () => { j.portalNote = $('#ppNote', bg).value.trim(); hist(j, 'Customer portal message updated'); save(); toast('Saved — the customer sees it in the portal'); close(); }; } });
+    runLog('portal.link', `Project portal link for ${j.number}`);
+  } catch (e) { toast(e.message || String(e)); }
+}
+
+// ── Alerts for phase 4 (called from alertsAll) ──
+function p4Alerts(add) {
+  if (!db.tickets) return;
+  db.tickets.filter(t => t.status === 'new').forEach(t => { const h = (Date.now() - new Date(t.createdAt)) / 36e5; if (!t.assignee || h > 24) add({ key: 'tk:' + t.id, kind: 'Service request', sev: t.priority === 'urgent' || h > 24 ? 'bad' : 'warn', title: `${t.number} ${t.title}`, text: `${cust(t.customerId).name} · ${t.assignee ? 'not started' : 'unassigned'} · ${Math.floor(h)} h`, href: '#/ticket/' + t.id, age: Math.floor(h / 24), level: h > 48 ? 3 : h > 24 ? 2 : 1 }); });
+  (db.warranties || []).filter(w => w.needsRegistration && !w.registered && w.registerBy && w.registerBy <= dl(ymd(new Date()), 14)).forEach(w => add({ key: 'wreg:' + w.id, kind: 'Warranty registration', sev: w.registerBy < ymd(new Date()) ? 'bad' : 'warn', title: `Register ${w.type} warranty by ${fDate(parseLocal(w.registerBy))}`, text: ((db.jobs.find(j => j.id === w.jobId) || {}).number || '') + ' · ' + cust(w.customerId).name, href: '#/service', age: 0 }));
+  db.jobs.filter(j => (j.issues || []).some(i => !i.resolvedAt)).forEach(j => j.issues.filter(i => !i.resolvedAt).forEach(i => add({ key: 'iss:' + i.id, kind: 'Field problem', sev: i.stops ? 'bad' : 'warn', title: `${j.number}: ${i.text}`, text: `${i.by} · ${fDate(i.ts)}`, href: '#/job/' + j.id, age: daysSince(i.ts) })));
+}
+
+/* ───────────── Phase 4 actions ───────────── */
+function p4SettingsCard() {
+  p4Init();
+  const s = db.settings, dis = canAdmin() ? '' : 'disabled';
+  return `<div class="card mt"><div class="card-h"><h3>Field, handover & warranties</h3></div><div class="card-b">
+    <p class="small muted">Serial numbers the crew must record before handover (one per line).</p>
+    ${['solar', 'hvac', 'roofing'].map(k => `<label class="f mt">${DIV[k].name} — required serials<textarea class="inp" style="min-height:70px;font-size:12.5px" data-act-input="p4Serials" data-k="${k}" ${dis}>${esc((s.serialReqs[k] || []).join('\n'))}</textarea></label>`).join('')}
+    <p class="small muted mt">Warranties started automatically when an installation is completed. One per line: <code>Name | Provider | Years | register</code> (add “register” when the manufacturer requires registration).</p>
+    ${['solar', 'hvac', 'roofing'].map(k => `<label class="f mt">${DIV[k].name} — warranties<textarea class="inp" style="min-height:90px;font-size:12.5px" data-act-input="p4Warr" data-k="${k}" ${dis}>${esc((s.warrantyDefaults[k] || []).map(w => [w[0], w[1], w[2], w[3] ? 'register' : ''].filter(x => x !== '').join(' | ')).join('\n'))}</textarea></label>`).join('')}
+    ${canRates() ? `<div class="form mt"><label class="f">Service labor rate charged to customers ($/h)<input class="inp" type="number" data-act-input="setting" data-k="serviceRate" value="${esc(s.serviceRate)}" ${dis}></label><label class="f">Parts markup on service invoices (%)<input class="inp" type="number" data-act-input="setting" data-k="partsMarkup" value="${esc(s.partsMarkup)}" ${dis}></label><label class="f">Default loaded labor cost ($/h)<input class="inp" type="number" data-act-input="setting" data-k="laborRate" value="${esc(s.laborRate || 45)}" ${dis}></label></div>` : ''}
+  </div></div>`;
+}
+const pbOpts = div => [['', '— Other (type the name) —'], ...db.pricebook.filter(p => !div || p.division === div).map(p => [p.id, p.name])];
+Object.assign(ACT, {
+  uqRetry: () => uqFlush(true),
+  woClock: el => {
+    const j = projInit(byId('jobs', el.dataset.id)), mt = myTech(); if (!mt) { toast('Choose who you are first'); return; }
+    j.clock = j.clock || {};
+    if (j.clock[mt.id]) { const h = Math.max(0.25, Math.round((Date.now() - new Date(j.clock[mt.id])) / 36e5 * 4) / 4); j.fin.labor.push({ id: uid(), techId: mt.id, hours: h, rate: techRate(mt), date: ymd(new Date()), by: me(), src: 'clock', from: j.clock[mt.id], to: iso(new Date()) }); delete j.clock[mt.id]; hist(j, `${mt.name} clocked out: ${h} h`); toast(`Clocked out · ${h} h logged`); }
+    else { j.clock[mt.id] = iso(new Date()); hist(j, `${mt.name} clocked in`); toast('Clocked in'); }
+    save(); render();
+  },
+  woHours: el => { const j = projInit(byId('jobs', el.dataset.id)), mt = myTech(); form({ title: 'Add hours', fields: [{ k: 'techId', label: 'Crew member', type: 'select', options: techOptions(), value: mt ? mt.id : '' }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { if (!v.techId) { toast('Choose the crew member'); return false; } j.fin.labor.push({ id: uid(), techId: v.techId, hours: num(v.hours), rate: techRate(tech(v.techId)), date: v.date, by: me(), src: 'field' }); hist(j, `Hours logged: ${tech(v.techId).name} ${v.hours} h`); } }); },
+  woIssue: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Report a problem', fields: [{ k: 'text', label: 'What happened?', type: 'textarea', full: true, required: true }, { k: 'stops', label: 'Does it stop the work?', type: 'select', options: [['no', 'No — keep working'], ['yes', 'Yes — work cannot continue']] }], onSave(v) {
+    const i = { id: uid(), text: v.text, stops: v.stops === 'yes', by: me(), ts: iso(new Date()) }; (j.issues = j.issues || []).push(i);
+    db.tasks.unshift({ id: uid(), title: `Field problem ${j.number}: ${v.text.slice(0, 80)}`, notes: v.text, due: ymd(new Date()), assignee: '', done: false, customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Field report', createdAt: iso(new Date()) });
+    if (i.stops) j.blockers.push({ id: i.id, reason: 'Field: ' + v.text.slice(0, 120), owner: j.owner || '', followUp: ymd(new Date()), createdAt: iso(new Date()), by: me() });
+    hist(j, `⚠ Problem reported${i.stops ? ' (work stopped)' : ''}: ${v.text}`); runLog('field.issue', `${j.number}: ${v.text.slice(0, 100)}`); toast('Reported — the office was notified');
+  } }); },
+  woMat: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'Material used', fields: [{ k: 'pb', label: 'From price book', type: 'select', options: pbOpts(j.division), full: true }, { k: 'name', label: 'Or name', full: true }, { k: 'qty', label: 'Quantity', type: 'number', step: 'any', value: 1, required: true }, { k: 'serial', label: 'Serial # (if any)' }], onSave(v) {
+    const p = v.pb && db.pricebook.find(x => x.id === v.pb), name = p ? p.name : v.name; if (!name) { toast('Choose an item or type its name'); return false; }
+    const m = { id: uid(), name, qty: num(v.qty), unit: p ? p.unit : '', serial: v.serial, cost: p ? num(p.cost) : 0, by: me(), ts: iso(new Date()) }; (j.materials = j.materials || []).push(m);
+    if (m.cost) j.fin.costs.push({ id: uid(), category: 'Materials', amount: Math.round(m.cost * m.qty * 100) / 100, vendor: 'Field stock', note: `${name} × ${m.qty}`, date: ymd(new Date()), by: me(), paid: true, materialId: m.id, receipt: 'field' });
+    hist(j, `Material used: ${name} × ${m.qty}`);
+  } }); },
+  woMatDel: el => { const j = projInit(byId('jobs', el.dataset.id)), m = j.materials.find(x => x.id === el.dataset.m); j.materials = j.materials.filter(x => x !== m); j.fin.costs = j.fin.costs.filter(c => c.materialId !== m.id); hist(j, `Material removed: ${m.name}`); save(); render(); },
+  woEquip: el => { const j = projInit(byId('jobs', el.dataset.id)), e = el.dataset.e ? (j.installedEquip || []).find(x => x.id === el.dataset.e) : (j.installedEquip || []).find(x => x.type === el.dataset.t); form({ title: 'Equipment', fields: [{ k: 'type', label: 'Type', value: e ? e.type : (el.dataset.t || ''), required: true }, { k: 'brand', label: 'Brand', value: e && e.brand }, { k: 'model', label: 'Model', value: e && e.model }, { k: 'serial', label: 'Serial number', value: e && e.serial, required: true }], onSave(v) { if (e) Object.assign(e, v); else (j.installedEquip = j.installedEquip || []).push({ id: uid(), ...v, by: me(), ts: iso(new Date()) }); hist(j, `Serial recorded: ${v.type} ${v.serial}`); } }); },
+  woSign: el => { const j = projInit(byId('jobs', el.dataset.id)); sigPad('Customer sign-off · ' + j.number, s => { j.signoff = s; hist(j, `Customer sign-off: ${s.name}`); }); },
+  handoverPdf: async el => { el.disabled = true; try { await handoverPdf(byId('jobs', el.dataset.id)); } catch (e) { toast('PDF: ' + e.message); } el.disabled = false; },
+  projPortal: el => projectPortalLink(byId('jobs', el.dataset.id)),
+  tkNew: el => ticketModal(null, el && el.dataset && el.dataset.cust ? { customerId: el.dataset.cust } : {}),
+  tkEdit: el => ticketModal(db.tickets.find(t => t.id === el.dataset.id)),
+  tkStatus: el => { const t = db.tickets.find(x => x.id === el.dataset.id); tkHist(t, `Status ${t.status} → ${el.dataset.s}`); t.status = el.dataset.s; if (el.dataset.s === 'inprogress') { t.resolvedAt = ''; } save(); render(); },
+  tkResolve: el => { const t = db.tickets.find(x => x.id === el.dataset.id); form({ title: 'Resolve ' + t.number, fields: [{ k: 'resolution', label: 'What was done?', type: 'textarea', full: true, required: true }], onSave(v) { t.resolution = v.resolution; t.status = 'resolved'; t.resolvedAt = iso(new Date()); tkPostCost(t); tkHist(t, 'Resolved: ' + v.resolution); runLog('ticket.resolved', `${t.number} resolved in ${((new Date(t.resolvedAt) - new Date(t.createdAt)) / DAY).toFixed(1)} days · cost ${money2(tkCost(t))}${t.warranty ? ' (warranty)' : ''}`); } }); },
+  tkVisit: el => { const t = db.tickets.find(x => x.id === el.dataset.id); const j = { id: uid(), number: nextNum('job'), customerId: t.customerId, division: t.division || 'hvac', title: `Service ${t.number}: ${t.title}`, techIds: t.assignee ? [t.assignee] : [], start: null, duration: 2, status: 'unscheduled', items: [], checklist: [], photos: [], ticketId: t.id, notes: t.description || '', propertyId: ((db.jobs.find(x => x.id === t.jobId)) || {}).propertyId, createdAt: iso(new Date()) }; db.jobs.unshift(j); t.visitJobId = j.id; t.status = 'scheduled'; tkHist(t, `Service visit ${j.number} created`); save(); jobModal(j); },
+  tkTime: el => { const t = db.tickets.find(x => x.id === el.dataset.id); form({ title: 'Log time · ' + t.number, fields: [{ k: 'techId', label: 'Technician', type: 'select', options: techOptions(), value: t.assignee }, { k: 'hours', label: 'Hours', type: 'number', step: '0.25', required: true }, { k: 'date', label: 'Date', type: 'date', value: ymd(new Date()) }], onSave(v) { if (!v.techId) { toast('Choose the technician'); return false; } t.time.push({ id: uid(), techId: v.techId, hours: num(v.hours), rate: techRate(tech(v.techId)), date: v.date, by: me() }); tkHist(t, `Time: ${tech(v.techId).name} ${v.hours} h`); if (t.status === 'resolved') tkPostCost(t); } }); },
+  tkPart: el => { const t = db.tickets.find(x => x.id === el.dataset.id); form({ title: 'Part used · ' + t.number, fields: [{ k: 'pb', label: 'From price book', type: 'select', options: pbOpts(t.division), full: true }, { k: 'name', label: 'Or name', full: true }, { k: 'qty', label: 'Quantity', type: 'number', step: 'any', value: 1 }, ...(canMoney() ? [{ k: 'cost', label: 'Unit cost ($, blank = price book)', type: 'number', step: '0.01' }] : [])], onSave(v) { const p = v.pb && db.pricebook.find(x => x.id === v.pb), name = p ? p.name : v.name; if (!name) { toast('Choose a part or type its name'); return false; } t.parts.push({ id: uid(), name, qty: num(v.qty) || 1, cost: num(v.cost) || (p ? num(p.cost) : 0), price: p ? num(p.price) : 0, by: me() }); tkHist(t, `Part: ${name} × ${num(v.qty) || 1}`); if (t.status === 'resolved') tkPostCost(t); } }); },
+  tkInvoice: el => { const t = db.tickets.find(x => x.id === el.dataset.id), s = db.settings; const hrs = sumBy(t.time, x => x.hours); const items = [...(hrs ? [{ id: uid(), name: `Service labor — ${t.number} ${t.title}`, qty: hrs, price: num(s.serviceRate), cost: 0 }] : []), ...t.parts.map(p => ({ id: uid(), name: p.name, qty: p.qty, price: p.price || Math.round(num(p.cost) * (1 + num(s.partsMarkup) / 100) * 100) / 100, cost: p.cost }))]; if (!items.length) { toast('Log time or parts first'); return; } const inv = createInvoice({ customerId: t.customerId, jobId: t.visitJobId || null, division: t.division, items, note: `Service ticket ${t.number}` }); t.invoiceId = inv.id; tkHist(t, `Invoice ${inv.number} created`); save(); location.hash = '#/invoice/' + inv.id; },
+  wReg: el => { const w = db.warranties.find(x => x.id === el.dataset.id); const n = prompt(`Registration / confirmation number for ${w.type}:`); if (n === null) return; w.registered = true; w.regNumber = n; w.registeredAt = iso(new Date()); w.registeredBy = me(); const t = db.tasks.find(x => x.dedupe === 'wreg:' + w.jobId + ':' + w.type); if (t) { t.done = true; t.doneAt = iso(new Date()); } runLog('warranty.registered', `${w.type} registered${n ? ' #' + n : ''}`); save(); render(); },
+});
+Object.assign(INPUT, {
+  iam: el => { state.iam = el.value; try { localStorage.setItem('opsboss.iam', el.value); } catch (e) { /* ignore */ } render(); },
+  tkWarranty: el => { const t = db.tickets.find(x => x.id === el.dataset.id); t.warranty = el.checked; tkHist(t, el.checked ? 'Marked under warranty' : 'Marked billable'); if (t.status === 'resolved' || t.status === 'closed') tkPostCost(t); save(); render(); },
+  tkAssign: el => { const t = db.tickets.find(x => x.id === el.dataset.id); t.assignee = el.value; tkHist(t, 'Assigned to ' + ((tech(el.value) || {}).name || 'nobody')); const v = t.visitJobId && db.jobs.find(x => x.id === t.visitJobId); if (v && el.value && !v.techIds.includes(el.value)) v.techIds = [el.value, ...v.techIds.slice(1)]; save(); render(); },
+  p4Serials: el => { db.settings.serialReqs[el.dataset.k] = el.value.split('\n').map(x => x.trim()).filter(Boolean); save(); },
+  p4Warr: el => { db.settings.warrantyDefaults[el.dataset.k] = el.value.split('\n').map(l => l.split('|').map(x => x.trim())).filter(p => p[0]).map(p => [p[0], p[1] || 'Nexis Power', num(p[2]) || 1, /register/i.test(p[3] || '')]); save(); },
+});
+try { state.iam = localStorage.getItem('opsboss.iam') || ''; } catch (e) { /* ignore */ }
+// Completar: no se permite con fotos aún subiendo; al completar se arma la entrega y se registran garantías.
+const _jobStatus = ACT.jobStatus;
+ACT.jobStatus = el => {
+  const j = byId('jobs', el.dataset.id), was = j.status;
+  if (el.dataset.s === 'completed') { const pend = (j.reqPhotos || []).filter(s => s.pending).length; if (pend) { modal({ title: 'Photos still uploading', body: `<p>${pend} photo${pend > 1 ? 's are' : ' is'} saved on this phone but not uploaded yet. Connect to the internet and retry before completing.</p>`, foot: '<button class="btn" data-dismiss>Close</button><button class="btn primary" data-act="uqRetry" onclick="this.closest(\'.modal-bg\').remove()">↻ Retry uploads</button>' }); return; } }
+  _jobStatus(el);
+  if (j.status === 'completed' && was !== 'completed') {
+    onCompleted(j);
+    const t = j.ticketId && db.tickets.find(x => x.id === j.ticketId); if (t && !['resolved', 'closed'].includes(t.status)) { tkHist(t, `Visit ${j.number} completed`); }
+    save(); render();
+    const ho = handoverStatus(j).filter(i => !i.ok); if (ho.length && !j.ticketId) toast(`Handover: ${ho.length} item${ho.length > 1 ? 's' : ''} pending — tasks created`);
+  }
+};
 
 boot();
 })();
