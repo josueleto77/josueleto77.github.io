@@ -1,5 +1,6 @@
 // OpsBoss — puente con HighLevel (LeadConnector API v2) para miembros del equipo.
-// Acciones: status, link (buscar/crear contacto), history (mensajes y llamadas), send (SMS o email).
+// Acciones: status, link (buscar/crear contacto), history (mensajes y llamadas), send (SMS o email),
+// sources (formularios y calendarios, para verificar el mapeo de fuentes).
 // Autenticación: la sesión del usuario de OpsBoss; se verifica que sea miembro con opsboss_claim().
 // El token de HighLevel vive en la tabla opsboss_integrations (solo la lee el service role).
 
@@ -91,6 +92,19 @@ Deno.serve(async (req) => {
       else { body.subject = String(p.subject || 'Message'); body.html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>'); body.message = text; }
       const d = await ghl('/conversations/messages', { method: 'POST', body: JSON.stringify(body) });
       return json({ ok: true, messageId: d.messageId ?? d.id ?? null, conversationId: d.conversationId ?? null });
+    }
+
+    if (action === 'sources') {
+      // Lista formularios y calendarios de la cuenta para verificar que los IDs del mapeo siguen vigentes.
+      const [f, c] = await Promise.all([
+        ghl(`/forms/?locationId=${L}&limit=100`).catch((e) => ({ error: (e as Error).message })),
+        ghl(`/calendars/?locationId=${L}`).catch((e) => ({ error: (e as Error).message })),
+      ]);
+      return json({
+        forms: ((f as Record<string, any>).forms ?? []).map((x: Record<string, any>) => ({ id: x.id, name: x.name })),
+        calendars: ((c as Record<string, any>).calendars ?? []).map((x: Record<string, any>) => ({ id: x.id, name: x.name, active: x.isActive !== false })),
+        formsError: (f as Record<string, any>).error ?? null, calendarsError: (c as Record<string, any>).error ?? null,
+      });
     }
 
     return json({ error: 'unknown_action' }, 400);

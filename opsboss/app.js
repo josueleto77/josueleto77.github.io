@@ -205,7 +205,7 @@ function seed() {
 }
 
 function normalize(d) {
-  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks', 'pos', 'bills'].forEach(k => d[k] = d[k] || []);
+  ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts'].forEach(k => d[k] = d[k] || []);
   if (!d.workflows) d.workflows = wfTemplates().slice(0, 6).map(t => wfFromTemplate(t));
   if (d.settings && migrateEn(d)) d._migrated = true;
   return d;
@@ -262,7 +262,7 @@ function migrateEn(d) {
 
 /* ───────────── Nube (Supabase) ───────────── */
 const CFG = window.OPSBOSS_CONFIG || {};
-const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks', 'pos', 'bills'];
+const COLLS = ['customers', 'leads', 'estimates', 'jobs', 'invoices', 'plans', 'permits', 'pricebook', 'techs', 'activity', 'workflows', 'tasks', 'pos', 'bills', 'ledger', 'exceptions', 'runs', 'alerts', 'appts'];
 const TABLE = 'opsboss_records';
 const ROLE_LABEL = { owner: 'Owner', admin: 'Admin (direction)', sales: 'Sales', ops: 'Operations', purchasing: 'Purchasing', finance: 'Finance', office: 'Office', tech: 'Field technician', sub: 'Subcontractor' };
 const cloud = { on: false, sb: null, user: null, role: null, shadow: new Map(), timer: null, busy: false, again: false, pendingRender: false };
@@ -432,23 +432,24 @@ const confirmDlg = (msg, yes) => { return modal({ title: 'Confirm', body: `<p>${
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
-  ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📷', 'Field Photos'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
+  ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['alerts', '🔔', 'Alerts'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📷', 'Field Photos'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
   ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Projects'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'],
   ['sec', 'Projects'], ['permits', '⚑', 'Permits & Inspections'], ['tools', '∑', 'Calculators'],
-  ['sec', 'Business'], ['finance', '◔', 'Finance'], ['purchasing', '⛟', 'Purchasing & Bills'], ['workflows', '⚡', 'Workflows'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
+  ['sec', 'Business'], ['finance', '◔', 'Finance'], ['accounting', '⚖', 'Accounting (QuickBooks)'], ['exceptions', '⚠', 'Exceptions'], ['purchasing', '⛟', 'Purchasing & Bills'], ['commissions', '%', 'Commissions'], ['workflows', '⚡', 'Workflows'], ['runs', '⟳', 'Automation log'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
 ];
 function renderNav() {
-  const route = (location.hash.slice(2) || 'mywork').split('/')[0];
+  const route = (location.hash.slice(2).split('?')[0] || 'mywork').split('/')[0];
   const parentOf = { customer: 'customers', estimate: 'estimates', job: 'jobs', invoice: 'invoices', photos: 'field', duplicates: 'customers' };
+  let exN = 0; try { exN = isFin() ? exceptionsOpen().length : 0; } catch (e) { exN = 0; }
   const active = parentOf[route] || route;
-  const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length };
+  const badges = { tasks: (db.tasks || []).filter(t => !t.done && t.due <= ymd(new Date())).length, schedule: db.jobs.filter(j => j.status === 'unscheduled').length, invoices: db.invoices.filter(i => invStatus(i) === 'overdue').length, pipeline: db.leads.filter(l => l.stage === 'new' || l.stage === 'warm').length, permits: db.permits.filter(p => ['todo', 'rejected'].includes(p.status)).length, exceptions: exN, runs: (db.runs || []).filter(r => r.status === 'error').length };
   $('#nav').innerHTML = NAV.map(n => n[0] === 'sec' ? `<div class="sec">${n[1]}</div>` : `<a href="#/${n[0]}" class="${active === n[0] ? 'active' : ''}"><span class="ic">${n[1]}</span>${n[2]}${badges[n[0]] ? `<span class="badge">${badges[n[0]]}</span>` : ''}</a>`).join('');
   $('#divFilter').innerHTML = [['all', 'All'], ...divOptions()].map(([k, v]) => `<button data-div="${k}" class="${state.div === k ? 'on' : ''}">${k !== 'all' ? `<span class="div-dot d-${k}"></span> ` : ''}${v}</button>`).join('');
 }
 const ROUTES = {};
 function render() {
-  const [route, id] = (location.hash.slice(2) || 'mywork').split('/');
-  renderNav();
+  const [route, id] = (location.hash.slice(2).split('?')[0] || 'mywork').split('/');
+  renderNav(); renderBell();
   const fn = ROUTES[route] || ROUTES.dashboard;
   $('#view').innerHTML = fn(id) || '';
   const after = ROUTES[route + ':after']; after && after(id);
@@ -569,8 +570,9 @@ ROUTES['schedule:after'] = () => {
       if (target === 'unscheduled') { j.start = null; j.techIds = []; j.status = 'unscheduled'; log(`${j.number} unscheduled`); }
       else {
         const [tid, day] = target.split('|');
-        const time = j.start ? hm(j.start) : '08:00';
+        const time = j.start ? hm(j.start) : '08:00', oldStart = j.start;
         j.start = iso(parseLocal(day, time));
+        if (oldStart && oldStart !== j.start) { projInit(j); hist(j, `Rescheduled from ${fDay(oldStart)} ${fTime(oldStart)} to ${fDay(j.start)} ${fTime(j.start)}`); j.reschedules = (j.reschedules || 0) + 1; }
         if (!j.techIds.includes(tid)) { if (from && j.techIds.includes(from)) j.techIds = j.techIds.map(x => x === from ? tid : x); else if (j.techIds.length) j.techIds[0] = tid; else j.techIds = [tid]; }
         if (j.status === 'unscheduled') j.status = 'scheduled';
         log(`${j.number} assigned to ${tech(tid).name} on ${fDay(j.start)}`);
@@ -844,6 +846,8 @@ async function ghlEnsure(c) {
   return c.ghlId;
 }
 async function ghlSend(c, type, text, subject) {
+  const ch = type === 'Email' ? 'email' : 'sms';
+  if (c.consent && c.consent[ch] === false) throw new Error(`${c.name} opted out of ${ch.toUpperCase()}`);
   const id = await ghlEnsure(c);
   await ghlCall('send', { contactId: id, type, message: text, subject });
   log(`${type === 'Email' ? '@ Email' : '✉ SMS'} sent to ${c.name} via HighLevel`);
@@ -1138,7 +1142,9 @@ function finOf(j) {
   const paidOut = sumBy(lines.filter(l => l.bill.paidAt), l => l.amount) + sumBy(f.costs.filter(c => c.paid), c => c.amount) + labor;
   const pos = (db.pos || []).filter(p => p.projectId === j.id && p.status === 'approved');
   const committed = sumBy(pos, p => Math.max(0, num(p.amount) - poBilled(p)));
-  const projected = actual + committed + num(f.remaining);
+  const comms = (f.commissions || []).filter(c => c.status !== 'void'), commPaid = sumBy(comms.filter(c => c.status === 'paid'), c => c.amount), commOpen = sumBy(comms.filter(c => c.status === 'approved'), c => c.amount);
+  const remaining = f.remainingSet ? num(f.remaining) : Math.max(0, baseCost + coCost - actual - committed);
+  const projected = actual + commPaid + committed + commOpen + remaining;
   const gross = revenue - projected, pct = revenue ? gross / revenue : 0;
   const invs = projInvoices(j), sent = invs.filter(i => i.status !== 'draft');
   const billed = sumBy(sent, i => subtotal(i.items)), tax = sumBy(sent, i => taxOf(i.items)), collected = sumBy(invs, i => invPaid(i)), ar = sumBy(sent, i => invBal(i));
@@ -1147,7 +1153,8 @@ function finOf(j) {
   f.costs.forEach(c => byCat[c.category || 'Other'] = num(byCat[c.category || 'Other']) + num(c.amount));
   byCat['Own labor'] += labor;
   pos.forEach(p => { byCat['__c_' + (p.category || 'Other')] = num(byCat['__c_' + (p.category || 'Other')]) + Math.max(0, num(p.amount) - poBilled(p)); });
-  return { base, baseCost, coPrice, coCost, revenue, revisedCost: baseCost + coCost, actual, paidOut, committed, remaining: num(f.remaining), projected, gross, pct, billed, tax, collected, ar, unbilled: Math.max(0, revenue - billed), byCat, invs };
+  byCat.Commissions += commPaid; if (commOpen) byCat.__c_Commissions = num(byCat.__c_Commissions) + commOpen;
+  return { base, baseCost, coPrice, coCost, revenue, revisedCost: baseCost + coCost, actual: actual + commPaid, paidOut: paidOut + commPaid, committed: committed + commOpen, remaining, remainingAuto: !f.remainingSet, projected, gross, pct, billed, tax, collected, ar, unbilled: Math.max(0, revenue - billed), byCat, invs };
 }
 function finStatus(j) {
   const F = finOf(j), invs = F.invs;
@@ -1214,7 +1221,7 @@ function projFinancials(j) {
     <div class="card"><div class="card-h"><h3>Profitability</h3>${f.budget ? `<span class="small muted">Original budget locked ${fDate(f.budget.lockedAt)}</span>` : `<button class="btn sm primary" data-act="lockBudget" data-id="${j.id}">🔒 Lock original budget</button>`}</div><div class="table-wrap"><table>
       ${row('Original contract', money2(F.base))}${row('+ Approved change orders', money2(F.coPrice))}${row('Approved contract value (expected revenue)', money2(F.revenue), '', `Taxes collected for remittance shown separately: ${money2(F.tax)}`)}
       ${row('Actual cost', money2(F.actual), '', `Paid so far ${money2(F.paidOut)}`)}${row('+ Pending commitments', money2(F.committed), '', 'Approved POs / subcontracts not yet billed')}
-      <tr><td>+ Remaining cost estimate <div class="small muted">Work left with no commitment yet</div></td><td class="right"><input class="inp" type="number" step="any" style="width:130px;text-align:right" data-act-input="finRemaining" data-id="${j.id}" value="${num(f.remaining)}"></td></tr>
+      <tr><td>+ Remaining cost estimate <div class="small muted">${F.remainingAuto ? 'Auto: revised budget cost − actual − committed. Type a number to override.' : 'Work left with no commitment yet'}</div></td><td class="right"><input class="inp" type="number" step="any" style="width:130px;text-align:right" data-act-input="finRemaining" data-id="${j.id}" value="${Math.round(F.remaining * 100) / 100}"></td></tr>
       ${row('Projected final cost', money2(F.projected))}${row('Projected gross profit', `${money2(F.gross)} · ${pct2(F.pct)}`, F.gross < 0 ? 'down' : 'up')}
       ${row('Revised budget cost', money2(F.revisedCost), '', 'Original budget + approved change-order costs')}
     </table></div></div>
@@ -1230,6 +1237,8 @@ function projFinancials(j) {
       ${canRates() ? f.labor.map(l => `<div class="list-item small"><div style="flex:1">Labor · ${esc((tech(l.techId) || {}).name || l.who || '')} · ${l.hours}h × ${money2(l.rate)}</div><b>${money2(num(l.hours) * num(l.rate))}</b></div>`).join('') : (f.labor.length ? `<div class="small muted">Labor: ${f.labor.reduce((s, l) => s + num(l.hours), 0)}h logged (rates restricted)</div>` : '')}
       ${!lines.length && !f.costs.length && !f.labor.length ? '<span class="muted small">No costs yet. Vendor bills from Purchasing land here automatically.</span>' : ''}
     </div></div>
+    ${(() => { const o = overheadOf(j, F); return `<div class="card mt"><div class="card-h"><h3>After overhead</h3></div><div class="card-b"><div class="calc-out"><div><div class="l">Allocated overhead</div><div class="b">${money2(o.amount)}</div></div><div><div class="l">Result after overhead</div><div class="b ${o.after < 0 ? 'down' : 'up'}">${money2(o.after)}</div></div></div><p class="small muted">Rule: ${esc(o.rule)}. Change it in Settings → Overhead allocation rule.</p></div></div>`; })()}
+    ${canRates() ? `<div class="card mt"><div class="card-h"><h3>Commissions</h3><button class="btn sm" data-act="commSim" data-id="${j.id}">Simulate / approve</button></div><div class="card-b">${(f.commissions || []).map(c => `<div class="list-item small"><div style="flex:1">${esc(c.rep)} · ${esc(c.ruleName)}<div class="muted">${esc(c.trace || '')}</div></div><b>${money2(c.amount)}</b><span class="pill ${c.status === 'paid' ? 'ok' : c.status === 'void' ? '' : 'info'}">${c.status}</span></div>`).join('') || '<span class="muted small">No commission yet. Simulate it before approving.</span>'}</div></div>` : ''}
   </div></div>`;
 }
 function projBilling(j) {
@@ -1390,7 +1399,7 @@ function jobModal(j, preset = {}) {
       if (isNew) {
         const nj = { id: uid(), number: nextNum('job'), ...data, status: start ? 'scheduled' : 'unscheduled', items: preset.items || [], checklist: CHECKLISTS[v.division].map(t => ({ id: uid(), t, done: false })), photos: [], estimateId: preset.estimateId || null, createdAt: iso(new Date()) };
         db.jobs.unshift(nj); log(`Job ${nj.number} created: ${nj.title}`); toast('Job created'); emit('job.created', 'job', nj); setTimeout(() => location.hash = '#/job/' + nj.id);
-      } else { Object.assign(j, data); if (!start) j.status = 'unscheduled'; else if (j.status === 'unscheduled') j.status = 'scheduled'; }
+      } else { if (j.start && start && j.start !== start) { projInit(j); hist(j, `Rescheduled from ${fDay(j.start)} ${fTime(j.start)} to ${fDay(start)} ${fTime(start)}`); j.reschedules = (j.reschedules || 0) + 1; } Object.assign(j, data); if (!start) j.status = 'unscheduled'; else if (j.status === 'unscheduled') j.status = 'scheduled'; }
     },
   });
 }
@@ -1642,6 +1651,7 @@ ROUTES.settings = () => {
         ${cloud.ghl && cloud.ghl.webhookKey ? `<details class="mt"><summary class="b small">Webhook URLs for HighLevel workflows</summary><p class="small muted">In HighLevel, add a <b>Webhook</b> action (method POST) to a workflow and paste the URL for that event:</p>${[['lead', 'New lead → Marketing Leads · Warm Leads (trigger: Contact Created / Form Submitted)'], ['reply', 'Customer replied → task to reply (trigger: Customer Replied)'], ['call', 'Call logged → activity, task if missed (trigger: Call Status)']].map(([ev, label]) => `<label class="f mt">${label}<input class="inp" readonly onclick="this.select()" value="${esc(CFG.url + '/functions/v1/opsboss-ghl-webhook?event=' + ev + '&key=' + cloud.ghl.webhookKey)}"></label>`).join('')}<p class="small muted mt">Optional: add <code>&division=solar</code>, <code>roofing</code> or <code>hvac</code> to the lead URL so leads land in the right division.</p></details>` : ''}`
         : `<p class="small muted">${ghlOn() ? 'Messages and calls sync with HighLevel.' : 'Ask an admin to connect HighLevel.'}</p>`}
       </div></div>` : ''}
+      ${p3SettingsCards()}
       <div class="card mt"><div class="card-h"><h3>Data & backup</h3></div><div class="card-b"><p class="small muted">${cloud.on ? 'Data is stored in Supabase and shared live with your team. Export a backup from time to time.' : 'Local mode: data is stored only in this browser. Export backups often.'}</p><div class="row"><button class="btn" data-act="exportJson">⇩ Export backup (JSON)</button>${canAdmin() ? `<label class="btn">⇧ Import backup<input type="file" accept="application/json" hidden data-act-input="importJson"></label><button class="btn danger" data-act="resetDemo">Reset demo data</button><button class="btn danger" data-act="wipe">Start blank</button>` : ''}</div></div></div>
       ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>Team & access</h3><span class="pill brand">Your role: ${ROLE_LABEL[cloud.role] || cloud.role}</span></div><div class="card-b" id="acl"><span class="muted small">Loading…</span></div></div>` : ''}
     </div>
@@ -1708,7 +1718,7 @@ function wfMatches(wf, kind, rec, extra) {
   return true;
 }
 let wfDepth = 0;
-function wfRun(wf, kind, rec) {
+function wfRun(wf, kind, rec, runKey) {
   const now = new Date(), c = wfInfo(kind, rec).c, link = { kind, id: rec.id };
   for (const a of wf.actions) {
     if (a.type === 'task') db.tasks.unshift({ id: uid(), title: wfFill(a.title, kind, rec), due: ymd(addDays(now, num(a.days))), assignee: a.tech || (kind === 'job' ? rec.techIds[0] || '' : ''), done: false, customerId: c.id, link, wf: wf.name, createdAt: iso(now) });
@@ -1716,7 +1726,12 @@ function wfRun(wf, kind, rec) {
       const t = { id: uid(), type: 'message', channel: a.channel || 'sms', body: wfFill(a.body, kind, rec), title: `${a.channel === 'email' ? 'Send email' : 'Send SMS'} to ${c.name}`, due: ymd(addDays(now, num(a.days))), assignee: '', done: false, customerId: c.id, link, wf: wf.name, createdAt: iso(now) };
       db.tasks.unshift(t);
       // Envío automático por HighLevel: solo mensajes para hoy, si está activado en Settings.
-      if (ghlOn() && cloud.ghl.autoSend && !num(a.days) && c.id) ghlSend(c, t.channel === 'email' ? 'Email' : 'SMS', t.body, db.settings.company).then(() => { t.done = true; t.doneAt = iso(new Date()); t.sentVia = 'highlevel'; save(); remoteRender(); }).catch(e => toast('HighLevel auto-send failed: ' + e.message));
+      if (ghlOn() && cloud.ghl.autoSend && !num(a.days) && c.id) {
+        const ch = t.channel === 'email' ? 'email' : 'sms';
+        if (!db.settings.outboundLive) runLog('wf.message', `${wf.name}: ${ch.toUpperCase()} to ${c.name} prepared as a task (test mode — not sent)`, { status: 'test', retry: { taskId: t.id } });
+        else if (c.consent && c.consent[ch] === false) runLog('wf.message', `${wf.name}: ${c.name} opted out of ${ch.toUpperCase()} — not sent`, { status: 'blocked' });
+        else { const r = runLog('wf.message', `${wf.name}: ${ch.toUpperCase()} to ${c.name}`, { system: 'HighLevel', retry: { taskId: t.id } }); ghlSend(c, t.channel === 'email' ? 'Email' : 'SMS', t.body, db.settings.company).then(() => { t.done = true; t.doneAt = iso(new Date()); t.sentVia = 'highlevel'; save(); remoteRender(); }).catch(e => { r.status = 'error'; r.detail += ' · ' + e.message; save(); toast('HighLevel auto-send failed: ' + e.message); }); }
+      }
     }
     if (a.type === 'move_lead' && a.stage) {
       const lead = kind === 'lead' ? rec : db.leads.find(l => l.customerId === c.id && (!rec.division || l.division === rec.division) && !CLOSED.includes(l.stage));
@@ -1729,13 +1744,14 @@ function wfRun(wf, kind, rec) {
     if (a.type === 'notify') toast('⚡ ' + wfFill(a.text, kind, rec));
   }
   wf.runs = (wf.runs || 0) + 1; wf.lastRun = iso(now);
+  runLog('workflow', `⚡ ${wf.name} — ${c.name || ''} (${wf.actions.length} action${wf.actions.length === 1 ? '' : 's'})`, { key: runKey });
   log(`⚡ Workflow "${wf.name}" — ${c.name || ''}`);
 }
 // Dispara los workflows de un evento. Devuelve cuántos se ejecutaron.
 function emit(event, kind, rec, extra = {}) {
   if (!db.workflows || wfDepth > 3) return 0;
   let n = 0; wfDepth++;
-  try { for (const wf of db.workflows) if (wf.active && wf.trigger.type === event && wfMatches(wf, kind, rec, extra)) { wfRun(wf, kind, rec); n++; } } catch (e) { console.error('workflow', e); }
+  try { for (const wf of db.workflows) if (wf.active && wf.trigger.type === event && wfMatches(wf, kind, rec, extra)) { const key = `wf:${wf.id}:${event}:${rec.id}:${extra.to || ''}`; if (recentRun(key)) continue; wfRun(wf, kind, rec, key); n++; } } catch (e) { console.error('workflow', e); }
   finally { wfDepth--; }
   if (n && wfDepth === 0) { save(); toast(`⚡ ${n} workflow${n > 1 ? 's' : ''} ran`); }
   return n;
@@ -1750,7 +1766,7 @@ function wfTimers() {
     let cands = [];
     if (wf.trigger.type === 'time.estimate_no_reply') cands = db.estimates.filter(e => e.status === 'sent').map(e => [e, new Date(e.sentAt || e.createdAt).getTime() + days, 'x']);
     if (wf.trigger.type === 'time.lead_stale') cands = db.leads.filter(l => !CLOSED.includes(l.stage)).map(l => [l, new Date(l.stageAt || l.createdAt).getTime() + days, l.stage]);
-    if (wf.trigger.type === 'time.invoice_overdue') cands = db.invoices.filter(i => invStatus(i) === 'overdue').map(i => [i, parseLocal(i.due).getTime() + days, i.due]);
+    if (wf.trigger.type === 'time.invoice_overdue') cands = db.invoices.filter(i => invStatus(i) === 'overdue' && !i.disputed).map(i => [i, parseLocal(i.due).getTime() + days, i.due]);
     if (wf.trigger.type === 'time.job_completed_ago') cands = db.jobs.filter(j => j.status === 'completed').map(j => [j, new Date(j.completedAt || j.start || j.createdAt).getTime() + days, 'x']);
     if (wf.trigger.type === 'time.plan_visit_due') cands = db.plans.filter(p => p.status === 'active').map(p => [p, parseLocal(p.nextVisit).getTime() - days, p.nextVisit]);
     for (const [rec, at, ver] of cands) {
@@ -1758,7 +1774,7 @@ function wfTimers() {
       const key = wf.id + ':' + ver; rec._wf = rec._wf || {};
       if (rec._wf[key]) continue;
       if (!wfMatches(wf, T.kind, rec, {})) continue;
-      rec._wf[key] = iso(new Date()); wfRun(wf, T.kind, rec); n++;
+      rec._wf[key] = iso(new Date()); wfRun(wf, T.kind, rec, 'wf:' + key + ':' + rec.id); n++;
     }
   }
   if (n) { save(); toast(`⚡ ${n} scheduled automation${n > 1 ? 's' : ''} ran`); if (!$('#modalRoot').children.length) render(); }
@@ -2062,7 +2078,7 @@ const INPUT = {
   invDue: el => { byId('invoices', el.dataset.id).due = el.value; save(); render(); },
   permitSt: el => { const p = byId('permits', el.dataset.id); p.status = el.value; p.updated = ymd(new Date()); if (el.value === 'submitted' && !p.submitted) p.submitted = ymd(new Date()); log(`${p.type} permit → ${PERMIT_ST[p.status][0]}`); save(); render(); },
   range: el => { state.filters.range = +el.value; render(); },
-  settingBool: el => { db.settings[el.dataset.k] = el.checked; save(); toast(el.checked ? 'Online payments enabled' : 'Online payments disabled'); },
+  settingBool: el => { db.settings[el.dataset.k] = el.checked; if (el.dataset.k === 'outboundLive') { runLog('settings', `Automatic outbound messages ${el.checked ? 'ACTIVATED' : 'set to test mode'}`); save(); render(); toast(el.checked ? 'Automatic messages are live' : 'Test mode: automatic messages are not sent'); return; } save(); toast(el.checked ? 'Online payments enabled' : 'Online payments disabled'); },
   taskDone: el => { const t = byId('tasks', el.dataset.id); t.done = el.checked; t.doneAt = el.checked ? iso(new Date()) : null; save(); render(); },
   taskWho: el => { state.filters.taskWho = el.value; render(); },
   memberRole: async el => { const { error } = await cloud.sb.from('opsboss_members').update({ role: el.value }).eq('user_id', el.dataset.id); toast(error ? error.message : 'Role updated'); },
@@ -2082,7 +2098,7 @@ const INPUT = {
   projFinancing: el => { const j = projInit(byId('jobs', el.dataset.id)); j.financing[el.dataset.k] = el.value; hist(j, `Financing ${el.dataset.k} updated`); save(); },
   projProp: el => { const j = byId('jobs', el.dataset.id); j.propertyId = el.value; hist(j, 'Property changed'); save(); render(); },
   projField: el => { const j = projInit(byId('jobs', el.dataset.id)); j[el.dataset.k] = el.value; hist(j, `${el.dataset.k}: ${el.value}`); save(); },
-  finRemaining: el => { const j = projInit(byId('jobs', el.dataset.id)); const old = j.fin.remaining; j.fin.remaining = num(el.value); hist(j, `Remaining cost estimate ${money2(old)} → ${money2(j.fin.remaining)}`); save(); render(); },
+  finRemaining: el => { const j = projInit(byId('jobs', el.dataset.id)); const old = finOf(j).remaining; j.fin.remaining = num(el.value); j.fin.remainingSet = el.value !== ''; hist(j, `Remaining cost estimate ${money2(old)} → ${money2(j.fin.remaining)}`); save(); render(); },
   photos: async el => { const j = byId('jobs', el.dataset.id); for (const f of el.files) { const d = await compressImage(f); if (d) j.photos.push(d); } save(); render(); toast('Photos added'); },
   importJson: el => { const f = el.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (!d.customers || !d.settings) throw 0; db = normalize(d); save(); render(); toast('Backup imported ✓'); } catch (e) { toast('Invalid file'); } }; r.readAsText(f); },
 };
@@ -2190,7 +2206,7 @@ function renderUserBox() {
   else if (CFG.url) b.innerHTML = `<div>Local demo mode · <button data-act="exitDemo">Sign in</button></div>`;
   else b.innerHTML = '';
 }
-function start() { renderUserBox(); renderInstall(); render(); setTimeout(processPortal, 1200); setTimeout(processGhlLeads, 1400); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
+function start() { p3Init(); if (cloud.on) cloud.sb.from('opsboss_members').select('name,email').then(({ data }) => { cloud.members = data || []; }); setTimeout(alertScan, 4000); if (!window.__alTimer) window.__alTimer = setInterval(alertScan, 30 * 60 * 1000); renderUserBox(); renderInstall(); render(); setTimeout(processPortal, 1200); setTimeout(processGhlLeads, 1400); setTimeout(wfTimers, 1500); if (!window.__wfTimer) window.__wfTimer = setInterval(wfTimers, 5 * 60 * 1000); }
 function authScreen(mode = 'login', msg = '', kind = 'bad') {
   const el = $('#auth'); el.hidden = false;
   const logo = '<div class="logo" style="width:44px;height:44px;font-size:22px">O<span></span></div>';
@@ -2283,5 +2299,541 @@ async function boot() {
   window.addEventListener('beforeunload', e => { if (cloud.on && (cloud.busy || $('#syncStatus').classList.contains('saving'))) { e.preventDefault(); e.returnValue = ''; } });
   window.addEventListener('online', () => cloud.on && sync());
 }
+
+/* ═════════════ PHASE 3 — INTEGRATIONS, ACCOUNTING & AUTOMATION ═════════════ */
+const hash36 = s => { let h1 = 0xdeadbeef, h2 = 0x41c6ce57; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); } h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36); };
+const daysSince = d => d ? Math.floor((Date.now() - new Date(d).getTime()) / DAY) : 0;
+const P3_COLLS = ['ledger', 'exceptions', 'runs', 'alerts', 'appts'];
+const isFin = () => !cloud.on || ['owner', 'admin', 'finance'].includes(cloud.role);
+const memberNames = () => [...new Set([...db.techs.map(t => t.name), ...(cloud.members || []).map(m => m.name || m.email)].filter(Boolean))].sort();
+
+// ── Settings defaults ──
+const LEAD_SOURCE_DEFAULTS = [
+  { key: 'web', label: 'Website', sources: 'website, web form, web, organic, nexispower.com', division: 'auto', pipeline: 'marketing' },
+  { key: 'meta', label: 'Meta (Facebook / Instagram)', sources: 'facebook, instagram, meta, fb, ig, paid social', division: 'auto', pipeline: 'marketing' },
+  { key: 'hvac_forms', label: 'HVAC forms', formNames: 'hvac, heat pump', division: 'hvac', pipeline: 'marketing' },
+  { key: 'solar_cal', label: 'Solar calendar', calendarNames: 'solar', division: 'solar', pipeline: 'sales' },
+  { key: 'lef2026v2', label: 'Last English Form 2026 (v2)', formNames: 'last english form 2026 (v2), last english form 2026 v2', division: 'auto', pipeline: 'marketing', lang: 'en' },
+];
+const ALERT_DEFAULTS = { taskEscalateDays: 2, blockedDays: 3, permitDays: 21, interconnectDays: 30, leadHours: 4, doneNotInvoicedDays: 2, poPendingDays: 1, dayCapacity: 10, escalateTo: '' };
+const COMM_PAY = { signed: 'Contract signed', installed: 'Installation complete', collected50: '50% collected', collected: 'Paid in full' };
+function p3Init() {
+  P3_COLLS.forEach(k => db[k] = db[k] || []);
+  const s = db.settings || (db.settings = {});
+  if (!s.leadSources) s.leadSources = JSON.parse(JSON.stringify(LEAD_SOURCE_DEFAULTS));
+  s.alertRules = { ...ALERT_DEFAULTS, ...(s.alertRules || {}) };
+  if (!s.overhead) s.overhead = { mode: 'pct_revenue', pct: 10, flat: 0, note: 'Company overhead (office, vehicles, insurance, marketing) allocated as a % of each project’s contract value.' };
+  if (!s.commRules) s.commRules = [{ id: uid(), name: 'Sales rep — standard', division: 'any', basis: 'gross', rate: 10, flat: 0, payWhen: 'installed', from: '2026-01-01', to: '', createdAt: iso(new Date()), createdBy: 'system' }];
+  if (s.outboundLive == null) s.outboundLive = false;
+}
+
+// ── Run log (registro de ejecuciones) ──
+function runLog(kind, detail, extra = {}) {
+  p3Init();
+  const r = { id: 'r-' + uid(), kind, system: 'OpsBoss', ts: iso(new Date()), status: 'ok', detail, by: me(), attempts: 1, ...extra };
+  db.runs.unshift(r);
+  if (db.runs.length > 500) db.runs = db.runs.slice(0, 500);
+  return r;
+}
+const RUN_ST = { ok: ['OK', 'ok'], duplicate: ['Skipped (duplicate)', ''], warning: ['Warning', 'warn'], error: ['Failed', 'bad'], test: ['Test mode', 'info'], blocked: ['Blocked (consent)', 'warn'] };
+const recentRun = (key, mins = 10) => (db.runs || []).find(r => r.key === key && Date.now() - new Date(r.ts) < mins * 60000);
+
+// ── Alerts ──
+function alertsAll() {
+  p3Init();
+  const R = db.settings.alertRules, out = [], today = ymd(new Date());
+  const add = a => out.push({ level: 1, ...a });
+  (db.tasks || []).filter(t => !t.done && t.due < today).forEach(t => { const age = Math.floor((sod(new Date()) - parseLocal(t.due)) / DAY); add({ key: 'task:' + t.id, kind: 'Overdue task', sev: age >= R.taskEscalateDays ? 'bad' : 'warn', title: t.title, text: `${age} day${age === 1 ? '' : 's'} overdue${t.assignee ? ' · ' + ((tech(t.assignee) || {}).name || t.assignee) : ' · unassigned'}`, href: '#/tasks', age, owner: (tech(t.assignee) || {}).name || t.assignee || '', level: age >= R.taskEscalateDays * 2 ? 3 : age >= R.taskEscalateDays ? 2 : 1 }); });
+  db.jobs.filter(j => j.status !== 'cancelled' && !(j.ops && j.ops.closed)).forEach(j => {
+    projInit(j);
+    j.blockers.filter(b => !b.resolvedAt).forEach(b => { const age = daysSince(b.ts || b.createdAt); if (age >= R.blockedDays || (b.followUp && b.followUp <= today)) add({ key: 'blk:' + j.id + ':' + b.id, kind: 'Blocked project', sev: age >= R.blockedDays * 2 ? 'bad' : 'warn', title: `${j.number} blocked ${age} d: ${b.reason}`, text: `${b.owner ? 'Owner ' + b.owner : 'No owner'}${b.followUp ? ' · follow up ' + fDate(parseLocal(b.followUp)) : ''}`, href: '#/job/' + j.id, age, owner: b.owner || '', level: age >= R.blockedDays * 2 ? 3 : 2 }); });
+    if (canMoney() && (j.status === 'completed' || j.ops.closed)) { const F = finOf(j), age = daysSince(j.completedAt || j.start); if (F.unbilled > 0.009 && age >= R.doneNotInvoicedDays) add({ key: 'unbilled:' + j.id, kind: 'Done, not invoiced', sev: 'bad', title: `${j.number} completed ${age} d ago — ${money(F.unbilled)} not invoiced`, text: cust(j.customerId).name, href: '#/job/' + j.id, age, level: 2 }); }
+  });
+  db.permits.filter(p => p.status === 'submitted' && p.submitted).forEach(p => { const lim = /interconnection|PTO/i.test(p.type) ? R.interconnectDays : R.permitDays, age = Math.floor((Date.now() - parseLocal(p.submitted)) / DAY); const j = db.jobs.find(x => x.id === p.jobId); if (age > lim) add({ key: 'permit:' + p.id, kind: 'Permit delayed', sev: 'bad', title: `${p.type} permit pending ${age} days (limit ${lim})`, text: `${p.jurisdiction || ''}${j ? ' · ' + j.number + ' · ' + cust(j.customerId).name : ''}`, href: j ? '#/job/' + j.id : '#/permits', age, level: age > lim * 1.5 ? 3 : 2 }); });
+  db.permits.filter(p => p.status === 'rejected').forEach(p => { const j = db.jobs.find(x => x.id === p.jobId); add({ key: 'permitrej:' + p.id, kind: 'Permit corrections', sev: 'warn', title: `${p.type} permit needs corrections`, text: j ? j.number + ' · ' + cust(j.customerId).name : '', href: '#/permits', age: 0 }); });
+  db.leads.filter(l => ['new', 'warm'].includes(l.stage)).forEach(l => { const h = (Date.now() - new Date(l.createdAt)) / 36e5; if (h >= R.leadHours) add({ key: 'lead:' + l.id, kind: 'Lead not contacted', sev: h >= 24 ? 'bad' : 'warn', title: `${cust(l.customerId).name} waiting ${h >= 48 ? Math.floor(h / 24) + ' days' : Math.floor(h) + ' h'}`, text: `${l.title} · ${l.source || ''}${l.owner ? ' · ' + ((tech(l.owner) || {}).name || l.owner) : ' · no owner'}`, href: '#/pipeline', age: Math.floor(h / 24), owner: (tech(l.owner) || {}).name || l.owner || '', level: h >= 48 ? 3 : h >= 24 ? 2 : 1 }); });
+  if (canMoney()) {
+    db.invoices.filter(i => invStatus(i) === 'overdue').forEach(i => { const age = Math.floor((Date.now() - parseLocal(i.due)) / DAY); add(i.disputed ? { key: 'disp:' + i.id, kind: 'Disputed invoice', sev: 'info', title: `${i.number} disputed — reminders paused`, text: `${cust(i.customerId).name} · ${money(invBal(i))}`, href: '#/invoice/' + i.id, age } : { key: 'inv:' + i.id, kind: 'Overdue invoice', sev: 'bad', title: `${i.number} overdue ${age} d · ${money(invBal(i))}`, text: `${cust(i.customerId).name}${i.payer ? ' · payer ' + i.payer : ''}`, href: '#/invoice/' + i.id, age, level: age > 30 ? 3 : age > 14 ? 2 : 1 }); });
+    (db.pos || []).filter(p => p.status === 'pending' && daysSince(p.createdAt) >= R.poPendingDays).forEach(p => add({ key: 'po:' + p.id, kind: 'Approval needed', sev: 'warn', title: `PO ${p.number} · ${p.vendor} · ${money(p.amount)} waiting for approval`, text: (db.jobs.find(j => j.id === p.projectId) || {}).number || '', href: '#/purchasing', age: daysSince(p.createdAt), level: 2 }));
+  }
+  const tmr = ymd(addDays(new Date(), 1));
+  (db.appts || []).filter(a => a.status === 'booked' && a.start && ymd(a.start) <= tmr && new Date(a.start) >= new Date()).forEach(a => { const t = (db.tasks || []).find(x => x.id === a.prepTaskId); if (!t || !t.done) add({ key: 'appt:' + a.id, kind: 'Visit tomorrow', sev: 'info', title: `${a.title}`, text: `${fDay(a.start)} ${fTime(a.start)} · prep not done`, href: '#/schedule', age: 0 }); });
+  calConflicts().forEach(c => add({ key: 'cal:' + c.key, kind: 'Schedule conflict', sev: 'warn', title: c.title, text: c.text, href: '#/schedule', age: 0 }));
+  if (isFin()) { const ex = exceptionsOpen(); if (ex.length) add({ key: 'exc:count', kind: 'Accounting exceptions', sev: 'warn', title: `${ex.length} accounting exception${ex.length > 1 ? 's' : ''} to review`, text: [...new Set(ex.map(e => EXC_KIND[e.kind]))].join(' · '), href: '#/exceptions', age: 0 }); }
+  (db.alerts || []).filter(a => a.kind && a.kind !== 'ack' && !(a.readBy || []).includes(me()) && daysSince(a.ts) < 14).forEach(a => add({ key: 'note:' + a.id, kind: a.kind === 'lead.new' ? 'New lead' : 'Notice', sev: a.sev || 'info', title: a.title, text: a.text, href: a.link ? ({ lead: '#/pipeline', job: '#/job/', invoice: '#/invoice/' }[a.link.kind] || '#/') + (['job', 'invoice'].includes(a.link.kind) ? a.link.id : '') : '#/alerts', age: daysSince(a.ts), stored: a.id }));
+  const acks = new Map((db.alerts || []).filter(a => a.kind === 'ack').map(a => [a.ackKey, a]));
+  return out.map(a => { const k = acks.get(a.key); return { ...a, acked: !!(k && (!k.until || k.until > iso(new Date())) && (k.level || 1) >= (a.level || 1)) }; }).sort((a, b) => ({ bad: 0, warn: 1, info: 2 }[a.sev] - { bad: 0, warn: 1, info: 2 }[b.sev]) || b.age - a.age);
+}
+const LVL = { 1: 'Owner', 2: 'Manager', 3: 'Direction' };
+ROUTES.alerts = () => {
+  const all = alertsAll(), show = state.filters.alAll ? all : all.filter(a => !a.acked);
+  const groups = {}; show.forEach(a => (groups[a.kind] = groups[a.kind] || []).push(a));
+  return head('Alerts', `${all.filter(a => !a.acked).length} open · escalation: owner → manager → direction by age (rules in Settings)`, `<button class="btn" data-act="filt" data-f="alAll" data-v="${state.filters.alAll ? '' : '1'}">${state.filters.alAll ? 'Hide acknowledged' : 'Show acknowledged'}</button><button class="btn" data-act="alertScan">↻ Run escalation now</button>`) +
+    (Object.entries(groups).map(([k, list]) => `<div class="card mb"><div class="card-h"><h3>${esc(k)} <span class="muted small">${list.length}</span></h3></div><div class="card-b">${list.map(a => `<div class="list-item"><span class="pill ${a.sev}">${a.sev === 'bad' ? '●' : a.sev === 'warn' ? '▲' : 'i'}</span><div style="flex:1;min-width:0"><a href="${a.href}" class="b small">${esc(a.title)}</a><div class="small muted">${esc(a.text || '')}${a.level > 1 ? ` · <b>escalated to ${LVL[a.level]}</b>` : ''}</div></div>${a.acked ? '<span class="pill">Acknowledged</span>' : `<button class="btn sm" data-act="alertAck" data-k="${esc(a.key)}" data-l="${a.level || 1}" ${a.stored ? `data-s="${a.stored}"` : ''}>✓ Got it</button><button class="btn sm ghost" data-act="alertSnooze" data-k="${esc(a.key)}" title="Snooze 1 day">⏰</button>`}</div>`).join('')}</div></div>`).join('') || '<div class="card"><div class="empty">No alerts — everything is on track ✓</div></div>');
+};
+// Escalación: crea (una sola vez por alerta y nivel) una tarea para el responsable del nivel.
+async function alertScan(manual) {
+  if (!db) return; p3Init();
+  if (cloud.on) { try { const { data: mine } = await cloud.sb.rpc('opsboss_lock', { p_key: 'alert-scan:' + ymd(new Date()) + ':' + new Date().getHours() + (manual ? ':' + uid() : '') }); if (!mine) return; } catch (e) { return; } }
+  const R = db.settings.alertRules; let n = 0;
+  for (const a of alertsAll()) {
+    if (a.level < 2 || a.acked) continue;
+    const dedupe = 'esc:' + a.key + ':L' + a.level;
+    if ((db.tasks || []).some(t => t.dedupe === dedupe)) continue;
+    const who = a.level >= 3 ? (R.directionName || R.escalateTo) : (R.escalateTo || '');
+    const t = db.techs.find(x => x.name === who);
+    db.tasks.unshift({ id: uid(), title: `Escalated (${LVL[a.level]}): ${a.title}`, notes: a.text, due: ymd(new Date()), assignee: t ? t.id : '', done: false, wf: 'Alert escalation', createdAt: iso(new Date()), dedupe, link: null });
+    n++;
+  }
+  runLog('alerts.scan', `Alert scan: ${n} escalation task${n === 1 ? '' : 's'} created`, { key: 'alerts.scan', status: 'ok' });
+  save(); if (manual) { toast(`${n} escalation task${n === 1 ? '' : 's'} created`); render(); }
+}
+
+// ── Calendar conflicts ──
+function calConflicts() {
+  const R = (db.settings.alertRules || ALERT_DEFAULTS), out = [], from = addDays(sod(new Date()), -1), to = addDays(new Date(), 45);
+  const jobs = db.jobs.filter(j => j.start && j.status !== 'cancelled' && j.status !== 'completed' && new Date(j.start) >= from && new Date(j.start) <= to);
+  for (const t of db.techs) {
+    const mine = jobs.filter(j => (j.techIds || []).includes(t.id)).sort((a, b) => new Date(a.start) - new Date(b.start));
+    for (let i = 0; i < mine.length; i++) for (let k = i + 1; k < mine.length; k++) { const a = mine[i], b = mine[k]; if (new Date(b.start) < jobEnd(a) && sameDay(a.start, b.start)) out.push({ key: 'dbl:' + t.id + ':' + a.id + ':' + b.id, jobs: [a.id, b.id], title: `${t.name} double-booked ${fDay(a.start)}`, text: `${a.number} ${fTime(a.start)}–${fTime(jobEnd(a))} overlaps ${b.number} ${fTime(b.start)}` }); }
+    const byDay = {}; mine.forEach(j => { const d = ymd(j.start); byDay[d] = (byDay[d] || 0) + num(j.duration); });
+    Object.entries(byDay).forEach(([d, h]) => { if (h > R.dayCapacity) out.push({ key: 'cap:' + t.id + ':' + d, jobs: mine.filter(j => ymd(j.start) === d).map(j => j.id), title: `${t.name} over capacity ${fDay(parseLocal(d))}`, text: `${h} h scheduled (capacity ${R.dayCapacity} h)` }); });
+  }
+  jobs.forEach(j => { const b = blockersOf(j); if (b.length) out.push({ key: 'blk:' + j.id, jobs: [j.id], title: `${j.number} scheduled while blocked`, text: b[0].reason }); });
+  const ap = (db.appts || []).filter(a => a.status === 'booked' && a.start && a.assignedTo && new Date(a.start) >= from);
+  for (let i = 0; i < ap.length; i++) for (let k = i + 1; k < ap.length; k++) { const a = ap[i], b = ap[k]; if (a.assignedTo === b.assignedTo && new Date(a.start) < new Date(b.end || new Date(new Date(b.start).getTime() + 36e5)) && new Date(b.start) < new Date(a.end || new Date(new Date(a.start).getTime() + 36e5))) out.push({ key: 'appt:' + a.id + ':' + b.id, jobs: [], title: `Overlapping visits for ${a.assignedTo}`, text: `${a.title} / ${b.title} · ${fDay(a.start)}` }); }
+  return out;
+}
+
+// ── Commissions (versioned rules) ──
+function commRuleFor(j, at) {
+  const d = ymd(at || (j.fin && j.fin.budget && j.fin.budget.lockedAt) || j.createdAt || new Date());
+  const rules = (db.settings.commRules || []).filter(r => r.from <= d && (!r.to || r.to >= d));
+  return rules.find(r => r.division === j.division) || rules.find(r => r.division === 'any') || null;
+}
+function commPayable(j, r) {
+  const F = finOf(j);
+  if (r.payWhen === 'signed') return { ok: !!(j.fin.budget || j.estimateId), why: 'Contract signed' };
+  if (r.payWhen === 'installed') { const ii = flowOf(j).findIndex(s => /install/.test(s[0])); return { ok: j.status === 'completed' || (ii >= 0 && stageIdx(j) > ii), why: 'Installation complete' }; }
+  if (r.payWhen === 'collected50') return { ok: F.collected >= F.revenue * 0.5 - 0.01, why: `Collected ${pct(F.revenue ? F.collected / F.revenue : 0)} of 50%` };
+  return { ok: F.revenue > 0 && F.collected >= F.revenue - 0.01, why: `Collected ${pct(F.revenue ? F.collected / F.revenue : 0)} of 100%` };
+}
+function commSimulate(j, rep) {
+  projInit(j);
+  const r = commRuleFor(j); if (!r) return null;
+  const F = finOf(j), existing = sumBy((j.fin.commissions || []).filter(c => c.status !== 'void'), c => c.amount);
+  const basisAmt = r.basis === 'gross' ? F.gross + existing : F.revenue;
+  const amount = Math.max(0, Math.round((basisAmt * num(r.rate) / 100 + num(r.flat)) * 100) / 100);
+  return { rule: r, basisAmt, amount, rep, pay: commPayable(j, r), trace: `${r.basis === 'gross' ? 'Projected gross profit (before commissions)' : 'Approved contract value'} ${money2(basisAmt)} × ${num(r.rate)}%${num(r.flat) ? ' + ' + money2(r.flat) : ''} = ${money2(amount)} · rule "${r.name}" effective ${r.from}${r.to ? ' → ' + r.to : ''}` };
+}
+function commModal(j) {
+  if (!canRates()) { toast('Only owner, admin or finance can see commissions'); return; }
+  const reps = memberNames();
+  modal({ title: `Commission · ${j.number}`, body: `<label class="f">Sales rep<input class="inp" id="cmRep" list="cmReps" value="${esc(j.salesRep || '')}"><datalist id="cmReps">${reps.map(n => `<option value="${esc(n)}">`).join('')}</datalist></label><div id="cmOut" class="mt"></div>`, foot: `<button class="btn" data-dismiss>Close</button>${canApprove() ? '<button class="btn primary" id="cmOk">Approve commission</button>' : ''}`, onMount(bg, close) {
+    const draw = () => { const s = commSimulate(j, $('#cmRep', bg).value); $('#cmOut', bg).innerHTML = s ? `<div class="card"><div class="card-b"><div class="kpi"><div class="l">Simulated commission</div><div class="v">${money2(s.amount)}</div></div><p class="small">${esc(s.trace)}</p><p class="small">Payable when: <b>${COMM_PAY[s.rule.payWhen]}</b> — ${s.pay.ok ? '<span class="pill ok">condition met</span>' : `<span class="pill warn">not yet (${esc(s.pay.why)})</span>`}</p><p class="small muted">Approving adds it to the project as a pending commission cost; marking it paid moves it to actual cost.</p></div></div>` : '<div class="auth-msg bad">No commission rule is effective for this project’s contract date and service. Add one in Commissions.</div>'; };
+    $('#cmRep', bg).oninput = draw; draw();
+    const okb = $('#cmOk', bg); if (okb) okb.onclick = () => { const rep = $('#cmRep', bg).value.trim(); if (!rep) { toast('Choose the sales rep'); return; } const s = commSimulate(j, rep); if (!s) return; j.salesRep = rep; (j.fin.commissions = j.fin.commissions || []).push({ id: uid(), rep, ruleId: s.rule.id, ruleName: s.rule.name, ruleFrom: s.rule.from, basis: s.rule.basis, basisAmt: s.basisAmt, rate: s.rule.rate, flat: s.rule.flat, amount: s.amount, payWhen: s.rule.payWhen, status: 'approved', approvedBy: me(), approvedAt: iso(new Date()), trace: s.trace }); hist(j, `Commission approved for ${rep}: ${money2(s.amount)} (${s.rule.name})`); runLog('commission.approve', `${j.number} · ${rep} · ${money2(s.amount)}`); close(); save(); render(); toast('Commission approved'); };
+  } });
+}
+ROUTES.commissions = () => {
+  if (!canRates()) return head('Commissions', '') + '<div class="card"><div class="empty">Restricted: only owner, admin and finance can see compensation.</div></div>';
+  p3Init();
+  const rows = db.jobs.flatMap(j => (projInit(j).fin.commissions || []).map(c => ({ j, c, pay: commPayable(j, c) })));
+  const rules = [...db.settings.commRules].sort((a, b) => a.name.localeCompare(b.name) || b.from.localeCompare(a.from));
+  return head('Commissions', 'Versioned rules by effective date · simulate before approving · payable when the rule’s condition is met', '<button class="btn primary" data-act="commRuleNew">＋ Rule</button>') + `
+  <div class="grid g4 mb">${kpi('Approved, not paid', money(sumBy(rows.filter(r => r.c.status === 'approved'), r => r.c.amount)))}${kpi('Payable now', money(sumBy(rows.filter(r => r.c.status === 'approved' && r.pay.ok), r => r.c.amount)))}${kpi('Paid', money(sumBy(rows.filter(r => r.c.status === 'paid'), r => r.c.amount)))}${kpi('Rules (all versions)', rules.length)}</div>
+  <div class="card mb"><div class="card-h"><h3>Project commissions</h3></div><div class="table-wrap"><table><thead><tr><th>Project</th><th>Rep</th><th>Rule</th><th class="right">Amount</th><th>Payable</th><th>Status</th><th></th></tr></thead><tbody>
+  ${rows.map(({ j, c, pay }) => `<tr><td><a href="#/job/${j.id}">${j.number}</a> · ${esc(cust(j.customerId).name)}</td><td>${esc(c.rep)}</td><td class="small">${esc(c.ruleName)} (from ${esc(c.ruleFrom)})<div class="muted">${esc(c.trace || '')}</div></td><td class="right b">${money2(c.amount)}</td><td>${c.status === 'paid' ? '' : pay.ok ? '<span class="pill ok">Yes</span>' : `<span class="pill warn">${esc(pay.why)}</span>`}</td><td><span class="pill ${c.status === 'paid' ? 'ok' : c.status === 'void' ? '' : 'info'}">${c.status}</span></td><td class="right">${c.status === 'approved' && canApprove() ? `<button class="btn sm ok" data-act="commPaid" data-id="${j.id}" data-c="${c.id}" ${pay.ok ? '' : 'title="Condition not met yet"'}>Mark paid</button><button class="btn sm ghost" data-act="commVoid" data-id="${j.id}" data-c="${c.id}">Void</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No commissions yet. Open a project → Financials → Commission to simulate and approve.</td></tr>'}
+  </tbody></table></div></div>
+  <div class="card"><div class="card-h"><h3>Rules & versions</h3></div><div class="table-wrap"><table><thead><tr><th>Rule</th><th>Service</th><th>Basis</th><th class="right">Rate</th><th class="right">Flat</th><th>Payable when</th><th>Effective</th><th></th></tr></thead><tbody>
+  ${rules.map(r => `<tr><td class="b">${esc(r.name)}</td><td>${r.division === 'any' ? 'All' : DIV[r.division] ? DIV[r.division].name : r.division}</td><td>${r.basis === 'gross' ? 'Gross profit' : 'Contract value'}</td><td class="right">${num(r.rate)}%</td><td class="right">${money2(r.flat)}</td><td>${COMM_PAY[r.payWhen]}</td><td>${esc(r.from)} → ${esc(r.to || 'open')}</td><td class="right">${!r.to ? `<button class="btn sm" data-act="commRuleVersion" data-r="${r.id}">New version</button>` : '<span class="small muted">superseded</span>'}</td></tr>`).join('')}
+  </tbody></table></div><div class="card-b small muted">Rules are never edited in place: “New version” closes the current one the day before the new effective date, so past commissions keep the rule that applied when the contract was signed.</div></div>`;
+};
+function commRuleModal(base) {
+  form({ title: base ? `New version · ${base.name}` : 'New commission rule', fields: [
+    { k: 'name', label: 'Name', value: base ? base.name : '', required: true }, { k: 'division', label: 'Service', type: 'select', options: [['any', 'All services'], ...divOptions()], value: base ? base.division : 'any' },
+    { k: 'basis', label: 'Basis', type: 'select', options: [['contract', 'Approved contract value'], ['gross', 'Projected gross profit']], value: base ? base.basis : 'contract' },
+    { k: 'rate', label: 'Rate (%)', type: 'number', step: '0.01', value: base ? base.rate : 5 }, { k: 'flat', label: 'Flat amount ($)', type: 'number', step: '0.01', value: base ? base.flat : 0 },
+    { k: 'payWhen', label: 'Payable when', type: 'select', options: Object.entries(COMM_PAY), value: base ? base.payWhen : 'installed' },
+    { k: 'from', label: 'Effective from', type: 'date', value: ymd(new Date()), required: true },
+  ], onSave(v) {
+    if (base && v.from <= base.from) { toast('The new version must start after ' + base.from); return false; }
+    if (base) base.to = ymd(addDays(parseLocal(v.from), -1));
+    db.settings.commRules.push({ id: uid(), ...v, rate: num(v.rate), flat: num(v.flat), to: '', createdAt: iso(new Date()), createdBy: me(), prevId: base ? base.id : null });
+    runLog('commission.rule', `${base ? 'New version of' : 'New'} commission rule "${v.name}" from ${v.from}`);
+  } });
+}
+
+// ── Ledger (QuickBooks) ──
+const LEDGER_T = { invoice: 'Invoice', payment: 'Payment', credit: 'Credit memo', salesreceipt: 'Sales receipt', refund: 'Refund', bill: 'Vendor bill', billpayment: 'Bill payment', vendorcredit: 'Vendor credit', expense: 'Expense', deposit: 'Deposit', journal: 'Journal entry' };
+const REV_T = ['invoice', 'salesreceipt', 'credit', 'refund'], COST_T = ['bill', 'expense', 'vendorcredit'];
+const QB_TYPE_MAP = [[/^invoice$/i, 'invoice'], [/^payment|receive payment/i, 'payment'], [/credit memo/i, 'credit'], [/sales receipt/i, 'salesreceipt'], [/refund/i, 'refund'], [/^bill payment|bill pmt/i, 'billpayment'], [/^bill$/i, 'bill'], [/vendor credit|supplier credit/i, 'vendorcredit'], [/expense|check|credit card|cash purchase/i, 'expense'], [/deposit/i, 'deposit'], [/journal/i, 'journal']];
+const ledgerHasData = () => (db.ledger || []).length > 0;
+function csvParse(text) {
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true; else if (c === ',') { row.push(f); f = ''; } else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; } else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(x => String(x).trim()));
+}
+const amt = s => { const t = String(s || '').replace(/[$,\s]/g, ''); const neg = /^\(.*\)$/.test(t) || t.startsWith('-'); const v = parseFloat(t.replace(/[()-]/g, '')); return isFinite(v) ? (neg ? -v : v) : NaN; };
+const qbDate = s => { const t = String(s || '').trim(); let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/); if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`; } m = t.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : ''; };
+// Importa un CSV exportado de QuickBooks ("Transaction List by Date" / "Transaction Detail by Account" o similar).
+function importLedgerCsv(text, fileName) {
+  p3Init();
+  const rows = csvParse(text);
+  const hi = rows.findIndex(r => r.map(x => x.trim().toLowerCase()).includes('date') && r.some(x => /amount|total/i.test(x)));
+  if (hi < 0) throw new Error('Could not find the header row (needs at least “Date” and “Amount” columns).');
+  const H = rows[hi].map(x => x.trim().toLowerCase());
+  const col = (...names) => { for (const n of names) { const i = H.indexOf(n); if (i >= 0) return i; } for (const n of names) { const i = H.findIndex(h => h.includes(n)); if (i >= 0) return i; } return -1; };
+  const C = { date: col('date', 'transaction date'), type: col('transaction type', 'type'), num: col('num', 'no.', 'number', 'ref no.'), name: col('name', 'customer', 'vendor', 'payee', 'supplier'), memo: col('memo/description', 'memo', 'description'), account: col('account', 'split'), amount: col('amount', 'total'), balance: col('open balance', 'balance'), due: col('due date'), klass: col('class') };
+  if (C.date < 0 || C.amount < 0) throw new Error('Missing Date or Amount column.');
+  const byId = new Map(db.ledger.map(l => [l.id, l])), apiKey = new Set(db.ledger.filter(l => l.src === 'qbo').map(l => l.type + '|' + l.num + '|' + String(l.name).toLowerCase()));
+  const occ = {}; const batch = iso(new Date()); let created = 0, updated = 0, same = 0, skipped = 0;
+  for (const r of rows.slice(hi + 1)) {
+    const date = qbDate(r[C.date]), a = amt(r[C.amount]);
+    if (!date || !isFinite(a)) { skipped++; continue; }
+    const rawType = C.type >= 0 ? String(r[C.type]).trim() : '';
+    const type = (QB_TYPE_MAP.find(([re]) => re.test(rawType)) || [, a < 0 ? 'expense' : 'deposit'])[1];
+    const g = k => C[k] >= 0 ? String(r[C[k]] || '').trim() : '';
+    const rec = { src: 'csv', type, qbType: rawType, num: g('num'), date, name: g('name'), memo: g('memo'), account: g('account'), klass: g('klass'), amount: Math.abs(a), signed: a, due: qbDate(g('due')) || undefined, balance: C.balance >= 0 && isFinite(amt(r[C.balance])) ? Math.abs(amt(r[C.balance])) : undefined, file: fileName };
+    if (rec.num && apiKey.has(type + '|' + rec.num + '|' + rec.name.toLowerCase())) { skipped++; continue; }
+    const base = [type, rec.num, date, rec.name.toLowerCase(), rec.amount.toFixed(2), rec.num ? '' : rec.memo.toLowerCase()].join('|');
+    occ[base] = (occ[base] || 0) + 1;
+    const id = 'csv-' + hash36(base + '#' + occ[base]);
+    const old = byId.get(id);
+    if (old) { const keep = { projectId: old.projectId, customerId: old.customerId, overhead: old.overhead, note: old.note, assignedBy: old.assignedBy, matchedBy: old.matchedBy }; const nx = { ...old, ...rec, ...Object.fromEntries(Object.entries(keep).filter(([, v]) => v !== undefined)) }; if (canon(nx) === canon(old)) same++; else { Object.assign(old, nx); updated++; } }
+    else { const n = { id, ...rec, batch, importedAt: batch, importedBy: me() }; db.ledger.push(n); byId.set(id, n); created++; }
+  }
+  const m = autoMatchLedger();
+  const r = runLog('ledger.import', `CSV "${fileName}": ${created} new, ${updated} updated, ${same} unchanged, ${skipped} skipped · ${m} auto-assigned to projects`, { system: 'QuickBooks', key: 'csv:' + fileName });
+  db.settings.ledgerUpdatedAt = batch; db.settings.ledgerSource = 'CSV import (' + fileName + ')';
+  save();
+  return { created, updated, same, skipped, matched: m, run: r };
+}
+const jobByNumber = n => db.jobs.find(j => j.number && String(n || '').toUpperCase().includes(j.number.toUpperCase()));
+const invByNum = n => n && db.invoices.find(i => i.number === n || i.number === 'INV-' + n || i.number.replace(/\D/g, '') === String(n).replace(/\D/g, ''));
+const billByNum = (vendor, n) => n && (db.bills || []).find(b => b.number === n && b.vendor.trim().toLowerCase() === String(vendor || '').trim().toLowerCase());
+function autoMatchLedger() {
+  let n = 0;
+  for (const l of db.ledger || []) {
+    if (l.projectId || l.overhead) continue;
+    let pid = '', by = '';
+    if (l.type === 'invoice') { const i = invByNum(l.num); if (i && i.jobId) { pid = i.jobId; by = 'invoice #'; l.customerId = i.customerId; } }
+    if (!pid && l.type === 'payment' && (l.applied || []).length) { const ps = new Set((l.applied || []).map(a => { const qi = db.ledger.find(x => x.src === l.src && x.type === 'invoice' && x.qbId === a.qbId); const i = qi && invByNum(qi.num); return i && i.jobId; }).filter(Boolean)); if (ps.size === 1) { pid = [...ps][0]; by = 'applied invoice'; } }
+    if (!pid && l.type === 'bill') { const b = billByNum(l.name, l.num); if (b) { const ps = new Set(b.lines.map(x => x.projectId).filter(Boolean)); if (ps.size === 1) { pid = [...ps][0]; by = 'OpsBoss bill'; } else if (ps.size > 1) { l.splits = b.lines.filter(x => x.projectId).map(x => ({ projectId: x.projectId, amount: x.amount })); l.matchedBy = 'OpsBoss bill (split)'; n++; continue; } } }
+    if (!pid) { const j = jobByNumber([l.memo, l.klass, ...(l.lines || []).map(x => x.customer + ' ' + x.desc + ' ' + x.klass)].join(' ')); if (j) { pid = j.id; by = 'project # in memo/class'; } }
+    if (!pid && REV_T.includes(l.type) && l.name) { const c = db.customers.find(x => x.name.trim().toLowerCase() === l.name.trim().toLowerCase()); if (c) { l.customerId = c.id; const js = db.jobs.filter(j => j.customerId === c.id && j.status !== 'cancelled'); if (js.length === 1) { pid = js[0].id; by = 'only project of customer'; } } }
+    if (pid) { l.projectId = pid; l.matchedBy = by; n++; }
+  }
+  return n;
+}
+// Diferencias de conciliación entre OpsBoss y QuickBooks.
+function reconcile() {
+  const L = db.ledger || [], qInv = L.filter(l => l.type === 'invoice'), qBill = L.filter(l => l.type === 'bill'), diffs = [];
+  if (qInv.length) {
+    const minD = qInv.reduce((m, l) => l.date < m ? l.date : m, '9999');
+    db.invoices.filter(i => !['void', 'draft'].includes(i.status) && ymd(i.createdAt) >= minD).forEach(i => {
+      const q = qInv.find(l => invByNum(l.num) === i);
+      if (!q) diffs.push({ key: 'inv-missing:' + i.id, title: `${i.number} is in OpsBoss but not in QuickBooks`, amount: invTotal(i), href: '#/invoice/' + i.id });
+      else { if (Math.abs(num(q.amount) - invTotal(i)) > 0.01) diffs.push({ key: 'inv-amt:' + i.id + ':' + q.amount, title: `${i.number}: OpsBoss ${money2(invTotal(i))} vs QuickBooks ${money2(q.amount)}`, amount: invTotal(i) - num(q.amount), href: '#/invoice/' + i.id }); if (q.balance != null && Math.abs(num(q.balance) - invBal(i)) > 0.01) diffs.push({ key: 'inv-bal:' + i.id + ':' + q.balance, title: `${i.number} balance: OpsBoss ${money2(invBal(i))} vs QuickBooks ${money2(q.balance)} (payment recorded in only one system)`, amount: invBal(i) - num(q.balance), href: '#/invoice/' + i.id }); }
+    });
+    qInv.filter(l => !invByNum(l.num)).forEach(l => diffs.push({ key: 'qinv-only:' + l.id, title: `QuickBooks invoice ${l.num || '(no #)'} · ${l.name} has no match in OpsBoss`, amount: l.amount, href: '#/accounting' }));
+  }
+  if (qBill.length) {
+    qBill.forEach(l => { const b = billByNum(l.name, l.num); if (b && Math.abs(sumBy(b.lines, x => x.amount) - num(l.amount)) > 0.01) diffs.push({ key: 'bill-amt:' + b.id + ':' + l.amount, title: `Bill ${l.name} ${l.num}: OpsBoss ${money2(sumBy(b.lines, x => x.amount))} vs QuickBooks ${money2(l.amount)}`, amount: sumBy(b.lines, x => x.amount) - num(l.amount), href: '#/purchasing' }); });
+    const minB = qBill.reduce((m, l) => l.date < m ? l.date : m, '9999');
+    (db.bills || []).filter(b => b.date >= minB && b.number && !qBill.some(l => billByNum(l.name, l.num) === b)).forEach(b => diffs.push({ key: 'bill-missing:' + b.id, title: `Bill ${b.vendor} ${b.number} is in OpsBoss but not in QuickBooks`, amount: sumBy(b.lines, x => x.amount), href: '#/purchasing' }));
+  }
+  return diffs;
+}
+
+// ── Exceptions inbox ──
+const EXC_KIND = { no_project: 'Transaction without project', unapplied: 'Unapplied payment', sync: 'Sync difference', receipt: 'Missing receipt', duplicate: 'Possible duplicate', unmapped: 'Unmapped lead source' };
+function exceptionsAll() {
+  p3Init();
+  const out = [], add = e => out.push(e);
+  (db.ledger || []).filter(l => [...REV_T, ...COST_T].includes(l.type) && !l.projectId && !l.overhead && !(l.splits || []).length && !(l.type === 'deposit')).forEach(l => add({ key: 'np:' + l.id, kind: 'no_project', title: `${LEDGER_T[l.type]} ${l.num || ''} · ${l.name || l.account || ''}`, detail: `${fDate(parseLocal(l.date))} · ${l.memo || ''}`, amount: l.amount, ledgerId: l.id }));
+  (db.bills || []).forEach(b => b.lines.filter(x => !x.projectId).forEach(x => add({ key: 'npb:' + b.id + ':' + x.id, kind: 'no_project', title: `OpsBoss bill ${b.vendor} ${b.number || ''} (${x.category})`, detail: fDate(parseLocal(b.date)), amount: x.amount, href: '#/purchasing' })));
+  (db.ledger || []).filter(l => l.type === 'payment' && num(l.unapplied) > 0.009).forEach(l => add({ key: 'ua:' + l.id, kind: 'unapplied', title: `Payment ${l.ref || l.num || ''} · ${l.name}`, detail: `${fDate(parseLocal(l.date))} · ${money2(l.unapplied)} not applied to an invoice`, amount: l.unapplied, ledgerId: l.id }));
+  (db.ledger || []).filter(l => l.type === 'payment' && !l.projectId && !num(l.unapplied) && !(l.applied || []).length).forEach(l => add({ key: 'upl:' + l.id, kind: 'unapplied', title: `Payment ${l.ref || l.num || ''} · ${l.name}`, detail: `${fDate(parseLocal(l.date))} · not linked to an invoice or project`, amount: l.amount, ledgerId: l.id }));
+  reconcile().forEach(d => add({ key: 'sync:' + d.key, kind: 'sync', title: d.title, detail: '', amount: d.amount, href: d.href }));
+  (db.bills || []).filter(b => !b.attachment && sumBy(b.lines, x => x.amount) > 0).forEach(b => add({ key: 'rcpt:' + b.id, kind: 'receipt', title: `Bill ${b.vendor} ${b.number || ''} has no receipt attached`, detail: fDate(parseLocal(b.date)), amount: sumBy(b.lines, x => x.amount), href: '#/purchasing' }));
+  db.jobs.forEach(j => ((j.fin && j.fin.costs) || []).filter(c => !c.receipt && !/https?:\/\//.test(c.note || '') && num(c.amount) >= 250).forEach(c => add({ key: 'rcptc:' + j.id + ':' + c.id, kind: 'receipt', title: `${j.number} cost ${c.vendor || c.category} without receipt`, detail: fDate(parseLocal(c.date)), amount: c.amount, href: '#/job/' + j.id })));
+  const bl = (db.bills || []).map(b => ({ b, t: sumBy(b.lines, x => x.amount) }));
+  for (let i = 0; i < bl.length; i++) for (let k = i + 1; k < bl.length; k++) { const a = bl[i], c = bl[k]; if (a.b.vendor.trim().toLowerCase() === c.b.vendor.trim().toLowerCase() && Math.abs(a.t - c.t) < 0.01 && Math.abs(parseLocal(a.b.date) - parseLocal(c.b.date)) <= 5 * DAY) add({ key: 'dupb:' + [a.b.id, c.b.id].sort().join(':'), kind: 'duplicate', title: `Bills ${a.b.vendor} ${a.b.number || '—'} and ${c.b.number || '—'} have the same amount (${money2(a.t)}) within 5 days`, detail: '', amount: a.t, href: '#/purchasing' }); }
+  const lg = {}; (db.ledger || []).filter(l => l.num && ['bill', 'invoice', 'expense'].includes(l.type)).forEach(l => { const k = l.type + '|' + l.num + '|' + String(l.name).toLowerCase(); (lg[k] = lg[k] || []).push(l); });
+  Object.values(lg).filter(x => x.length > 1).forEach(x => add({ key: 'dupl:' + x.map(l => l.id).sort().join(':'), kind: 'duplicate', title: `${x.length} QuickBooks ${LEDGER_T[x[0].type]}s with # ${x[0].num} for ${x[0].name}`, detail: x.map(l => money2(l.amount)).join(' / '), amount: x[0].amount, href: '#/accounting' }));
+  const dg = duplicateGroups(); if (dg.length) add({ key: 'dupc:' + dg.length, kind: 'duplicate', title: `${dg.length} group${dg.length > 1 ? 's' : ''} of possible duplicate customers`, detail: 'Review and merge', amount: 0, href: '#/duplicates' });
+  db.leads.filter(l => l.sourceKey === 'unmapped' && !CLOSED.includes(l.stage)).forEach(l => add({ key: 'unm:' + l.id, kind: 'unmapped', title: `Lead ${cust(l.customerId).name} came from an unmapped HighLevel source`, detail: [l.sourceIds && l.sourceIds.formName, l.sourceIds && l.sourceIds.utm].filter(Boolean).join(' · ') || 'Add its form/calendar ID in Settings → Lead sources', amount: 0, href: '#/settings' }));
+  const st = new Map((db.exceptions || []).map(e => [e.id, e]));
+  return out.map(e => { const s = st.get('x-' + hash36(e.key)); return { ...e, id: 'x-' + hash36(e.key), status: s ? s.status : 'open', assignee: s ? s.assignee : '', note: s ? s.note : '', resolvedBy: s && s.resolvedBy, resolvedAt: s && s.resolvedAt }; });
+}
+const exceptionsOpen = () => exceptionsAll().filter(e => e.status === 'open');
+function excState(id) { let s = db.exceptions.find(x => x.id === id); if (!s) { s = { id, status: 'open', assignee: '', note: '', history: [] }; db.exceptions.push(s); } return s; }
+ROUTES.exceptions = () => {
+  if (!isFin() && cloud.on && !['purchasing', 'ops'].includes(cloud.role)) return head('Exceptions', '') + '<div class="card"><div class="empty">Restricted to finance, purchasing and operations.</div></div>';
+  const all = exceptionsAll(), f = state.filters.exk || 'all', showDone = state.filters.exDone;
+  const list = all.filter(e => (f === 'all' || e.kind === f) && (showDone ? e.status !== 'open' : e.status === 'open'));
+  const pOpts = projOptions(), names = memberNames();
+  return head('Exceptions inbox', 'Transactions without project, unapplied payments, sync differences, missing receipts and possible duplicates — assign and resolve each one', `<button class="btn" data-act="filt" data-f="exDone" data-v="${showDone ? '' : '1'}">${showDone ? 'Show open' : 'Show resolved'}</button><button class="btn" data-act="ledgerMatch">⚙ Auto-match</button>`) + `
+  <div class="tabs">${[['all', 'All'], ...Object.entries(EXC_KIND)].map(([k, v]) => `<button data-act="filt" data-f="exk" data-v="${k}" class="${f === k ? 'on' : ''}">${v} <span class="muted">${all.filter(e => (k === 'all' || e.kind === k) && e.status === 'open').length}</span></button>`).join('')}</div>
+  <div class="card"><div class="card-b">${list.map(e => `<div class="list-item" style="flex-wrap:wrap"><span class="pill ${e.kind === 'sync' || e.kind === 'unapplied' ? 'bad' : 'warn'}">${EXC_KIND[e.kind]}</span><div style="flex:1;min-width:220px">${e.href ? `<a href="${e.href}" class="b small">${esc(e.title)}</a>` : `<span class="b small">${esc(e.title)}</span>`}<div class="small muted">${esc(e.detail || '')}${e.note ? ' · note: ' + esc(e.note) : ''}${e.resolvedBy ? ` · ${e.status} by ${esc(e.resolvedBy)} ${fDate(e.resolvedAt)}` : ''}</div></div>${e.amount ? `<b class="small">${money2(e.amount)}</b>` : ''}
+    ${e.status === 'open' ? `${e.ledgerId && ['no_project', 'unapplied'].includes(e.kind) ? `<select class="inp" style="width:auto;max-width:220px;padding:5px 8px" data-act-input="ledgerProject" data-id="${e.ledgerId}"><option value="">Assign to project…</option><option value="__overhead">Company overhead (no project)</option>${pOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select>` : ''}
+    <select class="inp" style="width:auto;padding:5px 8px" data-act-input="excAssign" data-id="${e.id}"><option value="">Assignee…</option>${names.map(n => `<option ${e.assignee === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select><button class="btn sm ok" data-act="excResolve" data-id="${e.id}" data-s="resolved">Resolve</button><button class="btn sm ghost" data-act="excResolve" data-id="${e.id}" data-s="ignored">Ignore</button>` : `<button class="btn sm" data-act="excResolve" data-id="${e.id}" data-s="open">Reopen</button>`}</div>`).join('') || '<div class="empty">Nothing to review ✓</div>'}</div></div>`;
+};
+
+// ── Accounting (QuickBooks) ──
+const AGE_B = [['current', 'Current'], ['1-30', '1–30'], ['31-60', '31–60'], ['61-90', '61–90'], ['90+', '90+']];
+const ageBucket = due => { const d = Math.floor((sod(new Date()) - parseLocal(due)) / DAY); return d <= 0 ? 'current' : d <= 30 ? '1-30' : d <= 60 ? '31-60' : d <= 90 ? '61-90' : '90+'; };
+function arRows() {
+  return db.invoices.filter(i => !['void', 'draft'].includes(i.status) && invBal(i) > 0.009).map(i => { const j = db.jobs.find(x => x.id === i.jobId) || (i.estimateId && db.jobs.find(x => x.estimateId === i.estimateId)); return { i, j, bal: invBal(i), b: ageBucket(i.due), payer: i.payer || (j && j.financing && j.financing.payer) || cust(i.customerId).name, missing: i.disputed ? 'Disputed — reminders paused' : (j && j.financing && j.financing.release ? 'Release docs: ' + j.financing.release : '') }; });
+}
+function apRows() {
+  const own = (db.bills || []).filter(b => !b.paidAt && sumBy(b.lines, l => l.amount) > 0).map(b => ({ src: 'OpsBoss', vendor: b.vendor, num: b.number, date: b.date, due: b.due || ymd(addDays(parseLocal(b.date), 30)), bal: sumBy(b.lines, l => l.amount), projects: [...new Set(b.lines.map(l => (db.jobs.find(j => j.id === l.projectId) || {}).number).filter(Boolean))].join(', '), href: '#/purchasing' }));
+  const qb = (db.ledger || []).filter(l => l.type === 'bill' && num(l.balance) > 0.009 && !billByNum(l.name, l.num)).map(l => ({ src: 'QuickBooks', vendor: l.name, num: l.num, date: l.date, due: l.due || ymd(addDays(parseLocal(l.date), 30)), bal: num(l.balance), projects: (db.jobs.find(j => j.id === l.projectId) || {}).number || '', href: '#/accounting' }));
+  return [...own, ...qb].map(r => ({ ...r, b: ageBucket(r.due) }));
+}
+function overheadOf(j, F = finOf(j)) {
+  const o = db.settings.overhead || {};
+  const amount = o.mode === 'pct_cost' ? F.projected * num(o.pct) / 100 : o.mode === 'flat' ? num(o.flat) : F.revenue * num(o.pct) / 100;
+  const rule = o.mode === 'pct_cost' ? `${num(o.pct)}% of projected cost (${money2(F.projected)})` : o.mode === 'flat' ? `Flat ${money2(o.flat)} per project` : `${num(o.pct)}% of contract value (${money2(F.revenue)})`;
+  return { amount, rule, after: F.gross - amount };
+}
+function monthlyResults(year, basis) {
+  const months = [...Array(12)].map((_, m) => ({ m, rev: {}, revT: 0, cost: 0, oh: 0, cin: 0, cout: 0 }));
+  const inY = d => d && String(d).slice(0, 4) === String(year), mo = d => +String(d).slice(5, 7) - 1;
+  if (basis === 'qb') {
+    (db.ledger || []).forEach(l => {
+      if (!inY(l.date)) return; const M = months[mo(l.date)]; const j = db.jobs.find(x => x.id === l.projectId); const dv = j ? j.division : 'other';
+      const net = num(l.amount) - num(l.tax);
+      if (l.type === 'invoice' || l.type === 'salesreceipt') { M.rev[dv] = num(M.rev[dv]) + net; M.revT += net; }
+      if (l.type === 'credit' || l.type === 'refund') { M.rev[dv] = num(M.rev[dv]) - net; M.revT -= net; }
+      if (['bill', 'expense'].includes(l.type)) { if (l.overhead || (!l.projectId && !(l.splits || []).length)) M.oh += num(l.amount); else M.cost += num(l.amount); }
+      if (l.type === 'vendorcredit') M.cost -= num(l.amount);
+      if (['payment', 'salesreceipt', 'deposit'].includes(l.type)) M.cin += num(l.amount);
+      if (['billpayment', 'expense', 'refund'].includes(l.type)) M.cout += num(l.amount);
+    });
+  } else {
+    db.invoices.filter(i => !['void', 'draft'].includes(i.status) && inY(ymd(i.createdAt))).forEach(i => { const M = months[mo(ymd(i.createdAt))], v = subtotal(i.items), dv = i.division || 'other'; M.rev[dv] = num(M.rev[dv]) + v; M.revT += v; });
+    (db.bills || []).filter(b => inY(b.date)).forEach(b => b.lines.forEach(l => { if (l.projectId) months[mo(b.date)].cost += num(l.amount); else months[mo(b.date)].oh += num(l.amount); }));
+    db.jobs.forEach(j => { projInit(j); j.fin.costs.filter(c => inY(c.date)).forEach(c => months[mo(c.date)].cost += num(c.amount)); j.fin.labor.filter(l => inY(l.date)).forEach(l => months[mo(l.date)].cost += num(l.hours) * num(l.rate)); (j.fin.commissions || []).filter(c => c.status === 'paid' && inY(ymd(c.paidAt))).forEach(c => months[mo(ymd(c.paidAt))].cost += num(c.amount)); });
+    allPayments().filter(p => inY(ymd(p.date))).forEach(p => months[mo(ymd(p.date))].cin += num(p.amount));
+    (db.bills || []).filter(b => b.paidAt && inY(ymd(b.paidAt))).forEach(b => months[mo(ymd(b.paidAt))].cout += sumBy(b.lines, l => l.amount));
+  }
+  const fixed = num((db.settings.overhead || {}).monthly);
+  months.forEach(M => { M.oh += fixed; M.gross = M.revT - M.cost; M.net = M.gross - M.oh; M.cash = M.cin - M.cout; });
+  return months;
+}
+ROUTES.accounting = () => {
+  if (!isFin()) return head('Accounting', '') + '<div class="card"><div class="empty">Restricted to owner, admin and finance.</div></div>';
+  p3Init();
+  const tab = state.tabs.acct || 'overview', tabs = [['overview', 'QuickBooks'], ['ar', 'Receivables (A/R)'], ['ap', 'Payables (A/P)'], ['ledger', 'Ledger'], ['recon', 'Reconciliation'], ['reports', 'Monthly reports']];
+  const L = db.ledger, upd = db.settings.ledgerUpdatedAt;
+  let body = '';
+  if (tab === 'overview') body = `<div class="grid g2"><div>
+    <div class="card mb"><div class="card-h"><h3>QuickBooks Online</h3><span class="pill" id="qboPill">${cloud.on ? 'Checking…' : 'Demo mode'}</span></div><div class="card-b" id="qboBox">${cloud.on ? '<span class="muted small">Loading…</span>' : '<p class="small muted">The live QuickBooks connection works when you are signed in to the cloud workspace. In demo mode you can try the CSV import below.</p>'}</div></div>
+    <div class="card mb"><div class="card-h"><h3>Import from QuickBooks (CSV)</h3></div><div class="card-b"><p class="small muted">In QuickBooks: Reports → <b>Transaction List by Date</b> (or Transaction Detail) → choose the period → Export to CSV/Excel (save as CSV). Re-importing the same file updates the same records — it never duplicates them.</p><label class="btn primary">⇧ Import CSV<input type="file" accept=".csv,text/csv" hidden data-act-input="ledgerCsv"></label></div></div>
+    <div class="card"><div class="card-h"><h3>Export to QuickBooks (CSV)</h3></div><div class="card-b"><p class="small muted">Files use QuickBooks Online import columns. Project numbers go in <b>Class</b> so totals can be traced back.</p><div class="row"><button class="btn" data-act="qbExport" data-k="invoices">Invoices</button><button class="btn" data-act="qbExport" data-k="payments">Payments</button><button class="btn" data-act="qbExport" data-k="bills">Vendor bills</button><button class="btn" data-act="qbExport" data-k="customers">Customers</button><button class="btn" data-act="qbExport" data-k="projects">Project profitability</button></div></div></div>
+  </div><div>
+    <div class="card mb"><div class="card-h"><h3>Ledger status</h3></div><div class="card-b"><div class="calc-out"><div><div class="l">Transactions</div><div class="b">${L.length}</div></div><div><div class="l">Assigned to projects</div><div class="b">${L.filter(l => l.projectId || (l.splits || []).length).length}</div></div><div><div class="l">Overhead</div><div class="b">${L.filter(l => l.overhead).length}</div></div><div><div class="l">Open exceptions</div><div class="b"><a href="#/exceptions">${exceptionsOpen().length}</a></div></div></div><p class="small muted mt">Last update: ${upd ? new Date(upd).toLocaleString('en-US') + ' · ' + esc(db.settings.ledgerSource || '') : 'never'}</p></div></div>
+    <div class="card"><div class="card-h"><h3>System of record</h3></div><div class="table-wrap"><table><thead><tr><th>Record</th><th>Originates in</th><th>Goes to</th><th>Matched by</th></tr></thead><tbody>
+      ${[['Customers', 'HighLevel / OpsBoss', 'QuickBooks (export)', 'Name, phone, email'], ['Estimates, contracts, change orders', 'OpsBoss', '—', '—'], ['Invoices', 'OpsBoss', 'QuickBooks (official ledger)', 'Invoice number'], ['Customer payments', 'Portal (Stripe) / OpsBoss / QuickBooks', 'QuickBooks; imported back', 'Invoice applied, reference'], ['Credits & refunds', 'QuickBooks', 'OpsBoss (import)', 'Document number'], ['Vendor bills (project costs)', 'OpsBoss (split by project)', 'QuickBooks (export)', 'Vendor + bill number'], ['Card / check expenses', 'QuickBooks', 'OpsBoss (import → project or overhead)', 'Project # in memo or Class'], ['Adjustments & journal entries', 'QuickBooks only', '—', '—']].map(r => `<tr>${r.map((c, i) => `<td class="${i ? 'small' : 'b small'}">${c}</td>`).join('')}</tr>`).join('')}
+    </tbody></table></div><div class="card-b small muted">QuickBooks is the official ledger; OpsBoss is the operating system for budgets, costs and project profitability. OpsBoss does not write to QuickBooks yet — writing will be enabled per record type after duplicates, retries, partial payments and credits are tested.</div></div>
+  </div></div>`;
+  if (tab === 'ar') { const rows = arRows(), sel = state.filters.arb || ''; body = `<div class="grid g5 mb">${AGE_B.map(([k, v]) => `<div class="card kpi click" data-act="filt" data-f="arb" data-v="${sel === k ? '' : k}" style="cursor:pointer;${sel === k ? 'outline:2px solid var(--brand)' : ''}"><div class="l">${v} days</div><div class="v">${kmoney(sumBy(rows.filter(r => r.b === k), r => r.bal))}</div><div class="s">${rows.filter(r => r.b === k).length} invoices</div></div>`).join('')}</div>
+    <div class="card"><div class="card-h"><h3>Open receivables ${sel ? '· ' + sel : ''}</h3><span class="b">${money2(sumBy(rows.filter(r => !sel || r.b === sel), r => r.bal))}</span></div><div class="table-wrap"><table><thead><tr><th>Invoice</th><th>Project</th><th>Who pays</th><th>Due</th><th>Age</th><th class="right">Balance</th><th>What’s missing</th></tr></thead><tbody>${rows.filter(r => !sel || r.b === sel).sort((a, b) => a.i.due.localeCompare(b.i.due)).map(r => `<tr class="click" data-go="#/invoice/${r.i.id}"><td class="b">${r.i.number}</td><td>${r.j ? `<a href="#/job/${r.j.id}" onclick="event.stopPropagation()">${r.j.number}</a>` : '—'}</td><td>${esc(r.payer)}</td><td>${fDate(parseLocal(r.i.due))}</td><td>${AGE_B.find(x => x[0] === r.b)[1]}</td><td class="right b">${money2(r.bal)}</td><td class="small">${esc(r.missing)}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nothing outstanding ✓</td></tr>'}</tbody></table></div></div>`; }
+  if (tab === 'ap') { const rows = apRows(), sel = state.filters.apb || ''; body = `<div class="grid g5 mb">${AGE_B.map(([k, v]) => `<div class="card kpi click" data-act="filt" data-f="apb" data-v="${sel === k ? '' : k}" style="cursor:pointer;${sel === k ? 'outline:2px solid var(--brand)' : ''}"><div class="l">${v} days</div><div class="v">${kmoney(sumBy(rows.filter(r => r.b === k), r => r.bal))}</div><div class="s">${rows.filter(r => r.b === k).length} bills</div></div>`).join('')}</div>
+    <div class="card"><div class="card-h"><h3>Open payables ${sel ? '· ' + sel : ''}</h3><span class="b">${money2(sumBy(rows.filter(r => !sel || r.b === sel), r => r.bal))}</span></div><div class="table-wrap"><table><thead><tr><th>Vendor</th><th>Bill #</th><th>Projects</th><th>Due</th><th class="right">Balance</th><th>Source</th></tr></thead><tbody>${rows.filter(r => !sel || r.b === sel).sort((a, b) => a.due.localeCompare(b.due)).map(r => `<tr class="click" data-go="${r.href}"><td class="b">${esc(r.vendor)}</td><td>${esc(r.num || '—')}</td><td>${esc(r.projects || '—')}</td><td>${fDate(parseLocal(r.due))}</td><td class="right b">${money2(r.bal)}</td><td class="small muted">${r.src}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nothing to pay ✓</td></tr>'}</tbody></table></div></div>`; }
+  if (tab === 'ledger') { const q = (state.filters.lq || '').toLowerCase(), t = state.filters.lt || '', un = state.filters.lun; const rows = L.filter(l => (!t || l.type === t) && (!un || (!l.projectId && !l.overhead && !(l.splits || []).length)) && (!q || [l.num, l.name, l.memo, l.account].join(' ').toLowerCase().includes(q))).sort((a, b) => b.date.localeCompare(a.date)); const pOpts = projOptions();
+    body = `<div class="row mb" style="flex-wrap:wrap"><input class="inp" id="lq" placeholder="Search #, name, memo…" value="${esc(state.filters.lq || '')}" style="max-width:260px"><select class="inp" style="width:auto" data-act-input="filtSel" data-f="lt"><option value="">All types</option>${Object.entries(LEDGER_T).map(([k, v]) => `<option value="${k}" ${t === k ? 'selected' : ''}>${v}</option>`).join('')}</select><button class="btn ${un ? 'primary' : ''}" data-act="filt" data-f="lun" data-v="${un ? '' : '1'}">Unassigned only</button><span class="small muted" style="margin-left:auto">${rows.length} of ${L.length}</span></div>
+    <div class="card"><div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th>#</th><th>Name</th><th>Memo / account</th><th class="right">Amount</th><th>Project</th><th>Source</th></tr></thead><tbody>${rows.slice(0, 400).map(l => `<tr><td>${fDate(parseLocal(l.date))}</td><td class="small">${LEDGER_T[l.type] || l.type}</td><td>${esc(l.num || '')}</td><td>${esc(l.name || '')}</td><td class="small muted">${esc([l.memo, l.account].filter(Boolean).join(' · '))}</td><td class="right b">${money2(l.amount)}${l.balance != null && l.balance > 0 ? `<div class="small muted">open ${money2(l.balance)}</div>` : ''}</td><td>${(l.splits || []).length ? `<span class="small">Split: ${l.splits.map(s => (db.jobs.find(j => j.id === s.projectId) || {}).number).join(', ')}</span>` : `<select class="inp" style="padding:4px 6px;width:auto;max-width:180px" data-act-input="ledgerProject" data-id="${l.id}"><option value="">—</option><option value="__overhead" ${l.overhead ? 'selected' : ''}>Overhead</option>${pOpts.map(([v, tt]) => `<option value="${v}" ${l.projectId === v ? 'selected' : ''}>${esc(tt)}</option>`).join('')}</select>${l.matchedBy ? `<div class="small muted">auto: ${esc(l.matchedBy)}</div>` : ''}`}</td><td class="small muted">${l.src === 'qbo' ? 'API' : 'CSV'}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No transactions yet. Connect QuickBooks or import a CSV.</td></tr>'}</tbody></table></div></div>`; }
+  if (tab === 'recon') { const d = reconcile(), qi = L.filter(l => l.type === 'invoice'), matched = qi.filter(l => invByNum(l.num)).length;
+    body = `<div class="grid g4 mb">${kpi('QuickBooks invoices', qi.length)}${kpi('Matched to OpsBoss', matched)}${kpi('Differences', d.length)}${kpi('Unassigned transactions', L.filter(l => [...REV_T, ...COST_T].includes(l.type) && !l.projectId && !l.overhead && !(l.splits || []).length).length)}</div>
+    <div class="card"><div class="card-h"><h3>Differences between OpsBoss and QuickBooks</h3><button class="btn sm" data-act="ledgerMatch">⚙ Auto-match projects</button></div><div class="card-b">${d.map(x => `<div class="list-item"><span class="pill bad">≠</span><div style="flex:1"><a href="${x.href}" class="small b">${esc(x.title)}</a></div><b class="small">${money2(x.amount)}</b></div>`).join('') || `<div class="muted small">${qi.length ? 'Everything matches ✓' : 'Import QuickBooks transactions to reconcile.'}</div>`}</div><div class="card-b small muted">Rules: invoices match by number; bills by vendor + bill number; payments through the invoice they were applied to. Each difference also appears in the Exceptions inbox, where it can be assigned and resolved.</div></div>`; }
+  if (tab === 'reports') { const year = +(state.filters.ry || new Date().getFullYear()), basis = state.filters.rb || (ledgerHasData() ? 'qb' : 'ops'), M = monthlyResults(year, basis), T = k => sumBy(M, m => m[k]); const divs = [...new Set(M.flatMap(m => Object.keys(m.rev)))]; const o = db.settings.overhead;
+    const proj = db.jobs.filter(j => j.status !== 'cancelled' && ymd((j.fin && j.fin.budget && j.fin.budget.lockedAt) || j.createdAt).slice(0, 4) === String(year)).map(j => ({ j, F: finOf(j) })); const bySvc = {}; proj.forEach(({ j, F }) => { const s = bySvc[j.division] = bySvc[j.division] || { n: 0, rev: 0, cost: 0, oh: 0 }; s.n++; s.rev += F.revenue; s.cost += F.projected; s.oh += overheadOf(j, F).amount; });
+    body = `<div class="row mb" style="flex-wrap:wrap"><select class="inp" style="width:auto" data-act-input="filtSel" data-f="ry">${[0, 1, 2].map(k => new Date().getFullYear() - k).map(y => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select><select class="inp" style="width:auto" data-act-input="filtSel" data-f="rb"><option value="qb" ${basis === 'qb' ? 'selected' : ''} ${ledgerHasData() ? '' : 'disabled'}>QuickBooks ledger (official)</option><option value="ops" ${basis === 'ops' ? 'selected' : ''}>OpsBoss operational data</option></select><button class="btn" data-act="qbExport" data-k="monthly" data-y="${year}" data-b="${basis}">⇩ CSV</button><span class="small muted" style="margin-left:auto">Updated ${basis === 'qb' ? (upd ? new Date(upd).toLocaleString('en-US') : '—') : 'live'} · Criterion: ${basis === 'qb' ? 'accrual by transaction date from QuickBooks; cash = payments, deposits and sales receipts in, bill payments, expenses and refunds out' : 'accrual: revenue by invoice date (pre-tax), costs by bill/cost date; cash by settlement date'}</span></div>
+    <div class="card mb"><div class="card-h"><h3>Company results ${year}</h3></div><div class="table-wrap"><table><thead><tr><th></th>${M.map(m => `<th class="right">${new Date(year, m.m, 1).toLocaleDateString('en-US', { month: 'short' })}</th>`).join('')}<th class="right">Total</th></tr></thead><tbody>
+      ${divs.map(dv => `<tr><td class="small">Revenue · ${DIV[dv] ? DIV[dv].name : 'Unassigned'}</td>${M.map(m => `<td class="right small">${m.rev[dv] ? money(m.rev[dv]) : ''}</td>`).join('')}<td class="right small">${money(sumBy(M, m => m.rev[dv]))}</td></tr>`).join('')}
+      ${[['Revenue', 'revT', 'b'], ['Direct project costs', 'cost', ''], ['Gross profit', 'gross', 'b'], ['Overhead', 'oh', ''], ['Result after overhead', 'net', 'b'], ['Cash in', 'cin', 'small'], ['Cash out', 'cout', 'small'], ['Net cash flow', 'cash', 'b']].map(([l, k, c]) => `<tr><td class="${c}">${l}</td>${M.map(m => `<td class="right ${c} ${m[k] < 0 ? 'down' : ''}">${m[k] ? money(m[k]) : ''}</td>`).join('')}<td class="right ${c} ${T(k) < 0 ? 'down' : ''}">${money(T(k))}</td></tr>`).join('')}
+    </tbody></table></div></div>
+    <div class="card"><div class="card-h"><h3>Profitability by service (projects signed in ${year})</h3><span class="small muted">Overhead rule: ${esc(o.mode === 'pct_cost' ? o.pct + '% of projected cost' : o.mode === 'flat' ? money(o.flat) + ' per project' : o.pct + '% of contract value')}${num(o.monthly) ? ` · plus ${money(o.monthly)}/month fixed overhead in company results` : ''}</span></div><div class="table-wrap"><table><thead><tr><th>Service</th><th class="right">Projects</th><th class="right">Contract value</th><th class="right">Projected cost</th><th class="right">Gross</th><th class="right">Margin</th><th class="right">Allocated overhead</th><th class="right">After overhead</th></tr></thead><tbody>${Object.entries(bySvc).map(([dv, s]) => `<tr><td class="b">${DIV[dv] ? DIV[dv].name : dv}</td><td class="right">${s.n}</td><td class="right">${money(s.rev)}</td><td class="right">${money(s.cost)}</td><td class="right b">${money(s.rev - s.cost)}</td><td class="right">${pct2(s.rev ? (s.rev - s.cost) / s.rev : 0)}</td><td class="right">${money(s.oh)}</td><td class="right b ${s.rev - s.cost - s.oh < 0 ? 'down' : 'up'}">${money(s.rev - s.cost - s.oh)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No projects signed this year.</td></tr>'}</tbody></table></div></div>`; }
+  return head('Accounting', 'QuickBooks is the official ledger · OpsBoss runs operations, budgets and project profitability') + `<div class="tabs">${tabs.map(([k, v]) => `<button data-act="tab" data-t="acct" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>` + body;
+};
+async function qboCall(action, payload = {}) {
+  const { data: { session } } = await cloud.sb.auth.getSession();
+  const r = await fetch(`${CFG.url}/functions/v1/opsboss-qbo`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.key, Authorization: `Bearer ${session ? session.access_token : ''}` }, body: JSON.stringify({ action, ...payload }) });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok || out.error) throw new Error(out.message || out.error || 'QuickBooks error ' + r.status);
+  return out;
+}
+ROUTES['accounting:after'] = async () => {
+  const q = new URLSearchParams(location.hash.split('?')[1] || '');
+  if (q.get('qbo')) { toast(q.get('qbo') === 'connected' ? 'QuickBooks connected ✓' : 'QuickBooks connection failed: ' + q.get('qbo')); history.replaceState(null, '', location.pathname + location.search + '#/accounting'); }
+  const lq = $('#lq'); if (lq) lq.oninput = () => { state.filters.lq = lq.value; const pos = lq.selectionStart; render(); const n = $('#lq'); n.focus(); n.setSelectionRange(pos, pos); };
+  const box = $('#qboBox'); if (!box || !cloud.on) return;
+  try {
+    const s = await qboCall('status'); cloud.qbo = s;
+    if (!$('#qboBox')) return;
+    $('#qboPill').className = 'pill ' + (s.connected ? 'ok' : ''); $('#qboPill').textContent = s.connected ? 'Connected' : 'Not connected';
+    box.innerHTML = !s.configured ? `<p class="small">To connect QuickBooks, create an app at <b>developer.intuit.com</b> (Accounting scope) and add these Supabase Edge Function secrets: <code>QBO_CLIENT_ID</code>, <code>QBO_CLIENT_SECRET</code> and <code>QBO_ENV</code> (<code>production</code> or <code>sandbox</code>).</p><label class="f">Redirect URI to register in the Intuit app<input class="inp" readonly onclick="this.select()" value="${esc(s.redirectUri)}"></label><p class="small muted">Until then, use the CSV import — it works the same way.</p>`
+      : s.connected ? `<div class="calc-out"><div><div class="l">Company</div><div class="b">${esc(s.companyName || s.realmId)}</div></div><div><div class="l">Environment</div><div class="b">${esc(s.env)}</div></div><div><div class="l">Last sync</div><div class="b">${s.lastSync ? new Date(s.lastSync).toLocaleString('en-US') : 'never'}</div></div></div>${s.lastResult ? `<p class="small muted">Last result: ${s.lastResult.created} new, ${s.lastResult.updated} updated, ${s.lastResult.unchanged} unchanged.</p>` : ''}<div class="row mt"><button class="btn primary" data-act="qboPull">↻ Sync now (read-only)</button><button class="btn" data-act="qboPull" data-full="1">Full re-import (24 months)</button><button class="btn ghost danger" data-act="qboDisconnect">Disconnect</button></div>`
+      : `<p class="small muted">Connect read-only access to import invoices, payments, credits, vendor bills, expenses and deposits. Nothing is written to QuickBooks.</p><button class="btn primary" data-act="qboConnect">Connect QuickBooks</button>`;
+  } catch (e) { if ($('#qboBox')) $('#qboBox').innerHTML = `<div class="auth-msg bad">${esc(e.message)}</div>`; }
+};
+function qbExport(k, el) {
+  const csv = rows => rows.map(r => r.map(v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
+  const d = ymd(new Date()); let rows;
+  const jn = id => (db.jobs.find(j => j.id === id) || {}).number || '';
+  if (k === 'invoices') { rows = [['InvoiceNo', 'Customer', 'InvoiceDate', 'DueDate', 'Item(Product/Service)', 'ItemDescription', 'ItemQuantity', 'ItemRate', 'ItemAmount', 'Taxable', 'Class']]; db.invoices.filter(i => !['void', 'draft'].includes(i.status)).forEach(i => i.items.forEach(it => rows.push([i.number, cust(i.customerId).name, ymd(i.createdAt), i.due, DIV[i.division] ? DIV[i.division].name : 'Services', it.name, it.qty, it.price, (num(it.qty) * num(it.price)).toFixed(2), num(db.settings.taxRate) ? 'Y' : 'N', jn(i.jobId)]))); }
+  if (k === 'payments') { rows = [['Date', 'Customer', 'InvoiceNo', 'Amount', 'Method', 'Reference']]; allPayments().forEach(p => rows.push([ymd(p.date), cust(p.inv.customerId).name, p.inv.number, num(p.amount).toFixed(2), p.method || '', p.ref || p.id || ''])); }
+  if (k === 'bills') { rows = [['BillNo', 'Supplier', 'BillDate', 'DueDate', 'Account', 'LineDescription', 'LineAmount', 'Class']]; (db.bills || []).forEach(b => b.lines.forEach(l => rows.push([b.number, b.vendor, b.date, b.due || ymd(addDays(parseLocal(b.date), 30)), l.category, (l.poId ? 'PO ' + ((db.pos.find(p => p.id === l.poId) || {}).number || '') + ' ' : '') + jn(l.projectId), num(l.amount).toFixed(2), jn(l.projectId)]))); }
+  if (k === 'customers') { rows = [['Name', 'Email', 'Phone', 'Street', 'City', 'Zip']]; db.customers.forEach(c => rows.push([c.name, c.email, c.phone, c.address, c.city, c.zip])); }
+  if (k === 'projects') { rows = [['Project', 'Customer', 'Service', 'Contract value', 'Actual cost', 'Committed', 'Remaining estimate', 'Projected cost', 'Gross', 'Margin %', 'Overhead', 'After overhead', 'Invoiced', 'Collected', 'Balance due']]; db.jobs.filter(j => j.status !== 'cancelled').forEach(j => { const F = finOf(j), o = overheadOf(j, F); rows.push([j.number, cust(j.customerId).name, DIV[j.division] ? DIV[j.division].name : '', F.revenue.toFixed(2), F.actual.toFixed(2), F.committed.toFixed(2), F.remaining.toFixed(2), F.projected.toFixed(2), F.gross.toFixed(2), (F.pct * 100).toFixed(2), o.amount.toFixed(2), o.after.toFixed(2), F.billed.toFixed(2), F.collected.toFixed(2), F.ar.toFixed(2)]); }); }
+  if (k === 'monthly') { const M = monthlyResults(+el.dataset.y, el.dataset.b); rows = [['Month', 'Revenue', 'Direct costs', 'Gross', 'Overhead', 'After overhead', 'Cash in', 'Cash out', 'Net cash']]; M.forEach(m => rows.push([`${el.dataset.y}-${String(m.m + 1).padStart(2, '0')}`, ...['revT', 'cost', 'gross', 'oh', 'net', 'cin', 'cout', 'cash'].map(x => m[x].toFixed(2))])); }
+  download(`opsboss-${k}-${d}.csv`, csv(rows), 'text/csv');
+  runLog('export.' + k, `Exported ${rows.length - 1} ${k} rows to CSV`, { system: 'QuickBooks' });
+  save();
+}
+
+// ── Automation log ──
+ROUTES.runs = () => {
+  p3Init();
+  const f = state.filters.rs || 'all', list = (db.runs || []).filter(r => f === 'all' || (f === 'error' ? r.status === 'error' : r.system === f)).sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+  return head('Automation log', 'Every automation, webhook, import and export with its result. Failed runs can be retried without duplicating tasks, invoices or messages.') + `
+  <div class="tabs">${[['all', 'All'], ['error', 'Failed'], ['OpsBoss', 'OpsBoss'], ['HighLevel', 'HighLevel'], ['QuickBooks', 'QuickBooks']].map(([k, v]) => `<button data-act="filt" data-f="rs" data-v="${k}" class="${f === k ? 'on' : ''}">${v}${k === 'error' ? ` <span class="muted">${(db.runs || []).filter(r => r.status === 'error').length}</span>` : ''}</button>`).join('')}</div>
+  <div class="card"><div class="table-wrap"><table><thead><tr><th>When</th><th>System</th><th>Event</th><th>Result</th><th>Detail</th><th></th></tr></thead><tbody>${list.slice(0, 300).map(r => `<tr><td class="small">${new Date(r.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</td><td class="small">${esc(r.system || '')}</td><td class="small b">${esc(r.kind)}</td><td>${pill(RUN_ST, r.status)}${num(r.attempts) > 1 ? `<div class="small muted">${r.attempts} attempts</div>` : ''}</td><td class="small">${esc(r.detail || '')}${r.ids && r.ids.formName ? `<div class="muted">form: ${esc(r.ids.formName)}${r.ids.formId ? ' (' + esc(r.ids.formId) + ')' : ''}</div>` : ''}${r.ids && r.ids.calendarName ? `<div class="muted">calendar: ${esc(r.ids.calendarName)}${r.ids.calendarId ? ' (' + esc(r.ids.calendarId) + ')' : ''}</div>` : ''}</td><td class="right">${r.status === 'error' && r.retry ? `<button class="btn sm" data-act="runRetry" data-id="${r.id}">↻ Retry</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">No runs yet.</td></tr>'}</tbody></table></div></div>`;
+};
+async function runRetry(r) {
+  r.attempts = num(r.attempts) + 1;
+  try {
+    if (r.kind.startsWith('ghl.') && r.retry && r.retry.payload) {
+      if (!(cloud.ghl && cloud.ghl.webhookKey)) throw new Error('Only an admin can retry HighLevel webhooks');
+      const res = await fetch(`${CFG.url}/functions/v1/opsboss-ghl-webhook${r.retry.url}&key=${cloud.ghl.webhookKey}&retry=${encodeURIComponent(r.id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: r.retry.payload });
+      const o = await res.json().catch(() => ({})); if (!res.ok) throw new Error(o.error || 'HTTP ' + res.status);
+      toast('Webhook reprocessed ✓'); return;
+    }
+    if (r.kind === 'qbo.pull') { const o = await qboCall('pull', { since: r.retry && r.retry.since }); r.status = 'ok'; r.detail += ` · retried: ${o.created} new, ${o.updated} updated`; toast('QuickBooks sync retried ✓'); return; }
+    if (r.kind === 'wf.message' && r.retry && r.retry.taskId) {
+      const t = (db.tasks || []).find(x => x.id === r.retry.taskId);
+      if (!t || t.done) { r.status = 'duplicate'; r.detail += ' · already sent/closed, not resent'; toast('Already sent — not resent'); return; }
+      await ghlSend(cust(t.customerId), t.channel === 'email' ? 'Email' : 'SMS', t.body, db.settings.company);
+      t.done = true; t.doneAt = iso(new Date()); t.sentVia = 'highlevel'; r.status = 'ok'; r.detail += ' · sent on retry'; toast('Message sent ✓'); return;
+    }
+    throw new Error('This run cannot be retried automatically');
+  } catch (e) { r.status = 'error'; r.detail = String(r.detail || '').replace(/ · retry failed:.*$/, '') + ' · retry failed: ' + e.message; toast(e.message); }
+  finally { save(); render(); }
+}
+
+// ── Settings: lead sources, alert rules, overhead, outbound mode ──
+function p3SettingsCards() {
+  p3Init();
+  const s = db.settings, R = s.alertRules, o = s.overhead, dis = canAdmin() ? '' : 'disabled';
+  const lastSeen = k => { const r = (db.runs || []).find(x => x.source === k); return r ? ago(r.ts) + ' ago' : 'not yet'; };
+  const ownerOpts = sel => `<option value="">— Unassigned —</option>${db.techs.map(t => `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}`;
+  const wh = k => cloud.ghl && cloud.ghl.webhookKey ? `${CFG.url}/functions/v1/opsboss-ghl-webhook?event=lead&src=${k}&key=${cloud.ghl.webhookKey}` : '';
+  return `<div class="card mt"><div class="card-h"><h3>Outbound communications</h3><span class="pill ${s.outboundLive ? 'ok' : 'warn'}">${s.outboundLive ? 'Live' : 'Test mode'}</span></div><div class="card-b">
+    <label class="check"><input type="checkbox" data-act-input="settingBool" data-k="outboundLive" ${s.outboundLive ? 'checked' : ''} ${dis}><span><b>Activate automatic outbound messages</b> (workflow SMS/email through HighLevel). While off, automations prepare the message as a task and log it as “Test mode” — nothing is sent automatically. Messages a person sends by hand are not affected.</span></label>
+    <p class="small muted">Single sender per channel: SMS, email and calls go only through HighLevel (OpsBoss never sends them directly). HighLevel’s own workflows should not send the same message — keep each reminder in one system. Customers who opt out (STOP, or a consent webhook) are skipped automatically; language is taken from the contact.</p></div></div>
+  <div class="card mt"><div class="card-h"><h3>Lead sources (HighLevel mapping)</h3>${cloud.on && ghlOn() ? '<button class="btn sm" data-act="ghlVerify">✓ Verify IDs in HighLevel</button>' : ''}</div><div class="card-b">
+    <p class="small muted">Each source is matched by its own webhook URL (most reliable), then by form ID, calendar ID, form/calendar name, tag or UTM source. Leads from unmatched sources go to the Exceptions inbox.</p>
+    <div id="ghlVerifyOut"></div>
+    ${s.leadSources.map((x, i) => `<details class="mt" ${i === 0 ? '' : ''}><summary><b>${esc(x.label)}</b> <span class="small muted">· ${x.division === 'auto' ? 'service auto-detected' : DIV[x.division] ? DIV[x.division].name : ''} · ${x.pipeline === 'sales' ? 'Sales pipeline' : 'Marketing Leads'} · last lead ${lastSeen(x.key)}</span>${x.active === false ? ' <span class="pill">off</span>' : ''}</summary><div class="form mt">
+      ${[['label', 'Name'], ['formIds', 'Form IDs (comma separated)'], ['formNames', 'Form names'], ['calendarIds', 'Calendar IDs'], ['calendarNames', 'Calendar names'], ['tags', 'Tags'], ['sources', 'UTM / source contains']].map(([k, l]) => `<label class="f">${l}<input class="inp" data-act-input="leadSrc" data-i="${i}" data-k="${k}" value="${esc(x[k] || '')}" ${dis}></label>`).join('')}
+      <label class="f">Service<select class="inp" data-act-input="leadSrc" data-i="${i}" data-k="division" ${dis}>${[['auto', 'Detect from form/tags'], ...divOptions()].map(([k, v]) => `<option value="${k}" ${x.division === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="f">Pipeline<select class="inp" data-act-input="leadSrc" data-i="${i}" data-k="pipeline" ${dis}><option value="marketing" ${x.pipeline !== 'sales' ? 'selected' : ''}>Marketing Leads (Warm Leads)</option><option value="sales" ${x.pipeline === 'sales' ? 'selected' : ''}>Sales pipeline (New lead)</option></select></label>
+      <label class="f">Owner (gets the first task)<select class="inp" data-act-input="leadSrc" data-i="${i}" data-k="owner" ${dis}>${ownerOpts(x.owner)}</select></label>
+      <label class="f">Language<select class="inp" data-act-input="leadSrc" data-i="${i}" data-k="lang" ${dis}>${[['', 'From contact'], ['en', 'English'], ['es', 'Spanish'], ['pt', 'Portuguese']].map(([k, v]) => `<option value="${k}" ${(x.lang || '') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="check"><input type="checkbox" data-act-input="leadSrc" data-i="${i}" data-k="active" ${x.active === false ? '' : 'checked'} ${dis}><span>Active</span></label>
+      ${wh(x.key) ? `<label class="f full">Webhook URL for this source (HighLevel workflow → Webhook, POST)<input class="inp" readonly onclick="this.select()" value="${esc(wh(x.key))}"></label>` : ''}
+    </div></details>`).join('')}
+    ${canAdmin() ? '<button class="btn sm mt" data-act="leadSrcAdd">＋ Source</button>' : ''}
+    ${cloud.ghl && cloud.ghl.webhookKey ? `<details class="mt"><summary class="b small">Appointment & consent webhooks</summary><label class="f mt">Appointment booked / rescheduled / cancelled (trigger: Appointment Status)<input class="inp" readonly onclick="this.select()" value="${esc(CFG.url + '/functions/v1/opsboss-ghl-webhook?event=appointment&src=solar_cal&key=' + cloud.ghl.webhookKey)}"></label><label class="f mt">Unsubscribe / DND (add &channel=sms|email|call|all and &value=off or on)<input class="inp" readonly onclick="this.select()" value="${esc(CFG.url + '/functions/v1/opsboss-ghl-webhook?event=consent&channel=all&value=off&key=' + cloud.ghl.webhookKey)}"></label><p class="small muted">Recommended Custom Data in the webhook action: <code>formId</code>, <code>formName</code>, <code>calendarId</code>, <code>calendarName</code>, <code>appointmentId</code>, <code>startTime</code>, <code>endTime</code>, <code>status</code>, <code>language</code>, <code>service</code>. Repeated deliveries are ignored, so HighLevel retries never duplicate leads.</p></details>` : ''}
+    <label class="f mt">Default owner for new leads<select class="inp" data-act-input="setting" data-k="leadOwnerDefault" ${dis}>${ownerOpts(s.leadOwnerDefault)}</select></label>
+  </div></div>
+  <div class="card mt"><div class="card-h"><h3>Alerts & escalation</h3></div><div class="card-b form">
+    ${[['taskEscalateDays', 'Escalate overdue tasks after (days)'], ['blockedDays', 'Alert when blocked for (days)'], ['permitDays', 'Permit pending limit (days)'], ['interconnectDays', 'Interconnection / PTO limit (days)'], ['leadHours', 'New lead not contacted after (hours)'], ['doneNotInvoicedDays', 'Completed, not invoiced after (days)'], ['poPendingDays', 'PO waiting for approval (days)'], ['dayCapacity', 'Crew capacity per day (hours)']].map(([k, l]) => `<label class="f">${l}<input class="inp" type="number" data-act-input="alertRule" data-k="${k}" value="${esc(R[k])}" ${dis}></label>`).join('')}
+    <label class="f">Escalate to (manager)<select class="inp" data-act-input="alertRule" data-k="escalateTo" ${dis}><option value="">—</option>${db.techs.map(t => `<option ${R.escalateTo === t.name ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>
+    <label class="f">Then to (direction)<select class="inp" data-act-input="alertRule" data-k="directionName" ${dis}><option value="">—</option>${db.techs.map(t => `<option ${R.directionName === t.name ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>
+  </div></div>
+  ${isFin() ? `<div class="card mt"><div class="card-h"><h3>Overhead allocation rule</h3></div><div class="card-b form">
+    <label class="f">Rule<select class="inp" data-act-input="overhead" data-k="mode" ${dis}><option value="pct_revenue" ${o.mode === 'pct_revenue' ? 'selected' : ''}>% of contract value</option><option value="pct_cost" ${o.mode === 'pct_cost' ? 'selected' : ''}>% of projected cost</option><option value="flat" ${o.mode === 'flat' ? 'selected' : ''}>Flat amount per project</option></select></label>
+    <label class="f">${o.mode === 'flat' ? 'Amount per project ($)' : 'Percentage (%)'}<input class="inp" type="number" step="0.01" data-act-input="overhead" data-k="${o.mode === 'flat' ? 'flat' : 'pct'}" value="${esc(o.mode === 'flat' ? o.flat : o.pct)}" ${dis}></label>
+    <label class="f">Fixed monthly overhead in company results ($)<input class="inp" type="number" step="0.01" data-act-input="overhead" data-k="monthly" value="${esc(o.monthly || 0)}" ${dis}></label>
+    <label class="f full">Note<input class="inp" data-act-input="overhead" data-k="note" value="${esc(o.note || '')}" ${dis}></label>
+  </div></div>` : ''}`;
+}
+
+// ── Bell + nav ──
+function renderBell() {
+  const b = $('#bellBtn'); if (!b || !db) return;
+  let n = 0; try { n = alertsAll().filter(a => !a.acked && a.sev !== 'info').length; } catch (e) { n = 0; }
+  $('#bellN').textContent = n ? (n > 99 ? '99+' : n) : ''; $('#bellN').hidden = !n;
+}
+
+// Wrappers de pantallas existentes
+const _mywork = ROUTES.mywork;
+ROUTES.mywork = () => { const html = _mywork(), al = alertsAll().filter(a => !a.acked && a.sev !== 'info'); const card = al.length ? `<div class="card mb"><div class="card-h"><h3>🔔 Needs attention <span class="muted small">${al.length}</span></h3><a class="btn sm" href="#/alerts">All alerts</a></div><div class="card-b">${al.slice(0, 5).map(a => `<div class="list-item"><span class="pill ${a.sev}">${esc(a.kind)}</span><div style="flex:1;min-width:0"><a href="${a.href}" class="small b">${esc(a.title)}</a><div class="small muted">${esc(a.text || '')}${a.level > 1 ? ' · escalated to ' + LVL[a.level] : ''}</div></div></div>`).join('')}</div></div>` : ''; const i = html.indexOf('<div class="grid g2">'); return i > 0 ? html.slice(0, i) + card + html.slice(i) : html + card; };
+const _schedule = ROUTES.schedule;
+ROUTES.schedule = () => {
+  const html = _schedule(), cf = calConflicts(), ws = state.week, we = addDays(ws, 7);
+  const ap = (db.appts || []).filter(a => a.start && new Date(a.start) >= ws && new Date(a.start) < we).sort((a, b) => new Date(a.start) - new Date(b.start));
+  const changes = db.jobs.flatMap(j => (j.history || []).filter(h => /^Rescheduled/.test(h.text) && daysSince(h.ts) <= 14).map(h => ({ j, h }))).sort((a, b) => b.h.ts.localeCompare(a.h.ts));
+  const extra = `${cf.length ? `<div class="card mb" style="border-color:var(--bad)"><div class="card-h"><h3>⚠ Conflicts (${cf.length})</h3></div><div class="card-b">${cf.map(c => `<div class="list-item small"><span class="pill bad">Conflict</span><div style="flex:1"><b>${esc(c.title)}</b> · ${esc(c.text)}</div></div>`).join('')}</div></div>` : ''}
+  <div class="grid g2 mb"><div class="card"><div class="card-h"><h3>📅 Visits & appointments this week (${ap.length})</h3></div><div class="card-b">${ap.map(a => `<div class="list-item small"><span class="pill ${a.status === 'cancelled' ? '' : a.status === 'booked' ? 'info' : 'ok'}">${esc(a.status)}</span><div style="flex:1"><b>${fDay(a.start)} ${fTime(a.start)}</b> · ${esc(a.title)}${a.assignedTo ? ' · ' + esc(a.assignedTo) : ''}${a.reschedules ? ` · <span class="down">rescheduled ×${a.reschedules}</span>` : ''}</div><a href="#/customer/${a.customerId}">${esc(cust(a.customerId).name)}</a></div>`).join('') || '<span class="muted small">No visits booked from HighLevel calendars this week.</span>'}</div></div>
+  <div class="card"><div class="card-h"><h3>Schedule changes (14 days)</h3></div><div class="card-b">${changes.slice(0, 8).map(({ j, h }) => `<div class="list-item small"><div style="flex:1"><a href="#/job/${j.id}">${j.number}</a> · ${esc(h.text)}</div><span class="muted">${esc(h.by || '')} · ${ago(h.ts)}</span></div>`).join('') || '<span class="muted small">No reschedules.</span>'}</div></div></div>`;
+  const i = html.indexOf('<div class="card mb"><div class="card-h"><h3>Unscheduled'); return i > 0 ? html.slice(0, i) + extra + html.slice(i) : html + extra;
+};
+const _schedAfter = ROUTES['schedule:after'];
+ROUTES['schedule:after'] = () => { _schedAfter(); const ids = new Set(calConflicts().flatMap(c => c.jobs)); $$('[data-job]').forEach(el => { if (ids.has(el.dataset.job)) { el.style.outline = '2px solid var(--bad)'; el.title = '⚠ Conflict · ' + el.title; } }); };
+const _customer = ROUTES.customer;
+ROUTES.customer = id => { const html = _customer(id), c = byId('customers', id); if (!c) return html; const cs = { sms: true, email: true, call: true, ...(c.consent || {}) }; const strip = `<div class="card mb"><div class="card-b row" style="flex-wrap:wrap;gap:14px"><span class="small b">Communication preferences</span>${['sms', 'email', 'call'].map(ch => `<label class="check small"><input type="checkbox" data-act-input="custConsent" data-id="${c.id}" data-ch="${ch}" ${cs[ch] ? 'checked' : ''}><span>${ch.toUpperCase()}</span></label>`).join('')}<label class="small row" style="gap:6px">Language<select class="inp" style="width:auto;padding:4px 8px" data-act-input="custLang" data-id="${c.id}">${[['', '—'], ['en', 'English'], ['es', 'Spanish'], ['pt', 'Portuguese']].map(([k, v]) => `<option value="${k}" ${(c.lang || '') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>${(c.consentLog || [])[0] ? `<span class="small muted">Last change: ${esc(c.consentLog[0].text)} · ${esc(c.consentLog[0].by)} · ${fDate(c.consentLog[0].ts)}</span>` : ''}</div></div>`; const i = html.indexOf('<div class="tabs">'); return i > 0 ? html.slice(0, i) + strip + html.slice(i) : html; };
+
+/* ───────────── Phase 3 actions ───────────── */
+Object.assign(ACT, {
+  alertAck: el => { p3Init(); const k = el.dataset.k; db.alerts.push({ id: 'ack-' + hash36(k + me()), kind: 'ack', ackKey: k, level: +el.dataset.l || 1, by: me(), ts: iso(new Date()) }); if (el.dataset.s) { const a = db.alerts.find(x => x.id === el.dataset.s); if (a) a.readBy = [...new Set([...(a.readBy || []), me()])]; } save(); render(); },
+  alertSnooze: el => { p3Init(); const k = el.dataset.k; db.alerts = db.alerts.filter(x => !(x.kind === 'ack' && x.ackKey === k && x.by === me())); db.alerts.push({ id: 'ack-' + hash36(k + me()), kind: 'ack', ackKey: k, level: 9, until: iso(addDays(new Date(), 1)), by: me(), ts: iso(new Date()) }); save(); render(); toast('Snoozed until tomorrow'); },
+  alertScan: () => alertScan(true),
+  commSim: el => commModal(projInit(byId('jobs', el.dataset.id))),
+  commRuleNew: () => commRuleModal(null),
+  commRuleVersion: el => commRuleModal(db.settings.commRules.find(r => r.id === el.dataset.r)),
+  commPaid: el => { const j = projInit(byId('jobs', el.dataset.id)), c = j.fin.commissions.find(x => x.id === el.dataset.c); const pay = commPayable(j, c); const go = () => { c.status = 'paid'; c.paidAt = iso(new Date()); c.paidBy = me(); hist(j, `Commission paid to ${c.rep}: ${money2(c.amount)}`); runLog('commission.paid', `${j.number} · ${c.rep} · ${money2(c.amount)}`); }; if (!pay.ok) confirmDlg(`The payment condition is not met yet (${esc(pay.why)}). Mark as paid anyway?`, go); else { go(); save(); render(); } },
+  commVoid: el => { const j = projInit(byId('jobs', el.dataset.id)), c = j.fin.commissions.find(x => x.id === el.dataset.c); const why = prompt('Reason to void this commission?'); if (!why) return; c.status = 'void'; c.voidReason = why; c.voidBy = me(); hist(j, `Commission voided (${c.rep}): ${why}`); save(); render(); },
+  ledgerMatch: () => { const n = autoMatchLedger(); runLog('ledger.match', `Auto-match assigned ${n} transaction${n === 1 ? '' : 's'} to projects`, { system: 'QuickBooks' }); save(); render(); toast(`${n} transaction${n === 1 ? '' : 's'} matched`); },
+  excResolve: el => { p3Init(); const s = excState(el.dataset.id), to = el.dataset.s; let note = ''; if (to !== 'open') { note = prompt(to === 'resolved' ? 'How was it resolved?' : 'Why ignore it?') || ''; if (to === 'ignored' && !note) { toast('A reason is required to ignore an exception'); return; } } s.status = to; s.note = note || s.note; s.resolvedBy = to === 'open' ? '' : me(); s.resolvedAt = to === 'open' ? '' : iso(new Date()); (s.history = s.history || []).unshift({ ts: iso(new Date()), by: me(), text: `${to}${note ? ': ' + note : ''}` }); save(); render(); },
+  qbExport: el => qbExport(el.dataset.k, el),
+  qboConnect: async el => { el.disabled = true; try { const o = await qboCall('connect'); location.href = o.url; } catch (e) { toast(e.message); el.disabled = false; } },
+  qboPull: async el => { el.disabled = true; el.textContent = 'Syncing…'; try { const o = await qboCall('pull', { full: !!el.dataset.full }); toast(`QuickBooks: ${o.created} new, ${o.updated} updated, ${o.unchanged} unchanged`); db.settings.ledgerUpdatedAt = iso(new Date()); db.settings.ledgerSource = 'QuickBooks API'; setTimeout(() => { const n = autoMatchLedger(); if (n) runLog('ledger.match', `Auto-match assigned ${n} QuickBooks transactions to projects`, { system: 'QuickBooks' }); save(); render(); }, 2500); } catch (e) { toast('QuickBooks: ' + e.message); } finally { save(); render(); } },
+  qboDisconnect: () => confirmDlg('Disconnect QuickBooks? Imported transactions stay in OpsBoss.', async () => { try { await qboCall('disconnect'); toast('QuickBooks disconnected'); } catch (e) { toast(e.message); } render(); }),
+  runRetry: el => { const r = (db.runs || []).find(x => x.id === el.dataset.id); if (r) { el.disabled = true; runRetry(r); } },
+  ghlVerify: async el => {
+    el.disabled = true; const out = $('#ghlVerifyOut');
+    try {
+      const d = await ghlCall('sources'); const F = new Map((d.forms || []).map(f => [String(f.id).toLowerCase(), f.name])), C = new Map((d.calendars || []).map(c => [String(c.id).toLowerCase(), c.name]));
+      const ids = s => String(s || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+      const rows = db.settings.leadSources.map(s => { const fi = ids(s.formIds).map(id => F.has(id.toLowerCase()) ? `<span class="pill ok">✓ form ${esc(F.get(id.toLowerCase()))}</span>` : `<span class="pill bad">✗ form ${esc(id)} not found</span>`), ci = ids(s.calendarIds).map(id => C.has(id.toLowerCase()) ? `<span class="pill ok">✓ calendar ${esc(C.get(id.toLowerCase()))}</span>` : `<span class="pill bad">✗ calendar ${esc(id)} not found</span>`); const byName = [...ids(s.formNames).map(n => [...F.values()].some(v => String(v).toLowerCase().includes(n.toLowerCase())) ? `<span class="pill ok">✓ form “${esc(n)}”</span>` : `<span class="pill warn">form “${esc(n)}” not found</span>`), ...ids(s.calendarNames).map(n => [...C.values()].some(v => String(v).toLowerCase().includes(n.toLowerCase())) ? `<span class="pill ok">✓ calendar “${esc(n)}”</span>` : `<span class="pill warn">calendar “${esc(n)}” not found</span>`)]; return `<div class="list-item" style="flex-wrap:wrap"><b class="small" style="min-width:160px">${esc(s.label)}</b><div class="row" style="gap:4px;flex-wrap:wrap">${[...fi, ...ci, ...byName].join('') || '<span class="small muted">matched by URL/source only</span>'}</div></div>`; });
+      out.innerHTML = `<div class="card mb"><div class="card-b"><div class="small muted mb">HighLevel has ${(d.forms || []).length} forms and ${(d.calendars || []).length} calendars${d.formsError ? ' · forms: ' + esc(d.formsError) : ''}${d.calendarsError ? ' · calendars: ' + esc(d.calendarsError) : ''}</div>${rows.join('')}<details class="mt"><summary class="small">All forms & calendars (IDs)</summary><div class="small">${[...(d.forms || []).map(f => `Form · ${esc(f.name)} · <code>${esc(f.id)}</code>`), ...(d.calendars || []).map(c => `Calendar · ${esc(c.name)} · <code>${esc(c.id)}</code>`)].join('<br>')}</div></details></div></div>`;
+      runLog('ghl.verify', `Verified lead source IDs: ${(d.forms || []).length} forms, ${(d.calendars || []).length} calendars in HighLevel`, { system: 'HighLevel' }); save();
+    } catch (e) { out.innerHTML = `<div class="auth-msg bad">HighLevel: ${esc(e.message)}</div>`; }
+    el.disabled = false;
+  },
+  leadSrcAdd: () => { p3Init(); db.settings.leadSources.push({ key: 'src' + uid().slice(0, 5), label: 'New source', division: 'auto', pipeline: 'marketing' }); save(); render(); },
+});
+Object.assign(INPUT, {
+  ledgerCsv: el => { const f = el.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { try { const o = importLedgerCsv(String(r.result), f.name); toast(`Imported: ${o.created} new, ${o.updated} updated, ${o.same} unchanged · ${o.matched} matched to projects`); render(); } catch (e) { toast('Import failed: ' + e.message); runLog('ledger.import', `CSV "${f.name}" failed: ${e.message}`, { status: 'error', system: 'QuickBooks' }); save(); } }; r.readAsText(f); el.value = ''; },
+  ledgerProject: el => { const l = db.ledger.find(x => x.id === el.dataset.id); if (!l) return; if (el.value === '__overhead') { l.overhead = true; l.projectId = ''; } else { l.overhead = false; l.projectId = el.value; } l.assignedBy = me(); l.matchedBy = ''; if (l.projectId) { const j = db.jobs.find(x => x.id === l.projectId); if (j) hist(projInit(j), `QuickBooks ${LEDGER_T[l.type] || l.type} ${l.num || ''} (${money2(l.amount)}) assigned to this project`); } save(); render(); },
+  excAssign: el => { p3Init(); const s = excState(el.dataset.id); s.assignee = el.value; (s.history = s.history || []).unshift({ ts: iso(new Date()), by: me(), text: 'assigned to ' + (el.value || 'nobody') }); save(); },
+  filtSel: el => { state.filters[el.dataset.f] = el.value; render(); },
+  leadSrc: el => { const s = db.settings.leadSources[+el.dataset.i]; s[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value; save(); if (el.tagName === 'SELECT' || el.type === 'checkbox') render(); },
+  alertRule: el => { db.settings.alertRules[el.dataset.k] = el.type === 'number' ? num(el.value) : el.value; save(); },
+  overhead: el => { db.settings.overhead[el.dataset.k] = ['mode', 'note'].includes(el.dataset.k) ? el.value : num(el.value); save(); if (el.dataset.k === 'mode') render(); },
+  custConsent: el => { const c = byId('customers', el.dataset.id); c.consent = { sms: true, email: true, call: true, ...(c.consent || {}) }; c.consent[el.dataset.ch] = el.checked; (c.consentLog = c.consentLog || []).unshift({ ts: iso(new Date()), by: me(), text: `${el.dataset.ch.toUpperCase()} ${el.checked ? 'opt-in' : 'opt-out'}` }); save(); render(); },
+  custLang: el => { byId('customers', el.dataset.id).lang = el.value; save(); },
+});
+
 boot();
 })();
