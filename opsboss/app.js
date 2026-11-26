@@ -1237,7 +1237,8 @@ function projSummary(j) {
       ${canMoney() ? cell('Balance due', `<span class="${F.ar ? 'down' : ''}">${money2(F.ar)}</span>`) + cell('Projected margin', `<span class="${F.gross < 0 ? 'down' : 'up'}">${money(F.gross)} · ${pct2(F.pct)}</span>`) : ''}
     </div>
     ${bl.length ? `<div class="mt">${bl.map(b => `<div class="list-item"><span class="pill bad">⛔</span><div style="flex:1"><div class="b small">${esc(b.reason)}</div><div class="small muted">${b.owner ? 'Owner: ' + esc(b.owner) + ' · ' : ''}${b.followUp ? 'Follow up ' + fDate(parseLocal(b.followUp)) : ''}</div></div>${b.kind === 'blocker' ? `<button class="btn sm" data-act="resolveBlocker" data-id="${j.id}" data-b="${b.id}">Resolve</button>` : `<a class="btn sm" href="#/job/${b.id}">Open</a>`}</div>`).join('')}</div>` : ''}
-    <div class="row mt"><button class="btn sm" data-act="projNext" data-id="${j.id}">✎ Next action</button><button class="btn sm" data-act="addBlocker" data-id="${j.id}">⛔ Add blocker</button><button class="btn sm" data-act="addDep" data-id="${j.id}">⇢ Depends on…</button><a class="btn sm" href="#/wo/${j.id}">📱 Work order</a><button class="btn sm" data-act="projPortal" data-id="${j.id}">🌐 Customer portal</button><button class="btn sm" data-act="handoverPdf" data-id="${j.id}">⇩ Handover</button></div>
+    ${j.ai && j.ai.summary ? `<div class="mt small" style="border-left:3px solid var(--brand);padding:4px 10px"><b>✨ ${esc(j.ai.summary.r.headline)}</b><div class="muted">${esc(j.ai.summary.r.summary)}</div><div class="muted">AI summary · reviewed by ${esc(j.ai.summary.savedBy || '')} ${fDate(j.ai.summary.savedAt)} · <a href="#" data-act="aiOpen" data-id="${j.id}">open</a></div></div>` : ''}
+    <div class="row mt"><button class="btn sm" data-act="projNext" data-id="${j.id}">✎ Next action</button><button class="btn sm" data-act="addBlocker" data-id="${j.id}">⛔ Add blocker</button><button class="btn sm" data-act="addDep" data-id="${j.id}">⇢ Depends on…</button>${cloud.role !== 'sub' ? `<button class="btn sm" data-act="aiOpen" data-id="${j.id}">✨ AI</button>` : ''}<a class="btn sm" href="#/wo/${j.id}">📱 Work order</a><button class="btn sm" data-act="projPortal" data-id="${j.id}">🌐 Customer portal</button><button class="btn sm" data-act="handoverPdf" data-id="${j.id}">⇩ Handover</button></div>
   </div></div>`;
 }
 const PROJ_TABS = [['overview', 'Overview'], ['workflow', 'Workflow'], ['specs', 'Specs & financing'], ['financials', 'Financials'], ['billing', 'Billing'], ['history', 'History']];
@@ -1720,7 +1721,7 @@ ROUTES.settings = () => {
         ${cloud.ghl && cloud.ghl.webhookKey ? `<details class="mt"><summary class="b small">Webhook URLs for HighLevel workflows</summary><p class="small muted">In HighLevel, add a <b>Webhook</b> action (method POST) to a workflow and paste the URL for that event:</p>${[['lead', 'New lead → Marketing Leads · Warm Leads (trigger: Contact Created / Form Submitted)'], ['reply', 'Customer replied → task to reply (trigger: Customer Replied)'], ['call', 'Call logged → activity, task if missed (trigger: Call Status)']].map(([ev, label]) => `<label class="f mt">${label}<input class="inp" readonly onclick="this.select()" value="${esc(CFG.url + '/functions/v1/opsboss-ghl-webhook?event=' + ev + '&key=' + cloud.ghl.webhookKey)}"></label>`).join('')}<p class="small muted mt">Optional: add <code>&division=solar</code>, <code>roofing</code> or <code>hvac</code> to the lead URL so leads land in the right division.</p></details>` : ''}`
         : `<p class="small muted">${ghlOn() ? 'Messages and calls sync with HighLevel.' : 'Ask an admin to connect HighLevel.'}</p>`}
       </div></div>` : ''}
-      ${p3SettingsCards()}${p4SettingsCard()}
+      ${p3SettingsCards()}${p4SettingsCard()}${aiSettingsCard()}
       <div class="card mt"><div class="card-h"><h3>Data & backup</h3></div><div class="card-b"><p class="small muted">${cloud.on ? 'Data is stored in Supabase and shared live with your team. Export a backup from time to time.' : 'Local mode: data is stored only in this browser. Export backups often.'}</p><div class="row"><button class="btn" data-act="exportJson">⇩ Export backup (JSON)</button>${canAdmin() ? `<label class="btn">⇧ Import backup<input type="file" accept="application/json" hidden data-act-input="importJson"></label><button class="btn danger" data-act="resetDemo">Reset demo data</button><button class="btn danger" data-act="wipe">Start blank</button>` : ''}</div></div></div>
       ${cloud.on ? `<div class="card mt"><div class="card-h"><h3>Team & access</h3><span class="pill brand">Your role: ${ROLE_LABEL[cloud.role] || cloud.role}</span></div><div class="card-b" id="acl"><span class="muted small">Loading…</span></div></div>` : ''}
     </div>
@@ -3412,6 +3413,122 @@ Object.assign(ACT, {
   boardReset: () => { Object.assign(state.filters, { bp: 'month', bOwner: '', bSrc: '', bFrom: '', bTo: '' }); state.div = 'all'; render(); },
 });
 Object.assign(INPUT, { boardDiv: el => { state.div = el.value; try { localStorage.setItem('opsboss.div', state.div); } catch (e) { /* ignore */ } render(); } });
+
+
+/* ═════════════ AI ASSISTANT (Claude) — drafts only, a person approves ═════════════ */
+const AI_EXTRACT_KINDS = [['specs', 'Technical specs (proposal, design, utility bill, spec sheet)'], ['equipment', 'Equipment label / serial plate'], ['permit', 'Permit or utility approval'], ['vendor_bill', 'Vendor bill / receipt']];
+const AI_DRAFT_KINDS = [['status_update', 'Project status update'], ['payment_reminder', 'Payment reminder'], ['schedule_confirmation', 'Visit / install confirmation'], ['custom', 'Custom (write an instruction)']];
+const aiReady = () => cloud.on && !!db.settings.aiEnabled && cloud.role !== 'sub';
+async function aiCall(payload) {
+  const { data: { session } } = await cloud.sb.auth.getSession();
+  const r = await fetch(`${CFG.url}/functions/v1/opsboss-ai`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: CFG.key, Authorization: `Bearer ${session ? session.access_token : ''}` }, body: JSON.stringify(payload) });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok || out.error) throw new Error(out.message || out.error || 'AI error ' + r.status);
+  return out;
+}
+const fileB64 = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
+async function shrinkImage(f) { if (!/^image\/(jpeg|png|webp)$/.test(f.type) || f.size < 1.5e6) return f; try { const b = await stampPhoto(f, [], 2000); return new File([b], f.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }); } catch (e) { return f; } }
+
+function aiModal(j, tab = 'summary') {
+  projInit(j);
+  if (!cloud.on) { modal({ title: '✨ AI assistant', body: '<p>The AI assistant runs on the server and works in the cloud workspace (sign in). It is not available in demo mode.</p>', foot: '<button class="btn" data-dismiss>Close</button>' }); return; }
+  if (!db.settings.aiEnabled) { modal({ title: '✨ AI assistant', body: `<p>The AI assistant is off. ${canEditSettings() ? 'Turn it on in <a href="#/settings" data-dismiss>Settings → AI assistant</a> after reading what it shares.' : 'Ask an owner, admin or finance to turn it on in Settings.'}</p>`, foot: '<button class="btn" data-dismiss>Close</button>' }); return; }
+  const st = { tab, busy: false, sum: j.ai && j.ai.summary ? j.ai.summary : null, ext: null, draft: null, err: '' };
+  modal({ title: `✨ AI assistant · ${j.number}`, wide: true, body: '<div id="aiBox"></div>', foot: '<span class="small muted" style="margin-right:auto">Claude prepares drafts. Nothing is saved, sent or charged until you approve it.</span><button class="btn" data-dismiss>Close</button>', onMount(bg, close) {
+    const box = $('#aiBox', bg);
+    const tabs = () => `<div class="tabs">${[['summary', 'Summary & missing info'], ['extract', 'Read a document'], ['draft', 'Draft a message']].map(([k, v]) => `<button data-aitab="${k}" class="${st.tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>${st.err ? `<div class="auth-msg bad mb">${esc(st.err)}</div>` : ''}`;
+    const busy = t => `<div class="empty">⏳ ${t}… this can take up to a minute.</div>`;
+    const draw = () => {
+      let b = '';
+      if (st.tab === 'summary') {
+        const s = st.sum;
+        b = s ? `<div class="small muted mb">Generated ${fDate(s.at)} by ${esc(s.by || '')}${s.savedBy ? ` · saved to the project by ${esc(s.savedBy)}` : ' · not saved yet'}</div>
+          <h3 style="margin:0 0 6px">${esc(s.r.headline)}</h3><p>${esc(s.r.summary)}</p>
+          <div class="calc-out" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))"><div><div class="l">Sales</div><div class="small">${esc(s.r.sales)}</div></div><div><div class="l">Operations</div><div class="small">${esc(s.r.operations)}</div></div><div><div class="l">Finance</div><div class="small">${esc(s.r.finance)}</div></div></div>
+          ${s.r.risks.length ? `<h4 style="margin:14px 0 4px">Risks</h4>${s.r.risks.map(x => `<div class="list-item small"><span class="pill warn">!</span><div style="flex:1">${esc(x)}</div></div>`).join('')}` : ''}
+          <h4 style="margin:14px 0 4px">Suggested next actions <span class="small muted" style="font-weight:400">— tick the ones to turn into tasks</span></h4>
+          ${s.r.next_actions.map((a, i) => `<label class="list-item small" style="cursor:pointer"><input type="checkbox" data-ai-na="${i}"><div style="flex:1"><b>${esc(a.action)}</b><div class="muted">${esc(a.who)} · ${esc(a.why)}</div></div>${a.needs_approval ? '<span class="pill bad">Needs approval</span>' : ''}</label>`).join('')}
+          ${s.r.missing_info.length ? `<h4 style="margin:14px 0 4px">Missing information</h4>${s.r.missing_info.map((m, i) => `<label class="list-item small" style="cursor:pointer"><input type="checkbox" data-ai-mi="${i}"><div style="flex:1"><b>${esc(m.item)}</b><div class="muted">${esc(m.why)}</div></div></label>`).join('')}` : ''}
+          <div class="row mt" style="flex-wrap:wrap"><button class="btn primary" id="aiSave">✓ Save summary & create ticked tasks</button><button class="btn" id="aiRun">↻ Regenerate</button></div>`
+          : (st.busy ? busy('Reading the project') : `<p class="small muted">Claude reads this project (stage, tasks, blockers, permits, specs, change orders, history${canMoney() ? ', financial totals' : ''}) and writes a summary, risks, next actions and missing information. Phone numbers, emails, addresses, access notes, photos, signatures and individual pay rates are never sent.</p><button class="btn primary" id="aiRun">✨ Summarize this project</button>`);
+      }
+      if (st.tab === 'extract') {
+        const e = st.ext;
+        b = st.busy ? busy('Reading the document') : `<div class="form"><label class="f">What is it?<select class="inp" id="aiKind">${AI_EXTRACT_KINDS.map(([k, v]) => `<option value="${k}" ${(e && e.kind) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="f">PDF or photo<input class="inp" type="file" id="aiFile" accept="application/pdf,image/*"></label></div><button class="btn primary mt" id="aiRun">✨ Read document</button>
+          ${e ? `<h4 style="margin:16px 0 4px">${esc(e.r.document_type || 'Document')} — review before applying</h4>${e.r.fields.length ? e.r.fields.map((x, i) => `<div class="list-item small" style="flex-wrap:wrap"><input type="checkbox" data-ai-f="${i}" ${x.confidence === 'high' ? 'checked' : ''}><div style="width:190px"><b>${esc(x.label)}</b><div class="muted">${esc(x.key)}</div></div><input class="inp" style="flex:1;min-width:160px" data-ai-fv="${i}" value="${esc(x.value)}"><span class="pill ${x.confidence === 'high' ? 'ok' : x.confidence === 'medium' ? 'warn' : 'bad'}">${x.confidence}</span><div class="muted" style="flex-basis:100%;padding-left:24px">“${esc(x.quote)}”</div></div>`).join('') : '<div class="muted small">No matching fields found in this document.</div>'}${e.r.notes ? `<div class="auth-msg mt small">${esc(e.r.notes)}</div>` : ''}${e.r.fields.length ? '<button class="btn primary mt" id="aiApply">✓ Apply ticked values to the project</button>' : ''}` : ''}`;
+      }
+      if (st.tab === 'draft') {
+        const d = st.draft, c = cust(j.customerId);
+        b = st.busy ? busy('Writing the draft') : `<div class="form"><label class="f">Message<select class="inp" id="aiDk">${AI_DRAFT_KINDS.map(([k, v]) => `<option value="${k}" ${(d && d.kind) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label><label class="f">Language<select class="inp" id="aiLang">${[['', 'Customer’s language'], ['en', 'English'], ['es', 'Spanish'], ['pt', 'Portuguese']].map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label><label class="f full">Instruction (for “Custom”)<input class="inp" id="aiIns" placeholder="e.g. Explain that the utility asked for a new meter photo"></label></div><button class="btn primary mt" id="aiRun">✨ Write draft</button>
+          ${d ? `${d.r.needs_approval.length ? `<div class="auth-msg bad mt small"><b>Check before sending:</b> ${d.r.needs_approval.map(esc).join(' · ')}</div>` : ''}${d.r.notes_for_staff ? `<div class="small muted mt">${esc(d.r.notes_for_staff)}</div>` : ''}
+            <label class="f mt">SMS<textarea class="inp" id="aiSms" style="min-height:80px">${esc(d.r.sms)}</textarea></label>
+            <label class="f mt">Email subject<input class="inp" id="aiSub" value="${esc(d.r.subject)}"></label><label class="f mt">Email<textarea class="inp" id="aiEmail" style="min-height:160px">${esc(d.r.email)}</textarea></label>
+            <div class="row mt" style="flex-wrap:wrap">${ghlOn() && c.phone ? '<button class="btn primary" id="aiSendSms">Send SMS via HighLevel</button>' : ''}${ghlOn() && c.email ? '<button class="btn" id="aiSendEmail">Send email via HighLevel</button>' : ''}<button class="btn" id="aiTask">Save as task to send later</button><button class="btn ghost" id="aiCopy">Copy SMS</button></div>` : ''}`;
+      }
+      box.innerHTML = tabs() + b;
+    };
+    const run = async () => {
+      st.err = ''; st.busy = true; const prevTab = st.tab;
+      try {
+        if (st.tab === 'summary') { const o = await aiCall({ action: 'summarize', jobId: j.id }); st.sum = { r: o.result, at: o.generatedAt, by: me(), model: o.model }; }
+        if (st.tab === 'extract') {
+          const kind = $('#aiKind', bg).value; let f = $('#aiFile', bg).files[0]; if (!f) throw new Error('Choose a PDF or photo first');
+          f = await shrinkImage(f); if (f.size > 6.5e6) throw new Error('File too large (max ~6 MB)');
+          draw(); const o = await aiCall({ action: 'extract', jobId: j.id, kind, mediaType: f.type || 'application/pdf', data: await fileB64(f) }); st.ext = { r: o.result, kind, file: f.name };
+        }
+        if (st.tab === 'draft') { const kind = $('#aiDk', bg).value, lang = $('#aiLang', bg).value, instruction = $('#aiIns', bg).value; draw(); const o = await aiCall({ action: 'draft', jobId: j.id, kind, lang, instruction }); st.draft = { r: o.result, kind }; }
+      } catch (e) { st.err = e.message; }
+      st.busy = false; if (st.tab === prevTab) draw();
+    };
+    bg.addEventListener('click', async e => {
+      const t = e.target.closest('[data-aitab]'); if (t) { st.tab = t.dataset.aitab; st.err = ''; draw(); return; }
+      if (e.target.closest('#aiRun')) { const b = e.target.closest('#aiRun'); if (st.tab === 'summary' && !st.sum) { st.busy = true; draw(); } b.disabled = true; await run(); return; }
+      if (e.target.closest('#aiSave')) {
+        const s = st.sum; let n = 0;
+        $$('[data-ai-na]:checked', bg).forEach(c => { const a = s.r.next_actions[+c.dataset.aiNa]; db.tasks.unshift({ id: uid(), title: `${a.needs_approval ? '[Approval] ' : ''}${a.action}`, notes: `${a.who} · ${a.why} (suggested by AI, approved by ${me()})`, due: ymd(new Date()), assignee: '', done: false, customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'AI assistant', createdAt: iso(new Date()) }); n++; });
+        $$('[data-ai-mi]:checked', bg).forEach(c => { const m = s.r.missing_info[+c.dataset.aiMi]; db.tasks.unshift({ id: uid(), title: `Get missing info for ${j.number}: ${m.item}`, notes: `${m.why} (flagged by AI, approved by ${me()})`, due: ymd(addDays(new Date(), 2)), assignee: '', done: false, customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'AI assistant', createdAt: iso(new Date()) }); n++; });
+        j.ai = { ...(j.ai || {}), summary: { ...s, r: { ...s.r, finance: '' }, savedBy: me(), savedAt: iso(new Date()) } }; // finance text stays out of the shared project record
+        hist(j, `AI summary reviewed and saved by ${me()}${n ? ` · ${n} task${n > 1 ? 's' : ''} created` : ''}`);
+        save(); toast(`Saved${n ? ` · ${n} task${n > 1 ? 's' : ''} created` : ''}`); st.sum = j.ai.summary; draw(); render(); return;
+      }
+      if (e.target.closest('#aiApply')) {
+        const ex = st.ext, picked = $$('[data-ai-f]:checked', bg).map(c => ({ ...ex.r.fields[+c.dataset.aiF], value: $(`[data-ai-fv="${c.dataset.aiF}"]`, bg).value.trim() })).filter(x => x.value);
+        if (!picked.length) { toast('Tick at least one value'); return; }
+        const specs = picked.filter(x => !x.key.includes('.')), eq = Object.fromEntries(picked.filter(x => x.key.startsWith('equip.')).map(x => [x.key.slice(6), x.value])), pm = Object.fromEntries(picked.filter(x => x.key.startsWith('permit.')).map(x => [x.key.slice(7), x.value])), bl = Object.fromEntries(picked.filter(x => x.key.startsWith('bill.')).map(x => [x.key.slice(5), x.value]));
+        specs.forEach(x => { j.specs[x.key] = x.value; });
+        if (Object.keys(eq).length) (j.installedEquip = j.installedEquip || []).push({ id: uid(), type: eq.type || 'Equipment', brand: eq.brand || '', model: eq.model || '', serial: eq.serial || '', by: me(), ts: iso(new Date()), source: 'AI from ' + ex.file });
+        if (Object.keys(pm).length) { const stMap = s => /approv|issued|granted/i.test(s) ? 'approved' : /pass/i.test(s) ? 'passed' : /reject|correction|denied/i.test(s) ? 'rejected' : /submit|pending|review/i.test(s) ? 'submitted' : 'todo'; db.permits.unshift({ id: uid(), jobId: j.id, type: PERMIT_TYPES.find(t => (pm.type || '').toLowerCase().includes(t.split(' ')[0].toLowerCase())) || pm.type || 'Building', jurisdiction: pm.jurisdiction || '', number: pm.number || '', status: stMap(pm.status || ''), submitted: /^\d{4}-\d{2}-\d{2}$/.test(pm.date || '') ? pm.date : '', notes: 'Read by AI from ' + ex.file + ', approved by ' + me(), updated: ymd(new Date()) }); }
+        if (Object.keys(bl).length && canMoney()) { const cat = COST_CATS.find(c => c.toLowerCase() === String(bl.category || '').toLowerCase()) || 'Materials'; (db.bills = db.bills || []).unshift({ id: uid(), vendor: bl.vendor || 'Unknown vendor', number: bl.number || '', date: /^\d{4}-\d{2}-\d{2}$/.test(bl.date || '') ? bl.date : ymd(new Date()), attachment: '', lines: [{ id: uid(), projectId: j.id, category: cat, amount: num(String(bl.total || '').replace(/[$,]/g, '')), poId: '' }], createdBy: me(), createdAt: iso(new Date()), source: 'AI from ' + ex.file }); }
+        hist(j, `AI document “${ex.file}”: ${picked.length} value${picked.length > 1 ? 's' : ''} reviewed and applied by ${me()} (${picked.map(x => x.label).join(', ')})`);
+        runLog('ai.apply', `${j.number}: ${picked.length} AI-extracted values applied by ${me()}`, { system: 'Claude' });
+        save(); toast(`${picked.length} value${picked.length > 1 ? 's' : ''} applied`); close(); render(); return;
+      }
+      if (e.target.closest('#aiCopy')) { try { await navigator.clipboard.writeText($('#aiSms', bg).value); toast('Copied'); } catch (er) { toast('Copy failed'); } return; }
+      if (e.target.closest('#aiTask')) { const c = cust(j.customerId); db.tasks.unshift({ id: uid(), type: 'message', channel: 'sms', body: $('#aiSms', bg).value, title: `Send SMS to ${c.name} (AI draft, review first)`, due: ymd(new Date()), assignee: '', done: false, customerId: c.id, link: { kind: 'job', id: j.id }, wf: 'AI assistant', createdAt: iso(new Date()) }); hist(j, 'AI message draft saved as a task'); save(); toast('Saved to Tasks'); return; }
+      const sms = e.target.closest('#aiSendSms'), em = e.target.closest('#aiSendEmail');
+      if (sms || em) {
+        const c = cust(j.customerId), btn = sms || em, text = sms ? $('#aiSms', bg).value.trim() : $('#aiEmail', bg).value.trim();
+        if (/\[[^\]]*confirm[^\]]*\]/i.test(text)) { toast('Replace the [confirm …] placeholders before sending'); return; }
+        btn.disabled = true;
+        try { await ghlSend(c, sms ? 'SMS' : 'Email', text, $('#aiSub', bg).value || db.settings.company); hist(j, `${sms ? 'SMS' : 'Email'} sent to ${c.name} (AI draft, reviewed and sent by ${me()})`); save(); toast('Sent ✓'); } catch (er) { toast(er.message); btn.disabled = false; }
+      }
+    });
+    draw();
+  } });
+}
+function aiSettingsCard() {
+  const s = db.settings, dis = canEditSettings() ? '' : 'disabled';
+  return `<div class="card mt"><div class="card-h"><h3>✨ AI assistant (Claude)</h3><span class="pill ${s.aiEnabled ? 'ok' : ''}">${s.aiEnabled ? 'On' : 'Off'}</span></div><div class="card-b">
+    <label class="check"><input type="checkbox" data-act-input="aiToggle" ${s.aiEnabled ? 'checked' : ''} ${dis}><span><b>Turn on the AI assistant</b> (project summaries, reading documents, message drafts)</span></label>
+    <p class="small mt"><b>What is sent to Anthropic (Claude):</b> project number and title, service, stage and tasks, blockers, permits status, technical specs, scope item names, change orders, recent project history, the customer’s first name and city${'' } and — only for owner, admin, finance, operations and purchasing — the project’s financial totals. Documents you upload to “Read a document” are sent too.</p>
+    <p class="small"><b>Never sent:</b> phone numbers, emails, street addresses, access/gate notes, photos, signatures, payment details, individual pay rates or commissions.</p>
+    <p class="small"><b>Human approval:</b> the AI only proposes. Summaries are saved, tasks created, values applied and messages sent only when a person clicks to approve — and price, scope, payment or date commitments are flagged for approval. Every AI request is listed in the Automation log; limit 40 per person per hour.</p>
+    <p class="small muted">Setup (once): add the <code>ANTHROPIC_API_KEY</code> secret in Supabase → Edge Functions → Secrets. Model: Claude Opus 5.5.</p>
+  </div></div>`;
+}
+
+Object.assign(ACT, { aiOpen: el => aiModal(projInit(byId('jobs', el.dataset.id)), el.dataset.tab || 'summary') });
+Object.assign(INPUT, { aiToggle: el => { db.settings.aiEnabled = el.checked; runLog('settings', `AI assistant ${el.checked ? 'turned ON' : 'turned off'} by ${me()}`); save(); render(); toast(el.checked ? 'AI assistant on' : 'AI assistant off'); } });
 
 boot();
 })();
