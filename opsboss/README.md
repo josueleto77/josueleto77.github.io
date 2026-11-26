@@ -80,3 +80,14 @@ Las reglas viven en la base de datos (`supabase/roles.sql`), no solo en la panta
 - **Settings**: solo owner/admin/finance los cambian.
 - **Auditoría** (menú Audit log y pestaña History del proyecto): el servidor registra quién cambió etapas, estados, costos, cobros, aprobaciones, tarifas y comisiones.
 - Prueba: `node opsboss/tests/roles.js`.
+
+## Asistente de IA (Claude) — con aprobación humana
+
+En cada proyecto, botón **✨ AI**: resumen del expediente con riesgos, próximas acciones y datos faltantes; lectura de documentos (PDF o foto) para llenar especificaciones, equipo, permisos o facturas de proveedor; y borradores de mensajes al cliente. La IA solo propone: nada se guarda, aplica o envía sin que una persona lo apruebe.
+
+Activar (una vez):
+1. Crea una clave en https://console.anthropic.com → API keys.
+2. Supabase → Edge Functions → Secrets → agrega `ANTHROPIC_API_KEY`.
+3. OpsBoss → Settings → **AI assistant** → actívalo (owner/admin/finance).
+
+No se envían teléfonos, correos, direcciones, notas de acceso, fotos, firmas ni tarifas/comisiones individuales. Cada uso queda en el Automation log (máx. 40 por persona por hora). Prueba: `node opsboss/tests/ai.js`.
