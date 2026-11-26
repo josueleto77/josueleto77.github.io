@@ -69,3 +69,14 @@ Sirve la raíz del repo (`python3 -m http.server 8765`) y ejecuta:
 - **Service & warranties**: tickets ligados al proyecto y al equipo, visita en el calendario, tiempo y repuestos, costo de garantía cargado al proyecto original o factura al cliente.
 - **Portal del proyecto**: en el proyecto, botón “Customer portal” → link para el cliente con avance, visitas, documentos, facturas/pagos, garantías y solicitudes de servicio (sin costos ni notas internas).
 - Prueba: `node opsboss/tests/phase4.js`.
+
+## Permisos por rol (servidor)
+
+Las reglas viven en la base de datos (`supabase/roles.sql`), no solo en la pantalla:
+- **Contabilidad (QuickBooks), tarifas por técnico y comisiones**: solo owner, admin y finance.
+- **Compras, facturas de proveedor y excepciones**: owner, admin, finance, operaciones y compras.
+- **Subcontratista**: solo ve sus trabajos asignados (y su cliente, tareas, permisos, garantías y fotos). Para vincularlo, pon su correo de acceso en Team → técnico → “Login email”.
+- **Aprobaciones**: solo owner/admin/finance pueden aprobar órdenes de cambio y de compra o cambiar el presupuesto bloqueado; los demás quedan en “pending”.
+- **Settings**: solo owner/admin/finance los cambian.
+- **Auditoría** (menú Audit log y pestaña History del proyecto): el servidor registra quién cambió etapas, estados, costos, cobros, aprobaciones, tarifas y comisiones.
+- Prueba: `node opsboss/tests/roles.js`.
