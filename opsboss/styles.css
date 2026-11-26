@@ -267,3 +267,13 @@ nav{min-height:0}
 .bell{position:relative;text-decoration:none;display:inline-grid;place-items:center}
 .bell-n{position:absolute;top:-4px;right:-6px;background:var(--bad);color:#fff;font-size:10.5px;font-weight:700;border-radius:99px;padding:1px 5px;line-height:1.4}
 .bell-n[hidden]{display:none}
+.linkbtn{background:none;border:0;padding:0;margin:0;color:var(--brand);cursor:pointer;font:inherit;text-align:left;text-decoration:underline;text-underline-offset:2px}
+.kpi.click:hover{border-color:var(--brand)}
+/* mobile: nothing wider than the screen */
+.tabs{overflow-x:auto;scrollbar-width:none;max-width:100%}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{flex:none}
+.grid>*{min-width:0}
+.card-h{flex-wrap:wrap;gap:6px}
+.list-item{min-width:0}
+.list-item>div{min-width:0;overflow-wrap:anywhere}

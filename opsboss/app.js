@@ -432,7 +432,7 @@ const confirmDlg = (msg, yes) => { return modal({ title: 'Confirm', body: `<p>${
 
 /* ───────────── Navegación ───────────── */
 const NAV = [
-  ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['alerts', '🔔', 'Alerts'], ['dashboard', '◧', 'Dashboard'], ['tasks', '☑', 'Tasks'], ['field', '📱', 'Field work orders'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
+  ['sec', 'Operations'], ['mywork', '★', 'My Work'], ['alerts', '🔔', 'Alerts'], ['dashboard', '◧', 'Dashboard'], ['boards', '▥', 'Team dashboards'], ['tasks', '☑', 'Tasks'], ['field', '📱', 'Field work orders'], ['schedule', '▦', 'Schedule & Dispatch'], ['pipeline', '⇶', 'Pipelines'], ['customers', '☺', 'Customers'],
   ['sec', 'Sales & Jobs'], ['estimates', '✎', 'Estimates'], ['jobs', '⚒', 'Projects'], ['invoices', '$', 'Invoices & Payments'], ['plans', '↻', 'Memberships'], ['service', '🛠', 'Service & warranties'],
   ['sec', 'Projects'], ['permits', '⚑', 'Permits & Inspections'], ['tools', '∑', 'Calculators'],
   ['sec', 'Business'], ['finance', '◔', 'Finance'], ['accounting', '⚖', 'Accounting (QuickBooks)'], ['exceptions', '⚠', 'Exceptions'], ['purchasing', '⛟', 'Purchasing & Bills'], ['commissions', '%', 'Commissions'], ['workflows', '⚡', 'Workflows'], ['runs', '⟳', 'Automation log'], ['reports', '▤', 'Reports'], ['pricebook', '☰', 'Price Book'], ['team', '◎', 'Team'], ['settings', '⚙', 'Settings'],
@@ -1281,12 +1281,12 @@ ROUTES.purchasing = () => {
   const unassigned = bills.flatMap(b => (b.lines || []).filter(l => !l.projectId).map(l => ({ ...l, bill: b })));
   return head('Purchasing & Vendor Bills', 'Commitments (POs / subcontracts) and vendor bills split across projects', `<button class="btn" data-act="newPO">＋ PO</button><button class="btn primary" data-act="newBill">＋ Vendor bill</button>`) +
   `<div class="tabs">${[['pos', `Purchase orders (${pos.length})`], ['bills', `Vendor bills (${bills.length})`], ['unassigned', `Costs without project (${unassigned.length})`]].map(([k, v]) => `<button data-act="tab" data-t="purch" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>` +
-  (tab === 'pos' ? `<div class="card"><div class="table-wrap"><table><thead><tr><th>#</th><th>Vendor</th><th>Project</th><th>Category</th><th class="right">Amount</th><th class="right">Billed</th><th class="right">Open</th><th>Status</th><th></th></tr></thead><tbody>${pos.map(p => { const j = db.jobs.find(x => x.id === p.projectId); return `<tr><td class="b">${esc(p.number)}</td><td>${esc(p.vendor)}<div class="small muted">${esc(p.desc || '')}</div></td><td>${j ? `<a href="#/job/${j.id}">${j.number}</a>` : '—'}</td><td>${esc(p.category)}</td><td class="right">${money2(p.amount)}</td><td class="right">${money2(poBilled(p))}</td><td class="right b">${money2(Math.max(0, num(p.amount) - poBilled(p)))}</td><td><span class="pill ${p.status === 'approved' ? 'ok' : p.status === 'pending' ? 'warn' : ''}">${p.status}</span>${p.approvedBy ? `<div class="small muted">${esc(p.approvedBy)}</div>` : ''}</td><td class="right">${p.status === 'pending' && canApprove() ? `<button class="btn sm ok" data-act="poSet" data-id="${p.id}" data-s="approved">Approve</button>` : ''}${p.status !== 'cancelled' ? `<button class="btn sm ghost" data-act="poSet" data-id="${p.id}" data-s="cancelled">Cancel</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="9" class="empty">No purchase orders.</td></tr>'}</tbody></table></div></div>`
+  (tab === 'pos' ? `<div class="card"><div class="table-wrap"><table><thead><tr><th>#</th><th>Vendor</th><th>Project</th><th>Category</th><th class="right">Amount</th><th class="right">Billed</th><th class="right">Open</th><th>Status</th><th></th></tr></thead><tbody>${pos.map(p => { const j = db.jobs.find(x => x.id === p.projectId); return `<tr><td class="b">${esc(p.number)}</td><td>${esc(p.vendor)}<div class="small muted">${esc(p.desc || '')}</div><div class="small">${p.receivedAt ? `<span class="up">✓ Received ${fDate(p.receivedAt)}</span>` : p.expected ? `<span class="${p.expected < ymd(new Date()) && p.status === 'approved' ? 'down b' : 'muted'}">Expected ${fDate(parseLocal(p.expected))}</span>` : ''}${!p.receivedAt && p.status === 'approved' ? ` <button class="btn sm ghost" data-act="poRecv" data-id="${p.id}">Mark received</button>` : ''}</div></td><td>${j ? `<a href="#/job/${j.id}">${j.number}</a>` : '—'}</td><td>${esc(p.category)}</td><td class="right">${money2(p.amount)}</td><td class="right">${money2(poBilled(p))}</td><td class="right b">${money2(Math.max(0, num(p.amount) - poBilled(p)))}</td><td><span class="pill ${p.status === 'approved' ? 'ok' : p.status === 'pending' ? 'warn' : ''}">${p.status}</span>${p.approvedBy ? `<div class="small muted">${esc(p.approvedBy)}</div>` : ''}</td><td class="right">${p.status === 'pending' && canApprove() ? `<button class="btn sm ok" data-act="poSet" data-id="${p.id}" data-s="approved">Approve</button>` : ''}${p.status !== 'cancelled' ? `<button class="btn sm ghost" data-act="poSet" data-id="${p.id}" data-s="cancelled">Cancel</button>` : ''}</td></tr>`; }).join('') || '<tr><td colspan="9" class="empty">No purchase orders.</td></tr>'}</tbody></table></div></div>`
   : tab === 'bills' ? `<div class="card"><div class="table-wrap"><table><thead><tr><th>Vendor</th><th>Bill #</th><th>Date</th><th>Split</th><th class="right">Total</th><th>Paid</th><th></th></tr></thead><tbody>${bills.map(b => `<tr><td class="b">${esc(b.vendor)}</td><td>${esc(b.number || '')}${b.attachment ? `<div class="small"><a href="${esc(b.attachment)}" target="_blank" rel="noopener">receipt ↗</a></div>` : ''}</td><td>${fDate(parseLocal(b.date))}</td><td class="small">${(b.lines || []).map(l => { const j = db.jobs.find(x => x.id === l.projectId); return `${j ? j.number : '<span class="down">No project</span>'} · ${esc(l.category)} · ${money2(l.amount)}`; }).join('<br>')}</td><td class="right b">${money2(sumBy(b.lines, l => l.amount))}</td><td>${b.paidAt ? `<span class="pill ok">Paid ${fDate(b.paidAt)}</span>` : `<button class="btn sm" data-act="billPaid" data-id="${b.id}">Mark paid</button>`}</td><td><button class="btn ghost sm danger" data-act="delBill" data-id="${b.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="7" class="empty">No vendor bills.</td></tr>'}</tbody></table></div></div>`
   : `<div class="card"><div class="card-b">${unassigned.map(l => `<div class="list-item"><span class="pill warn">Exception</span><div style="flex:1">${esc(l.bill.vendor)} ${esc(l.bill.number || '')} · ${esc(l.category)}</div><b>${money2(l.amount)}</b><button class="btn sm" data-act="editBill" data-id="${l.bill.id}">Assign</button></div>`).join('') || '<div class="empty">Every cost is assigned to a project ✓</div>'}</div></div>`);
 };
 function poModal(projectId) {
-  form({ title: 'New purchase order / subcontract', fields: [{ k: 'projectId', label: 'Project', type: 'select', options: projOptions(), value: projectId, full: true }, { k: 'vendor', label: 'Vendor / subcontractor', required: true }, { k: 'category', label: 'Category', type: 'select', options: COST_CATS, value: 'Materials' }, { k: 'amount', label: 'Amount ($)', type: 'number', step: '0.01', required: true }, { k: 'desc', label: 'Description', full: true }],
+  form({ title: 'New purchase order / subcontract', fields: [{ k: 'projectId', label: 'Project', type: 'select', options: projOptions(), value: projectId, full: true }, { k: 'vendor', label: 'Vendor / subcontractor', required: true }, { k: 'category', label: 'Category', type: 'select', options: COST_CATS, value: 'Materials' }, { k: 'amount', label: 'Amount ($)', type: 'number', step: '0.01', required: true }, { k: 'expected', label: 'Expected delivery / start', type: 'date' }, { k: 'desc', label: 'Description', full: true }],
     saveLabel: canApprove() ? 'Create & approve' : 'Submit for approval',
     onSave(v) {
       const j = db.jobs.find(x => x.id === v.projectId); if (!j) { toast('Pick a project'); return false; }
@@ -2049,6 +2049,7 @@ const ACT = {
   addCO: el => { const j = projInit(byId('jobs', el.dataset.id)); form({ title: 'New change order', fields: [{ k: 'desc', label: 'Description', full: true, required: true }, { k: 'price', label: 'Price to customer ($)', type: 'number', step: '0.01' }, { k: 'cost', label: 'Estimated cost ($)', type: 'number', step: '0.01' }, { k: 'evidence', label: 'Evidence (photo link, note)', full: true }], onSave(v) { const co = { id: uid(), number: `CO-${j.fin.changeOrders.length + 1}`, ...v, price: num(v.price), cost: num(v.cost), status: 'pending', createdBy: me(), createdAt: iso(new Date()) }; j.fin.changeOrders.push(co); hist(j, `${co.number} requested: ${co.desc} — ${money2(co.price)} price / ${money2(co.cost)} cost`); if (!canApprove()) db.tasks.unshift({ id: uid(), title: `Approve ${co.number} on ${j.number}: ${co.desc} (${money2(co.price)})`, due: ymd(new Date()), done: false, assignee: '', customerId: j.customerId, link: { kind: 'job', id: j.id }, wf: 'Approvals', createdAt: iso(new Date()) }); } }); },
   coSet: el => { const j = byId('jobs', el.dataset.id), co = j.fin.changeOrders.find(x => x.id === el.dataset.c); co.status = el.dataset.s; co.approvedBy = me(); co.decidedAt = iso(new Date()); hist(j, `${co.number} ${co.status} by ${me()}`); save(); render(); },
   newPO: el => poModal(el.dataset.job),
+  poRecv: el => { const po = (db.pos || []).find(x => x.id === el.dataset.id); po.receivedAt = iso(new Date()); po.receivedBy = me(); const j = db.jobs.find(x => x.id === po.projectId); if (j) { projInit(j); hist(j, `${po.number} received (${po.vendor})`); } save(); render(); },
   poSet: el => { const po = (db.pos || []).find(x => x.id === el.dataset.id); po.status = el.dataset.s; if (po.status === 'approved') { po.approvedBy = me(); po.approvedAt = iso(new Date()); } const j = db.jobs.find(x => x.id === po.projectId); if (j) { projInit(j); hist(j, `${po.number} ${po.status} by ${me()}`); } save(); render(); },
   newBill: () => billModal(null),
   editBill: el => billModal((db.bills || []).find(b => b.id === el.dataset.id)),
@@ -3153,6 +3154,198 @@ ACT.jobStatus = el => {
     const ho = handoverStatus(j).filter(i => !i.ok); if (ho.length && !j.ticketId) toast(`Handover: ${ho.length} item${ho.length > 1 ? 's' : ''} pending — tasks created`);
   }
 };
+
+
+/* ═════════════ TEAM DASHBOARDS ═════════════ */
+const BOARD_TABS = [['direction', 'Direction'], ['sales', 'Sales'], ['ops', 'Operations'], ['finance', 'Finance'], ['service', 'Service']];
+const PERIODS = [['month', 'This month'], ['lastmonth', 'Last month'], ['quarter', 'This quarter'], ['ytd', 'Year to date'], ['12m', 'Last 12 months'], ['custom', 'Custom…']];
+function periodRange() {
+  const f = state.filters, now = new Date(), y = now.getFullYear(), m = now.getMonth();
+  const k = f.bp || 'month';
+  if (k === 'lastmonth') return [new Date(y, m - 1, 1), new Date(y, m, 1)];
+  if (k === 'quarter') return [new Date(y, Math.floor(m / 3) * 3, 1), addDays(sod(now), 1)];
+  if (k === 'ytd') return [new Date(y, 0, 1), addDays(sod(now), 1)];
+  if (k === '12m') return [new Date(y - 1, m, now.getDate()), addDays(sod(now), 1)];
+  if (k === 'custom' && f.bFrom && f.bTo) return [parseLocal(f.bFrom), addDays(parseLocal(f.bTo), 1)];
+  return [new Date(y, m, 1), addDays(sod(now), 1)];
+}
+const signDate = j => { const e = j.estimateId && db.estimates.find(x => x.id === j.estimateId); return (e && e.approvedAt) || (j.fin && j.fin.budget && j.fin.budget.lockedAt) || j.createdAt; };
+const leadOwner = l => (tech(l.owner) || {}).name || l.owner || '';
+function projSource(j) { const l = db.leads.find(x => x.customerId === j.customerId && x.stage === 'won' && (!x.division || x.division === j.division)) || db.leads.find(x => x.customerId === j.customerId); return srcEN((l && l.source) || cust(j.customerId).source || '') || 'Unknown'; }
+let DR = {};
+const drillRow = (t, s, v, href) => ({ t, s, v, href });
+function tile(label, value, sub, key, rows, tone = '') { if (key) DR[key] = { title: label, rows: rows || [] }; return `<div class="card kpi ${key ? 'click' : ''}" ${key ? `data-act="drill" data-k="${key}" style="cursor:pointer" title="Open the records behind this number"` : ''}><div class="l">${label}</div><div class="v ${tone}">${value}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`; }
+const drillLink = (key, title, rows, label) => { DR[key] = { title, rows }; return `<button type="button" class="linkbtn" data-act="drill" data-k="${key}">${label}</button>`; };
+const bar = (v, max, color = 'var(--brand)') => `<div class="progress" style="height:8px;min-width:80px;flex:1"><div style="width:${max ? Math.min(100, v / max * 100) : 0}%;background:${color}"></div></div>`;
+function boardData() {
+  const [from, to] = periodRange(), inP = d => d && new Date(d) >= from && new Date(d) < to;
+  const f = state.filters, own = f.bOwner || '', src = f.bSrc || '';
+  const jobs = db.jobs.filter(divOK).filter(j => j.status !== 'cancelled').filter(j => (!own || ownerName(j) === own) && (!src || projSource(j) === src));
+  const leads = db.leads.filter(divOK).filter(l => (!own || leadOwner(l) === own) && (!src || srcEN(l.source || cust(l.customerId).source) === src));
+  const P = jobs.map(j => ({ j, F: finOf(j), sd: signDate(j) }));
+  return { from, to, inP, jobs, leads, P, own, src };
+}
+const pRow = ({ j, F }) => drillRow(`${j.number} · ${j.title}`, `${cust(j.customerId).name} · ${DIV[j.division] ? DIV[j.division].name : ''} · ${ownerName(j) || 'no owner'}`, canMoney() ? money(F.revenue) + ' · ' + pct2(F.pct) : '', '#/job/' + j.id);
+const iRow = i => drillRow(`${i.number} · ${cust(i.customerId).name}`, `due ${fDate(parseLocal(i.due))}${i.disputed ? ' · disputed' : ''}`, money2(invBal(i)), '#/invoice/' + i.id);
+
+function boardDirection(D) {
+  const signed = D.P.filter(x => D.inP(x.sd)), rev = sumBy(signed, x => x.F.revenue), gross = sumBy(signed, x => x.F.gross);
+  const pays = allPayments().filter(p => D.inP(p.date) && (state.div === 'all' || p.division === state.div)), cin = sumBy(pays, p => p.amount);
+  const losses = D.P.filter(x => x.F.gross < -0.009);
+  // Caja proyectada 8 semanas: cobros esperados (saldo por vencimiento) − pagos esperados (A/P por vencimiento)
+  const wk0 = weekStart(new Date()), weeks = [...Array(8)].map((_, i) => ({ s: addDays(wk0, i * 7), in: 0, out: 0, inR: [], outR: [] }));
+  const wIdx = d => { const i = Math.floor((sod(d) - wk0) / (7 * DAY)); return i < 0 ? 0 : i; };
+  db.invoices.filter(i => !['void', 'draft'].includes(i.status) && invBal(i) > 0.009 && !i.disputed && (state.div === 'all' || i.division === state.div)).forEach(i => { const w = weeks[wIdx(parseLocal(i.due))]; if (w) { w.in += invBal(i); w.inR.push(iRow(i)); } });
+  apRows().forEach(r => { const w = weeks[wIdx(parseLocal(r.due))]; if (w) { w.out += r.bal; w.outR.push(drillRow(`${r.vendor} ${r.num || ''}`, `due ${fDate(parseLocal(r.due))} · ${r.projects || ''}`, money2(r.bal), r.href)); } });
+  let cum = 0; weeks.forEach(w => { cum += w.in - w.out; w.cum = cum; });
+  const proj8 = sumBy(weeks, w => w.in - w.out);
+  // Dinero detenido
+  const heldBill = D.P.filter(x => (x.j.status === 'completed' || x.j.ops.closed) && x.F.unbilled > 0.009);
+  const heldPermit = D.P.filter(x => x.j.status !== 'completed' && x.F.unbilled > 0.009 && db.permits.some(p => p.jobId === x.j.id && ['todo', 'submitted', 'rejected'].includes(p.status)));
+  const heldFin = D.P.filter(x => ['loan', 'lease', 'ppa'].includes((x.j.financing || {}).mode) && x.F.ar > 0.009);
+  const overdue = db.invoices.filter(i => invStatus(i) === 'overdue' && (state.div === 'all' || i.division === state.div));
+  const held = [['Billing — completed, not invoiced', sumBy(heldBill, x => x.F.unbilled), heldBill.map(pRow), 'held1'], ['Billing — overdue invoices', sumBy(overdue, invBal), overdue.map(iRow), 'held2'], ['Permits & utility approvals pending', sumBy(heldPermit, x => x.F.unbilled), heldPermit.map(pRow), 'held3'], ['Financiers (loan / lease / PPA balance)', sumBy(heldFin, x => x.F.ar), heldFin.map(pRow), 'held4']];
+  const bySvc = {}; signed.forEach(x => { const k = x.j.division; (bySvc[k] = bySvc[k] || []).push(x); });
+  return `<div class="grid g3 mb">
+    ${tile('Signed sales', kmoney(rev), `${signed.length} project${signed.length === 1 ? '' : 's'} · by signing date`, 'd-signed', signed.map(pRow))}
+    ${canMoney() ? tile('Projected gross on signed', kmoney(gross), pct2(rev ? gross / rev : 0), 'd-gross', signed.map(pRow), gross < 0 ? 'down' : '') : ''}
+    ${canMoney() ? tile('Cash collected', kmoney(cin), 'by settlement date', 'd-cash', pays.map(p => drillRow(`${p.inv.number} · ${cust(p.inv.customerId).name}`, `${fDate(p.date)} · ${p.method || ''}`, money2(p.amount), '#/invoice/' + p.inv.id))) : ''}
+    ${canMoney() ? tile('Projected cash · next 8 weeks', kmoney(proj8), 'expected collections − payables', 'd-proj', [...weeks.flatMap(w => w.inR), ...weeks.flatMap(w => w.outR).map(r => ({ ...r, v: '−' + r.v }))], proj8 < 0 ? 'down' : '') : ''}
+    ${canMoney() ? tile('Projects losing money', losses.length, kmoney(sumBy(losses, x => x.F.gross)), 'd-loss', losses.map(pRow), losses.length ? 'down' : '') : ''}
+    ${canMoney() ? tile('Money held up', kmoney(sumBy(held, h => h.v || h[1])), 'billing · permits · financiers', 'd-held', held.flatMap(h => h[2])) : ''}
+  </div>
+  ${canMoney() ? `<div class="grid g2 mb">
+    <div class="card"><div class="card-h"><h3>Gross profit by service</h3><span class="small muted">projects signed in the period</span></div><div class="table-wrap"><table><thead><tr><th>Service</th><th class="right">Projects</th><th class="right">Contract value</th><th class="right">Projected gross</th><th class="right">Margin</th></tr></thead><tbody>${Object.entries(bySvc).map(([k, l]) => { const r = sumBy(l, x => x.F.revenue), g = sumBy(l, x => x.F.gross); return `<tr><td class="b">${drillLink('svc-' + k, `Signed · ${DIV[k] ? DIV[k].name : k}`, l.map(pRow), DIV[k] ? DIV[k].name : k)}</td><td class="right">${l.length}</td><td class="right">${money(r)}</td><td class="right b ${g < 0 ? 'down' : 'up'}">${money(g)}</td><td class="right">${pct2(r ? g / r : 0)}</td></tr>`; }).join('') || '<tr><td colspan="5" class="empty">No signed projects in this period.</td></tr>'}</tbody></table></div></div>
+    <div class="card"><div class="card-h"><h3>Money held up</h3></div><div class="card-b">${held.map(([l, v, rows, k]) => `<div class="list-item"><div style="flex:1">${drillLink(k, l, rows, esc(l))}<div class="small muted">${rows.length} record${rows.length === 1 ? '' : 's'}</div></div><b>${money(v)}</b></div>`).join('')}</div></div>
+  </div>
+  <div class="card"><div class="card-h"><h3>Projected cash by week</h3><span class="small muted">invoice balances by due date (overdue in the first week) − vendor bills by due date · disputed invoices excluded</span></div><div class="table-wrap"><table><thead><tr><th>Week of</th><th class="right">Expected in</th><th class="right">Expected out</th><th class="right">Net</th><th class="right">Cumulative</th></tr></thead><tbody>${weeks.map((w, i) => `<tr><td>${fDate(w.s)}${i === 0 ? ' <span class="small muted">(+ overdue)</span>' : ''}</td><td class="right">${w.inR.length ? drillLink('wi' + i, 'Expected in · week of ' + fDate(w.s), w.inR, money(w.in)) : money(0)}</td><td class="right">${w.outR.length ? drillLink('wo' + i, 'Expected out · week of ' + fDate(w.s), w.outR, money(w.out)) : money(0)}</td><td class="right b ${w.in - w.out < 0 ? 'down' : ''}">${money(w.in - w.out)}</td><td class="right ${w.cum < 0 ? 'down' : ''}">${money(w.cum)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
+}
+function boardSales(D) {
+  const L = D.leads, now = Date.now();
+  const uncont = L.filter(l => ['new', 'warm'].includes(l.stage)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  const lRow = l => drillRow(`${cust(l.customerId).name} · ${l.title}`, `${stageName(l.stage)} · ${srcEN(l.source)} · ${leadOwner(l) || 'no owner'} · ${ago(l.createdAt)}${/^\d/.test(ago(l.createdAt)) ? ' ago' : ''}`, money(l.value), '#/pipeline');
+  const appts = (db.appts || []).filter(a => D.inP(a.start) && a.status !== 'cancelled').filter(a => { const l = db.leads.find(x => x.id === a.leadId); return !l || L.includes(l); });
+  const visitLeads = L.filter(l => l.stage === 'visit' || l.stage === 'mappt');
+  const ests = db.estimates.filter(divOK).filter(e => !D.own || (db.leads.find(l => l.customerId === e.customerId && leadOwner(l) === D.own))).filter(e => !D.src || srcEN(cust(e.customerId).source) === D.src);
+  const stale = ests.filter(e => e.status === 'sent' && now - new Date(e.sentAt || e.createdAt) > 3 * DAY && !(db.tasks || []).some(t => !t.done && t.link && t.link.kind === 'estimate' && t.link.id === e.id));
+  const decided = ests.filter(e => (e.status === 'approved' && D.inP(e.approvedAt || e.sentAt || e.createdAt)) || (e.status === 'declined' && D.inP(e.declinedAt || e.sentAt || e.createdAt)));
+  const won = decided.filter(e => e.status === 'approved'), rate = decided.length ? won.length / decided.length : 0;
+  const eRow = e => drillRow(`${e.number} · ${cust(e.customerId).name}`, `${EST_ST[e.status] ? EST_ST[e.status][0] : e.status} · sent ${fDate(e.sentAt || e.createdAt)}`, money(e.status === 'approved' ? estTotal(e) : estMax(e)), '#/estimate/' + e.id);
+  const openVal = sumBy(L.filter(l => !CLOSED.includes(l.stage)), l => l.value);
+  const signed = D.P.filter(x => D.inP(x.sd));
+  const bySrc = {}; L.filter(l => D.inP(l.createdAt)).forEach(l => { const k = srcEN(l.source || cust(l.customerId).source) || 'Unknown'; (bySrc[k] = bySrc[k] || { leads: [], P: [] }).leads.push(l); });
+  signed.forEach(x => { const k = projSource(x.j); (bySrc[k] = bySrc[k] || { leads: [], P: [] }).P.push(x); });
+  const byRep = {}; signed.forEach(x => { const k = ownerName(x.j) || 'Unassigned'; (byRep[k] = byRep[k] || []).push(x); });
+  return `<div class="grid g3 mb">
+    ${tile('Leads not contacted', uncont.length, uncont.length ? `oldest ${ago(uncont[0].createdAt)}` : 'all contacted ✓', 's-unc', uncont.map(lRow), uncont.length ? 'down' : '')}
+    ${tile('Appointments', appts.length + visitLeads.length, `${appts.length} booked in the period · ${visitLeads.length} leads at visit stage`, 's-appt', [...appts.map(a => drillRow(`${a.title}`, `${fDay(a.start)} ${fTime(a.start)} · ${a.status}`, '', '#/customer/' + a.customerId)), ...visitLeads.map(lRow)])}
+    ${tile('Proposals without follow-up', stale.length, 'sent > 3 days, no open follow-up task', 's-stale', stale.map(eRow), stale.length ? 'down' : '')}
+    ${tile('Close rate', pct(rate), `${won.length} won of ${decided.length} decided`, 's-close', decided.map(eRow))}
+    ${tile('Open pipeline', kmoney(openVal), `${L.filter(l => !CLOSED.includes(l.stage)).length} open leads`, 's-pipe', L.filter(l => !CLOSED.includes(l.stage)).map(lRow))}
+    ${tile('Signed sales', kmoney(sumBy(signed, x => x.F.revenue)), `${signed.length} projects · by signing date`, 's-signed', signed.map(pRow))}
+  </div>
+  <div class="grid g2">
+    <div class="card"><div class="card-h"><h3>Results by lead source</h3><span class="small muted">leads created and projects signed in the period</span></div><div class="table-wrap"><table><thead><tr><th>Source</th><th class="right">Leads</th><th class="right">Signed</th><th class="right">Revenue</th>${canMoney() ? '<th class="right">Gross</th><th class="right">Margin</th>' : ''}</tr></thead><tbody>${Object.entries(bySrc).sort((a, b) => sumBy(b[1].P, x => x.F.revenue) - sumBy(a[1].P, x => x.F.revenue)).map(([k, v]) => { const r = sumBy(v.P, x => x.F.revenue), g = sumBy(v.P, x => x.F.gross); return `<tr><td class="b">${esc(k)}</td><td class="right">${v.leads.length ? drillLink('src-l-' + hash36(k), `Leads · ${k}`, v.leads.map(lRow), v.leads.length) : 0}</td><td class="right">${v.P.length ? drillLink('src-p-' + hash36(k), `Signed · ${k}`, v.P.map(pRow), v.P.length) : 0}</td><td class="right">${money(r)}</td>${canMoney() ? `<td class="right b ${g < 0 ? 'down' : 'up'}">${money(g)}</td><td class="right">${pct2(r ? g / r : 0)}</td>` : ''}</tr>`; }).join('') || '<tr><td colspan="6" class="empty">No data in this period.</td></tr>'}</tbody></table></div></div>
+    <div><div class="card mb"><div class="card-h"><h3>Pipeline by stage</h3></div><div class="card-b">${STAGES.filter(s => !['won', 'lost'].includes(s[0])).map(([k, n]) => { const l = L.filter(x => x.stage === k); return `<div class="row" style="gap:10px;margin:5px 0"><span class="small" style="width:150px">${drillLink('stg-' + k, n, l.map(lRow), n)}</span>${bar(l.length, Math.max(1, ...STAGES.map(s => L.filter(x => x.stage === s[0]).length)))}<b class="small" style="width:70px;text-align:right">${l.length} · ${kmoney(sumBy(l, x => x.value))}</b></div>`; }).join('')}</div></div>
+    <div class="card"><div class="card-h"><h3>Signed by rep</h3></div><div class="card-b">${Object.entries(byRep).sort((a, b) => sumBy(b[1], x => x.F.revenue) - sumBy(a[1], x => x.F.revenue)).map(([k, l]) => `<div class="list-item"><div style="flex:1">${drillLink('rep-' + hash36(k), 'Signed · ' + k, l.map(pRow), esc(k))}</div><span class="small muted">${l.length}</span><b>${money(sumBy(l, x => x.F.revenue))}</b></div>`).join('') || '<span class="muted small">No signed projects in this period.</span>'}</div></div></div>
+  </div>`;
+}
+function boardOps(D) {
+  const today = sod(new Date()), in14 = addDays(today, 14), R = db.settings.alertRules || ALERT_DEFAULTS;
+  const installs = D.jobs.filter(j => j.status !== 'completed').filter(j => { const d = j.start ? new Date(j.start) : j.expectedInstall ? parseLocal(j.expectedInstall) : null; return d && d >= today && d < in14; }).sort((a, b) => new Date(a.start || a.expectedInstall) - new Date(b.start || b.expectedInstall));
+  const blocked = D.jobs.filter(j => !(j.ops && j.ops.closed) && j.status !== 'completed').map(j => ({ j, b: blockersOf(j) })).filter(x => x.b.length);
+  const docs = D.jobs.filter(j => j.status === 'inprogress' || (j.status === 'completed' && daysSince(j.completedAt) <= 90)).map(j => ({ j, m: handoverStatus(j).filter(i => !i.ok && i.key !== 'invoice') })).filter(x => x.m.length);
+  const late = (db.pos || []).filter(p => p.status === 'approved' && !p.receivedAt && ['Materials', 'Equipment'].includes(p.category)).map(p => ({ p, j: db.jobs.find(x => x.id === p.projectId) })).filter(x => x.j && D.jobs.includes(x.j)).filter(x => (x.p.expected && x.p.expected < ymd(today)) || (!x.p.expected && x.j.start && new Date(x.j.start) < addDays(today, 7)));
+  const jRow = j => drillRow(`${j.number} · ${j.title}`, `${cust(j.customerId).name} · ${j.start ? fDay(j.start) : 'expected ' + fDate(parseLocal(j.expectedInstall))} · ${(j.techIds || []).map(t => (tech(t) || {}).name).filter(Boolean).join(', ') || 'no crew'}`, '', '#/job/' + j.id);
+  const days = [...Array(14)].map((_, i) => addDays(today, i)).filter(d => d.getDay() !== 0 && d.getDay() !== 6), cap = days.length * num(R.dayCapacity);
+  const crews = db.techs.filter(t => state.div === 'all' || t.division === state.div).map(t => { const hrs = sumBy(db.jobs.filter(j => j.status !== 'cancelled' && j.start && (j.techIds || []).includes(t.id) && new Date(j.start) >= today && new Date(j.start) < in14), j => j.duration); return { t, hrs }; });
+  const util = sumBy(crews, c => c.hrs) / Math.max(1, cap * crews.length);
+  return `<div class="grid g3 mb">
+    ${tile('Installs · next 14 days', installs.length, installs.filter(j => !j.start).length ? `${installs.filter(j => !j.start).length} without a date yet` : '', 'o-inst', installs.map(jRow))}
+    ${tile('Crew utilization · next 2 weeks', pct(util), `${sumBy(crews, c => c.hrs)} h booked of ${cap * crews.length} h`, 'o-cap', crews.map(c => drillRow(c.t.name, `${c.hrs} h of ${cap} h`, pct(c.hrs / Math.max(1, cap)), '#/schedule')), util > 0.95 ? 'down' : '')}
+    ${tile('Blocked projects', blocked.length, blocked.length ? `oldest ${Math.max(...blocked.map(x => daysSince((x.b[0] || {}).createdAt)))} d` : '', 'o-blk', blocked.map(({ j, b }) => drillRow(`${j.number} · ${j.title}`, b.map(x => x.reason).join(' · '), '', '#/job/' + j.id)), blocked.length ? 'down' : '')}
+    ${tile('Missing documents', docs.length, 'photos, serials, inspections, sign-off', 'o-docs', docs.map(({ j, m }) => drillRow(`${j.number} · ${j.title}`, m.map(i => i.label + ': ' + i.detail).join(' · '), '', '#/wo/' + j.id)), docs.length ? 'down' : '')}
+    ${tile('Delayed materials', late.length, 'approved POs not received on time', 'o-late', late.map(({ p, j }) => drillRow(`${p.number} · ${p.vendor}`, `${j.number} · ${p.expected ? 'expected ' + fDate(parseLocal(p.expected)) : 'no date · install ' + fDay(j.start)}`, '', '#/purchasing')), late.length ? 'down' : '')}
+    ${tile('Schedule conflicts', calConflicts().length, 'double bookings, capacity, blocked', 'o-conf', calConflicts().map(c => drillRow(c.title, c.text, '', '#/schedule')))}
+  </div>
+  <div class="grid g2">
+    <div class="card"><div class="card-h"><h3>Upcoming installs</h3></div><div class="card-b">${installs.map(j => `<div class="list-item click" data-go="#/wo/${j.id}" style="cursor:pointer"><div style="width:90px" class="small b">${j.start ? fDay(j.start) : '<span class="warn">no date</span>'}</div><div style="flex:1;min-width:0"><div class="b small">${j.number} · ${esc(j.title)}</div><div class="small muted">${esc(cust(j.customerId).name)} · ${esc((j.techIds || []).map(t => (tech(t) || {}).name).filter(Boolean).join(', ') || 'no crew')}</div></div>${blockersOf(j).length ? '<span class="pill bad">⛔</span>' : ''}${divPill(j.division)}</div>`).join('') || '<span class="muted small">Nothing in the next 14 days.</span>'}</div></div>
+    <div class="card"><div class="card-h"><h3>Crew capacity · next 2 weeks</h3><span class="small muted">${num(R.dayCapacity)} h/day, weekdays</span></div><div class="card-b">${crews.map(c => `<div class="row" style="gap:10px;margin:6px 0">${avatar(c.t)}<span class="small" style="width:140px">${esc(c.t.name)}</span>${bar(c.hrs, cap, c.hrs > cap ? 'var(--bad)' : c.hrs > cap * 0.85 ? 'var(--warn)' : 'var(--ok)')}<b class="small" style="width:80px;text-align:right">${c.hrs}/${cap} h</b></div>`).join('') || '<span class="muted small">No crews.</span>'}</div></div>
+  </div>`;
+}
+function boardFinance(D) {
+  if (!canMoney()) return '<div class="card"><div class="empty">Restricted to finance, operations, purchasing and direction.</div></div>';
+  const eow = addDays(weekStart(new Date()), 7);
+  const collect = db.invoices.filter(i => !['void', 'draft'].includes(i.status) && invBal(i) > 0.009 && parseLocal(i.due) < eow && (state.div === 'all' || i.division === state.div)).sort((a, b) => a.due.localeCompare(b.due));
+  const pay = apRows().filter(r => parseLocal(r.due) < eow).sort((a, b) => a.due.localeCompare(b.due));
+  const dni = D.P.filter(x => (x.j.status === 'completed' || x.j.ops.closed) && x.F.unbilled > 0.009);
+  const ex = isFin() ? exceptionsOpen() : [], unas = ex.filter(e => e.kind === 'no_project'), diffs = ex.filter(e => e.kind === 'sync');
+  const billed = db.invoices.filter(i => !['void', 'draft'].includes(i.status) && D.inP(i.createdAt) && (state.div === 'all' || i.division === state.div));
+  const pays = allPayments().filter(p => D.inP(p.date) && (state.div === 'all' || p.division === state.div));
+  const xRow = e => drillRow(e.title, EXC_KIND[e.kind] + (e.detail ? ' · ' + e.detail : ''), e.amount ? money2(e.amount) : '', e.href || '#/exceptions');
+  return `<div class="grid g3 mb">
+    ${tile('To collect this week', kmoney(sumBy(collect, invBal)), `${collect.length} invoices incl. ${collect.filter(i => invStatus(i) === 'overdue').length} overdue`, 'f-col', collect.map(iRow))}
+    ${tile('To pay this week', kmoney(sumBy(pay, r => r.bal)), `${pay.length} vendor bills`, 'f-pay', pay.map(r => drillRow(`${r.vendor} ${r.num || ''}`, `due ${fDate(parseLocal(r.due))} · ${r.projects || ''} · ${r.src}`, money2(r.bal), r.href)))}
+    ${tile('Completed, not invoiced', kmoney(sumBy(dni, x => x.F.unbilled)), `${dni.length} projects`, 'f-dni', dni.map(pRow), dni.length ? 'down' : '')}
+    ${tile('Costs without project', kmoney(sumBy(unas, e => e.amount)), `${unas.length} transactions`, 'f-unas', unas.map(xRow), unas.length ? 'down' : '')}
+    ${tile('Differences with QuickBooks', diffs.length, ledgerHasData() ? 'invoice/bill amounts and balances' : 'import QuickBooks to compare', 'f-diff', diffs.map(xRow), diffs.length ? 'down' : '')}
+    ${tile('Invoiced · collected (period)', `${kmoney(sumBy(billed, i => subtotal(i.items)))} · ${kmoney(sumBy(pays, p => p.amount))}`, 'invoice date · settlement date', 'f-bc', [...billed.map(i => drillRow(`${i.number} · ${cust(i.customerId).name}`, 'invoiced ' + fDate(i.createdAt), money2(subtotal(i.items)), '#/invoice/' + i.id)), ...pays.map(p => drillRow(`Payment · ${p.inv.number}`, fDate(p.date), money2(p.amount), '#/invoice/' + p.inv.id))])}
+  </div>
+  <div class="grid g2">
+    <div class="card"><div class="card-h"><h3>Collect this week</h3><a class="btn sm" href="#/accounting">A/R aging</a></div><div class="card-b">${collect.slice(0, 12).map(i => `<div class="list-item click" data-go="#/invoice/${i.id}" style="cursor:pointer"><div style="flex:1"><div class="b small">${i.number} · ${esc(cust(i.customerId).name)}</div><div class="small ${invStatus(i) === 'overdue' ? 'down' : 'muted'}">due ${fDate(parseLocal(i.due))}${i.payer ? ' · payer ' + esc(i.payer) : ''}</div></div><b>${money2(invBal(i))}</b></div>`).join('') || '<span class="muted small">Nothing due ✓</span>'}</div></div>
+    <div class="card"><div class="card-h"><h3>Pay this week</h3><a class="btn sm" href="#/purchasing">Vendor bills</a></div><div class="card-b">${pay.slice(0, 12).map(r => `<div class="list-item"><div style="flex:1"><div class="b small">${esc(r.vendor)} ${esc(r.num || '')}</div><div class="small muted">due ${fDate(parseLocal(r.due))} · ${esc(r.projects || '')}</div></div><b>${money2(r.bal)}</b></div>`).join('') || '<span class="muted small">Nothing due ✓</span>'}</div></div>
+  </div>`;
+}
+function boardService(D) {
+  p4Init();
+  const T = db.tickets.filter(divOK).filter(t => !D.own || (tech(t.assignee) || {}).name === D.own);
+  const open = T.filter(t => !['resolved', 'closed'].includes(t.status)), res = T.filter(t => t.resolvedAt && D.inP(t.resolvedAt));
+  const avg = res.length ? sumBy(res, t => (new Date(t.resolvedAt) - new Date(t.createdAt)) / DAY) / res.length : 0;
+  const active = db.warranties.filter(divOK).filter(w => w.end >= ymd(new Date())), exp = active.filter(w => w.end <= dl(ymd(new Date()), 90)), unreg = db.warranties.filter(w => w.needsRegistration && !w.registered);
+  const rep = {}; T.filter(t => daysSince(t.createdAt) <= 365).forEach(t => { const k = (t.jobId || t.customerId) + '|' + String(t.title).toLowerCase().split(/\W+/).filter(w => w.length > 3).slice(0, 2).join(' '); (rep[k] = rep[k] || []).push(t); });
+  const repeats = Object.values(rep).filter(x => x.length > 1);
+  const cost = sumBy(res, tkCost), wcost = sumBy(res.filter(t => t.warranty), tkCost);
+  const tRow = t => drillRow(`${t.number} · ${t.title}`, `${cust(t.customerId).name} · ${TK_ST[t.status] ? TK_ST[t.status][0] : t.status} · ${(tech(t.assignee) || {}).name || 'unassigned'} · ${ago(t.createdAt)}`, canMoney() ? money(tkCost(t)) : '', '#/ticket/' + t.id);
+  const wRow = w => drillRow(`${w.type} · ${cust(w.customerId).name}`, `${w.provider} · until ${fDate(parseLocal(w.end))}${w.needsRegistration && !w.registered ? ' · NOT registered' : ''}`, '', '#/service');
+  const byTech = {}; res.forEach(t => { const k = (tech(t.assignee) || {}).name || 'Unassigned'; (byTech[k] = byTech[k] || []).push(t); });
+  return `<div class="grid g3 mb">
+    ${tile('Open tickets', open.length, `${open.filter(t => !t.assignee).length} unassigned · ${open.filter(t => t.priority === 'urgent').length} urgent`, 'v-open', open.map(tRow), open.length ? 'down' : '')}
+    ${tile('Active warranties', active.length, `${exp.length} expire in 90 days · ${unreg.length} not registered`, 'v-war', [...unreg.map(wRow), ...exp.map(wRow)])}
+    ${tile('Avg. resolution time', avg ? avg.toFixed(1) + ' days' : '—', `${res.length} resolved in the period`, 'v-res', res.map(tRow))}
+    ${tile('Repeated problems', repeats.length, 'same project & issue, 12 months', 'v-rep', repeats.flat().map(tRow), repeats.length ? 'down' : '')}
+    ${canMoney() ? tile('Post-sale cost', kmoney(cost), `${kmoney(wcost)} under warranty · resolved in the period`, 'v-cost', res.map(tRow)) : ''}
+  </div>
+  <div class="grid g2">
+    <div class="card"><div class="card-h"><h3>Open tickets by age</h3><a class="btn sm" href="#/service">All tickets</a></div><div class="card-b">${open.sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).slice(0, 12).map(t => `<div class="list-item click" data-go="#/ticket/${t.id}" style="cursor:pointer">${pill(TK_PRI, t.priority)}<div style="flex:1;min-width:0"><div class="b small">${t.number} · ${esc(t.title)}</div><div class="small muted">${esc(cust(t.customerId).name)} · ${esc((tech(t.assignee) || {}).name || 'unassigned')}</div></div><span class="small">${ago(t.createdAt)}</span></div>`).join('') || '<span class="muted small">No open tickets ✓</span>'}</div></div>
+    <div class="card"><div class="card-h"><h3>Resolved by technician</h3></div><div class="card-b">${Object.entries(byTech).map(([k, l]) => `<div class="list-item"><div style="flex:1">${drillLink('tt-' + hash36(k), 'Resolved · ' + k, l.map(tRow), esc(k))}</div><span class="small muted">${l.length} · avg ${(sumBy(l, t => (new Date(t.resolvedAt) - new Date(t.createdAt)) / DAY) / l.length).toFixed(1)} d</span>${canMoney() ? `<b>${money(sumBy(l, tkCost))}</b>` : ''}</div>`).join('') || '<span class="muted small">Nothing resolved in this period.</span>'}</div></div>
+  </div>`;
+}
+ROUTES.boards = () => {
+  DR = {};
+  const role = cloud.on ? cloud.role : 'owner';
+  const def = { sales: 'sales', ops: 'ops', tech: 'ops', sub: 'ops', purchasing: 'ops', finance: 'finance' }[role] || 'direction';
+  const tab = state.tabs.board || def, f = state.filters, D = boardData();
+  const owners = [...new Set([...db.techs.map(t => t.name), ...db.leads.map(leadOwner), ...db.jobs.map(ownerName)].filter(Boolean))].sort();
+  const sources = [...new Set([...db.leads.map(l => srcEN(l.source)), ...db.customers.map(c => srcEN(c.source))].filter(Boolean))].sort();
+  const sel = (k, opts, v, label) => `<select class="inp" style="width:auto" data-act-input="filtSel" data-f="${k}" aria-label="${label}">${opts.map(([a, b]) => `<option value="${esc(a)}" ${v === a ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`;
+  const body = { direction: boardDirection, sales: boardSales, ops: boardOps, finance: boardFinance, service: boardService }[tab](D);
+  return head('Team dashboards', `${fDate(D.from)} – ${fDate(addDays(D.to, -1))} · click any number to see the records behind it`) + `
+  <div class="tabs">${BOARD_TABS.map(([k, v]) => `<button data-act="tab" data-t="board" data-v="${k}" class="${tab === k ? 'on' : ''}">${v}</button>`).join('')}</div>
+  <div class="card mb"><div class="toolbar row" style="flex-wrap:wrap;gap:8px">${sel('bp', PERIODS, f.bp || 'month', 'Period')}${(f.bp === 'custom') ? `<input class="inp" type="date" style="width:auto" data-act-input="filtSel" data-f="bFrom" value="${esc(f.bFrom || '')}"><input class="inp" type="date" style="width:auto" data-act-input="filtSel" data-f="bTo" value="${esc(f.bTo || '')}">` : ''}
+    <select class="inp" style="width:auto" data-act-input="boardDiv" aria-label="Service">${[['all', 'All services'], ...divOptions()].map(([a, b]) => `<option value="${a}" ${state.div === a ? 'selected' : ''}>${b}</option>`).join('')}</select>
+    ${sel('bOwner', [['', 'All owners'], ...owners.map(o => [o, o])], f.bOwner || '', 'Owner')}${sel('bSrc', [['', 'All sources'], ...sources.map(o => [o, o])], f.bSrc || '', 'Source')}
+    ${f.bOwner || f.bSrc || state.div !== 'all' || (f.bp && f.bp !== 'month') ? '<button class="btn sm ghost" data-act="boardReset">Reset filters</button>' : ''}
+    <span class="small muted" style="margin-left:auto">Sales by signing date · results by invoice date · cash by settlement date</span></div></div>` + body;
+};
+function drillModal(k) {
+  const d = DR[k]; if (!d) return;
+  modal({ title: d.title, wide: true, body: `<div class="small muted mb">${d.rows.length} record${d.rows.length === 1 ? '' : 's'}</div>${d.rows.map(r => `<div class="list-item"><div style="flex:1;min-width:0">${r.href ? `<a href="${r.href}" data-dismiss class="b small">${esc(r.t)}</a>` : `<span class="b small">${esc(r.t)}</span>`}<div class="small muted">${esc(r.s || '')}</div></div>${r.v ? `<b class="small">${esc(r.v)}</b>` : ''}</div>`).join('') || '<div class="empty">No records.</div>'}`, foot: '<button class="btn" data-dismiss>Close</button>' });
+}
+Object.assign(ACT, {
+  drill: el => drillModal(el.dataset.k),
+  boardReset: () => { Object.assign(state.filters, { bp: 'month', bOwner: '', bSrc: '', bFrom: '', bTo: '' }); state.div = 'all'; render(); },
+});
+Object.assign(INPUT, { boardDiv: el => { state.div = el.value; try { localStorage.setItem('opsboss.div', state.div); } catch (e) { /* ignore */ } render(); } });
 
 boot();
 })();
