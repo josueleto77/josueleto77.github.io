@@ -38,3 +38,26 @@ En OpsBoss ves cuántas veces abrió el link, la firma y los pagos, todo en tiem
 6. *(Opcional)* **Stripe → Settings → Payment methods:** activa *ACH Direct Debit*. Para proyectos grandes cuesta mucho menos que la tarjeta.
 
 Nunca pegues la secret key en el código, en `config.js` ni en un chat: va solo en los Secrets de Supabase.
+
+## Conectar QuickBooks Online (una sola vez)
+
+OpsBoss lee QuickBooks en modo solo lectura (facturas, pagos, notas de crédito, facturas de proveedor, gastos y depósitos). No escribe nada en QuickBooks.
+
+1. En https://developer.intuit.com crea una app con el alcance **Accounting**.
+2. En la app, agrega esta Redirect URI:
+   `https://nkmgpsbqmqwlsaxtbgaq.supabase.co/functions/v1/opsboss-qbo`
+3. En Supabase → Edge Functions → Secrets agrega `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET` y `QBO_ENV` (`production` o `sandbox`).
+4. En OpsBoss → Accounting (QuickBooks) → **Connect QuickBooks** y luego **Sync now**.
+
+Mientras tanto se puede importar el CSV de QuickBooks (Reports → Transaction List by Date → Export). Repetir la importación no duplica registros.
+
+## HighLevel: fuentes de leads y citas
+
+En Settings → **Lead sources** cada fuente (Website, Meta, HVAC forms, Solar calendar, Last English Form 2026 v2) tiene su propia URL de webhook. Pega cada URL en el workflow de HighLevel correspondiente (acción Webhook, POST). También hay URLs para citas (agendada / reprogramada / cancelada) y para bajas (DND). Usa **Verify IDs in HighLevel** para comprobar que los IDs de formularios y calendarios siguen vigentes.
+
+Los mensajes automáticos empiezan en **modo de prueba**: no se envían hasta activar “Automatic outbound messages” en Settings.
+
+## Pruebas
+
+Sirve la raíz del repo (`python3 -m http.server 8765`) y ejecuta:
+`node opsboss/tests/acceptance-financial.js` y `node opsboss/tests/phase3.js`.
