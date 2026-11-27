@@ -277,3 +277,13 @@ nav{min-height:0}
 .card-h{flex-wrap:wrap;gap:6px}
 .list-item{min-width:0}
 .list-item>div{min-width:0;overflow-wrap:anywhere}
+/* Project sheet */
+.sheet{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:28px;max-width:1000px}
+.sheet-top{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid var(--border);padding-bottom:12px;flex-wrap:wrap}
+.sheet-sec{margin-top:18px;break-inside:avoid}
+.sheet-sec h3{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 8px;border-bottom:1px solid var(--border);padding-bottom:4px}
+.sheet-kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px 18px}
+.sheet-kv div{display:flex;flex-direction:column;font-size:13px}.sheet-kv span{color:var(--muted);font-size:11.5px}
+.sheet table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:8px}.sheet th,.sheet td{padding:5px 8px;border-bottom:1px solid var(--border);text-align:left}.sheet .right{text-align:right}
+.sheet-total{text-align:right;font-weight:700;margin-top:4px}
+@media print{.sidebar,.topbar,.no-print,#toastRoot{display:none!important}.main{margin:0!important}#view{padding:0!important}.sheet{border:0;padding:0;max-width:none;color:#000;background:#fff}body{background:#fff}}
