@@ -40,14 +40,25 @@ const JOB_ST = { unscheduled: ['Unscheduled', 'warn'], scheduled: ['Scheduled', 
 const JOB_FLOW = ['unscheduled', 'scheduled', 'enroute', 'inprogress', 'completed'];
 const EST_ST = { draft: ['Draft', ''], sent: ['Sent', 'info'], approved: ['Approved', 'ok'], declined: ['Declined', 'bad'] };
 const INV_ST = { draft: ['Draft', ''], sent: ['Sent', 'info'], partial: ['Partially paid', 'warn'], paid: ['Paid', 'ok'], overdue: ['Overdue', 'bad'], void: ['Void', ''] };
-const STAGES = [['new', 'New lead'], ['contacted', 'Contacting'], ['qualified', 'Qualified'], ['visit', 'Visit scheduled'], ['proposal', 'Proposal sent'], ['negotiation', 'Negotiation'], ['won', 'Contract signed'], ['nurture', 'Long-term follow-up'], ['lost', 'Lost']];
+// Un pipeline de ventas por servicio. Las claves de etapa son compartidas (new, visit, proposal, won, lost…)
+// para que automatizaciones, HighLevel y reportes funcionen igual en los tres; cada servicio tiene sus propias etapas y nombres.
+const SERVICE_PIPES = {
+  solar: [['new', 'New lead'], ['contacted', 'Contacting'], ['qualified', 'Qualified (bill received)'], ['visit', 'Site survey scheduled'], ['design', 'Design'], ['proposal', 'Proposal sent'], ['financing', 'Financing approval'], ['negotiation', 'Negotiation'], ['won', 'Contract signed'], ['nurture', 'Long-term follow-up'], ['lost', 'Lost']],
+  hvac: [['new', 'New lead'], ['contacted', 'Contacting'], ['qualified', 'Qualified'], ['visit', 'Home assessment scheduled'], ['proposal', 'Proposal sent'], ['rebate', 'Rebate / HEAT Loan'], ['negotiation', 'Negotiation'], ['won', 'Contract signed'], ['nurture', 'Long-term follow-up'], ['lost', 'Lost']],
+  roofing: [['new', 'New lead'], ['contacted', 'Contacting'], ['visit', 'Inspection scheduled'], ['measured', 'Measured / scoped'], ['proposal', 'Estimate sent'], ['insurance', 'Insurance claim'], ['negotiation', 'Negotiation'], ['won', 'Contract signed'], ['nurture', 'Long-term follow-up'], ['lost', 'Lost']],
+};
+// Todas las etapas de venta (para reportes y automatizaciones), con nombre genérico.
+const STAGES = [['new', 'New lead'], ['contacted', 'Contacting'], ['qualified', 'Qualified'], ['visit', 'Visit / inspection scheduled'], ['design', 'Design'], ['measured', 'Measured / scoped'], ['proposal', 'Proposal sent'], ['financing', 'Financing approval'], ['rebate', 'Rebate / HEAT Loan'], ['insurance', 'Insurance claim'], ['negotiation', 'Negotiation'], ['won', 'Contract signed'], ['nurture', 'Long-term follow-up'], ['lost', 'Lost']];
 // Pipeline de marketing (leads que entran desde HighLevel). Las claves de etapa son únicas entre pipelines.
 const MKT_STAGES = [['warm', 'Warm Leads'], ['mcontacted', 'Contacted'], ['mappt', 'Appointment Set'], ['qualified', 'Qualified'], ['notint', 'Not Interested']];
-const PIPELINES = { sales: { name: 'Sales Pipeline', stages: STAGES, entry: 'new' }, marketing: { name: 'Marketing Leads', stages: MKT_STAGES, entry: 'warm' } };
+const PIPELINES = { solar: { name: 'Solar Pipeline', stages: SERVICE_PIPES.solar, entry: 'new', division: 'solar' }, hvac: { name: 'HVAC Pipeline', stages: SERVICE_PIPES.hvac, entry: 'new', division: 'hvac' }, roofing: { name: 'Roofing Pipeline', stages: SERVICE_PIPES.roofing, entry: 'new', division: 'roofing' }, marketing: { name: 'Marketing Leads', stages: MKT_STAGES, entry: 'warm' } };
 const CLOSED = ['won', 'lost', 'notint'];
-const pipeOf = stage => MKT_STAGES.some(x => x[0] === stage) ? 'marketing' : 'sales';
-const stageName = k => ([...STAGES, ...MKT_STAGES].find(x => x[0] === k) || [k, k])[1];
+// Marketing si está en una etapa de marketing; si no, el pipeline de su servicio.
+const pipeOf = (stage, division) => MKT_STAGES.some(x => x[0] === stage) ? 'marketing' : (SERVICE_PIPES[division] ? division : 'solar');
+const leadPipe = l => pipeOf(l.stage, l.division);
+const stageName = (k, division) => ((SERVICE_PIPES[division] || []).find(x => x[0] === k) || [...STAGES, ...MKT_STAGES].find(x => x[0] === k) || [k, k])[1];
 const ALL_STAGES = [...STAGES.map(([k, v]) => [k, 'Sales · ' + v]), ...MKT_STAGES.map(([k, v]) => [k, 'Marketing · ' + v])];
+const stageOptionsFor = division => [...(SERVICE_PIPES[division] || STAGES).map(([k, v]) => [k, `${DIV[division] ? DIV[division].name : 'Sales'} · ${v}`]), ...MKT_STAGES.map(([k, v]) => [k, 'Marketing · ' + v])];
 const SOURCES = ['HighLevel', 'Google', 'Referral', 'Facebook/Instagram', 'Door to door', 'Website', 'Yelp', 'Event', 'Repeat customer'];
 // Valores antiguos (en español) que se migran a inglés al cargar
 const SOURCE_EN = { 'Referido': 'Referral', 'Puerta a puerta': 'Door to door', 'Sitio web': 'Website', 'Evento': 'Event', 'Cliente recurrente': 'Repeat customer' };
@@ -622,14 +633,16 @@ ROUTES['schedule:after'] = () => {
 
 /* ───────────── PIPELINE ───────────── */
 ROUTES.pipeline = () => {
-  const pk = state.filters.pipe || 'sales', P = PIPELINES[pk];
-  const leads = db.leads.filter(divOK).filter(l => pipeOf(l.stage) === pk);
-  const cols = P.stages.map(([k, label]) => {
-    const list = leads.filter(l => l.stage === k);
+  let pk = state.filters.pipe; if (!PIPELINES[pk]) pk = state.div !== 'all' && PIPELINES[state.div] ? state.div : 'solar'; const P = PIPELINES[pk];
+  const leads = db.leads.filter(l => pk === 'marketing' ? divOK(l) : true).filter(l => leadPipe(l) === pk);
+  const known = new Set(P.stages.map(s => s[0])), odd = leads.filter(l => !known.has(l.stage));
+  const colsDef = odd.length ? [...P.stages, ['__other', 'Other stage']] : P.stages;
+  const cols = colsDef.map(([k, label]) => {
+    const list = k === '__other' ? odd : leads.filter(l => l.stage === k);
     return `<div class="kcol" data-stage="${k}"><div class="kcol-h"><span>${label} <span class="muted">${list.length}</span></span><span class="sum">${kmoney(list.reduce((s, l) => s + num(l.value), 0))}</span></div><div class="kcol-b">${list.map(l => { const c = cust(l.customerId); const late = l.next && parseLocal(l.next) < sod(new Date()) && !CLOSED.includes(l.stage); return `<div class="kcard" draggable="true" data-lead="${l.id}"><div class="t">${esc(l.title)}</div><div class="small">${esc(c.name)}</div><div class="m"><span>${divPill(l.division)}</span><b>${money(l.value)}</b></div><div class="m"><span>${esc(srcEN(l.source))}</span><span class="${late ? 'down b' : ''}">${l.next ? '⏱ ' + new Date(l.next + 'T12:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}</span></div></div>`; }).join('')}</div></div>`;
   }).join('');
   const open = leads.filter(l => !CLOSED.includes(l.stage));
-  const tabs = `<div class="tabs">${Object.entries(PIPELINES).map(([k, v]) => `<button data-act="filt" data-f="pipe" data-v="${k}" class="${pk === k ? 'on' : ''}">${v.name} <span class="muted">${db.leads.filter(divOK).filter(l => pipeOf(l.stage) === k && !CLOSED.includes(l.stage)).length}</span></button>`).join('')}</div>`;
+  const tabs = `<div class="tabs">${Object.entries(PIPELINES).map(([k, v]) => `<button data-act="filt" data-f="pipe" data-v="${k}" class="${pk === k ? 'on' : ''}">${k !== 'marketing' ? `<span class="div-dot d-${k}"></span> ` : ''}${v.name} <span class="muted">${db.leads.filter(l => k === 'marketing' ? divOK(l) : true).filter(l => leadPipe(l) === k && !CLOSED.includes(l.stage)).length}</span></button>`).join('')}</div>`;
   return head(P.name, pk === 'marketing' ? `${open.length} open marketing leads · new HighLevel leads land in Warm Leads` : `${open.length} open opportunities · ${money(open.reduce((s, l) => s + num(l.value), 0))} in play`, `<button class="btn primary" data-act="newLead" data-pipe="${pk}">＋ New Lead</button>`) + tabs + `<div class="kanban">${cols}</div>`;
 };
 ROUTES['pipeline:after'] = () => {
@@ -640,12 +653,12 @@ ROUTES['pipeline:after'] = () => {
   $$('[data-stage]').forEach(col => {
     col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
     col.addEventListener('dragleave', () => col.classList.remove('over'));
-    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage) return; if (col.dataset.stage === 'lost') { const r = prompt('Why was this lead lost? (required)'); if (!r || !r.trim()) return; l.lostReason = r.trim(); } l.stage = col.dataset.stage; l.stageAt = iso(new Date()); log(`Lead "${l.title}" → ${stageName(l.stage)}`); emit('lead.stage', 'lead', l, { to: l.stage }); save(); render(); });
+    col.addEventListener('drop', e => { e.preventDefault(); col.classList.remove('over'); const l = db.leads.find(x => x.id === e.dataTransfer.getData('text/plain')); if (!l || l.stage === col.dataset.stage || col.dataset.stage === '__other') return; if (col.dataset.stage === 'lost') { const r = prompt('Why was this lead lost? (required)'); if (!r || !r.trim()) return; l.lostReason = r.trim(); } l.stage = col.dataset.stage; l.stageAt = iso(new Date()); log(`Lead "${l.title}" → ${stageName(l.stage, l.division)}`); emit('lead.stage', 'lead', l, { to: l.stage }); save(); render(); });
   });
 };
 function leadModal(l, pipe) {
   const isNew = !l;
-  l = l || { id: uid(), stage: PIPELINES[pipe || 'sales'].entry, createdAt: iso(new Date()), division: state.div !== 'all' ? state.div : 'solar', value: 0, source: 'Google', next: ymd(addDays(new Date(), 1)) };
+  l = l || { id: uid(), stage: (PIPELINES[pipe] || PIPELINES.solar).entry, createdAt: iso(new Date()), division: PIPELINES[pipe] && PIPELINES[pipe].division ? PIPELINES[pipe].division : (state.div !== 'all' ? state.div : 'solar'), value: 0, source: 'Google', next: ymd(addDays(new Date(), 1)) };
   const m = form({
     title: isNew ? 'New Lead' : 'Lead: ' + esc(l.title),
     fields: [
@@ -654,12 +667,12 @@ function leadModal(l, pipe) {
       { k: 'title', label: 'Opportunity', value: l.title, required: true, ph: 'e.g. 8 kW solar system' },
       { k: 'division', label: 'Division', type: 'select', options: divOptions(), value: l.division },
       { k: 'value', label: 'Estimated value ($)', type: 'number', value: l.value },
-      { k: 'stage', label: 'Pipeline · stage', type: 'select', options: ALL_STAGES, value: l.stage },
+      { k: 'stage', label: 'Pipeline · stage', type: 'select', options: stageOptionsFor(l.division), value: l.stage },
       { k: 'source', label: 'Lead source', type: 'select', options: SOURCES, value: srcEN(l.source) },
       { k: 'next', label: 'Next follow-up', type: 'date', value: l.next },
       { k: 'notes', label: 'Notes', type: 'textarea', full: true, value: l.notes },
     ],
-    extraFoot: isNew ? '' : `<button class="btn danger" id="ldDel" style="margin-right:auto">Delete</button>${pipeOf(l.stage) === 'marketing' ? '<button class="btn" id="ldToSales">→ Move to Sales Pipeline</button>' : ''}<button class="btn" id="ldEst">→ Create estimate</button>`,
+    extraFoot: isNew ? '' : `<button class="btn danger" id="ldDel" style="margin-right:auto">Delete</button>${leadPipe(l) === 'marketing' ? `<button class="btn" id="ldToSales">→ Move to ${DIV[l.division] ? DIV[l.division].name : 'Sales'} Pipeline</button>` : ''}<button class="btn" id="ldEst">→ Create estimate</button>`,
     onSave(v) {
       if (v.customerId === '__new') { if (!v.newName) { toast('Enter the new customer\'s name'); return false; } const c = newCustomer({ name: v.newName, phone: v.newPhone, source: v.source }); v.customerId = c.id; }
       delete v.newName; delete v.newPhone;
@@ -668,10 +681,12 @@ function leadModal(l, pipe) {
       else if (prevStage !== l.stage) { l.stageAt = iso(new Date()); emit('lead.stage', 'lead', l, { to: l.stage }); }
     },
   });
+  const dSel = $('[name=division]', m.el), sSel = $('[name=stage]', m.el);
+  if (dSel && sSel) dSel.onchange = () => { const cur = sSel.value, opts = stageOptionsFor(dSel.value); sSel.innerHTML = opts.map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(v)}</option>`).join(''); if (!opts.some(o => o[0] === cur)) sSel.value = 'new'; };
   if (!isNew) {
     $('#ldDel', m.el).onclick = () => { m.close(); confirmDlg('Delete this lead?', () => { db.leads = db.leads.filter(x => x.id !== l.id); }); };
     const toSales = $('#ldToSales', m.el);
-    if (toSales) toSales.onclick = () => { m.close(); l.stage = 'new'; l.stageAt = iso(new Date()); log(`Lead "${l.title}" moved to Sales Pipeline`); emit('lead.stage', 'lead', l, { to: 'new' }); save(); state.filters.pipe = 'sales'; render(); toast('Moved to Sales Pipeline'); };
+    if (toSales) toSales.onclick = () => { m.close(); l.stage = 'new'; l.stageAt = iso(new Date()); const pn = PIPELINES[pipeOf('new', l.division)].name; log(`Lead "${l.title}" moved to ${pn}`); emit('lead.stage', 'lead', l, { to: 'new' }); save(); state.filters.pipe = pipeOf('new', l.division); render(); toast('Moved to ' + pn); };
     $('#ldEst', m.el).onclick = () => { m.close(); const e = createEstimate({ customerId: l.customerId, division: l.division, title: l.title }); l.stage = 'proposal'; l.estimateId = e.id; save(); location.hash = '#/estimate/' + e.id; };
   }
 }
@@ -719,7 +734,7 @@ ROUTES.customer = id => {
       <div class="card"><div class="card-h"><h3>Jobs (${jobs.length})</h3><button class="btn sm" data-act="newJob" data-cust="${c.id}">＋</button></div><div class="card-b">${jobs.map(j => `<div class="list-item click" data-go="#/job/${j.id}" style="cursor:pointer"><div style="flex:1"><div class="b">${j.number} · ${esc(j.title)}</div><div class="small muted">${j.start ? fDate(j.start) : 'No date'}</div></div>${divPill(j.division)} ${pill(JOB_ST, j.status)}</div>`).join('') || '<div class="muted">No jobs</div>'}</div></div>
       <div class="card"><div class="card-h"><h3>Estimates (${ests.length})</h3><button class="btn sm" data-act="newEstimate" data-cust="${c.id}">＋</button></div><div class="card-b">${ests.map(e => `<div class="list-item click" data-go="#/estimate/${e.id}" style="cursor:pointer"><div style="flex:1"><div class="b">${e.number} · ${esc(e.title)}</div><div class="small muted">${fDate(e.createdAt)}</div></div><b>${money(e.status === 'approved' ? estTotal(e) : estMax(e))}</b> ${pill(EST_ST, e.status)}</div>`).join('') || '<div class="muted">No estimates</div>'}</div></div>
       <div class="card"><div class="card-h"><h3>Invoices (${invs.length})</h3><button class="btn sm" data-act="newInvoice" data-cust="${c.id}">＋</button></div><div class="card-b">${invs.map(i => `<div class="list-item click" data-go="#/invoice/${i.id}" style="cursor:pointer"><div style="flex:1"><div class="b">${i.number}</div><div class="small muted">${fDate(i.createdAt)}</div></div><b>${money(invTotal(i))}</b> ${pill(INV_ST, invStatus(i))}</div>`).join('') || '<div class="muted">No invoices</div>'}</div></div>
-      <div class="card"><div class="card-h"><h3>Leads & memberships</h3><button class="btn sm" data-act="newPlan" data-cust="${c.id}">＋ Membership</button></div><div class="card-b">${leads.map(l => `<div class="list-item"><div style="flex:1">${esc(l.title)}</div>${divPill(l.division)}<span class="pill">${stageName(l.stage)}</span></div>`).join('')}${plans.map(pl => `<div class="list-item"><div style="flex:1"><b>${esc(pl.name)}</b><div class="small muted">Next visit ${fDate(parseLocal(pl.nextVisit))}</div></div><span class="pill ok">${money(pl.price)}/${pl.interval === 'month' ? 'mo' : 'yr'}</span></div>`).join('') || (leads.length ? '' : '<div class="muted">Nothing yet</div>')}</div></div>
+      <div class="card"><div class="card-h"><h3>Leads & memberships</h3><button class="btn sm" data-act="newPlan" data-cust="${c.id}">＋ Membership</button></div><div class="card-b">${leads.map(l => `<div class="list-item"><div style="flex:1">${esc(l.title)}</div>${divPill(l.division)}<span class="pill">${stageName(l.stage, l.division)}</span></div>`).join('')}${plans.map(pl => `<div class="list-item"><div style="flex:1"><b>${esc(pl.name)}</b><div class="small muted">Next visit ${fDate(parseLocal(pl.nextVisit))}</div></div><span class="pill ok">${money(pl.price)}/${pl.interval === 'month' ? 'mo' : 'yr'}</span></div>`).join('') || (leads.length ? '' : '<div class="muted">Nothing yet</div>')}</div></div>
     </div>`;
   if (tab === 'property') body = `
     <div class="card mb"><div class="card-h"><h3>Properties (${(c.properties || []).length + 1})</h3><button class="btn sm" data-act="addProperty" data-id="${c.id}">＋ Property</button></div><div class="card-b"><div class="list-item"><div style="flex:1"><b>Main</b> · ${esc([c.address, c.city, c.zip].filter(Boolean).join(', '))}</div></div>${(c.properties || []).map(pp => `<div class="list-item"><div style="flex:1"><b>${esc(pp.label || 'Property')}</b> · ${esc([pp.address, pp.city, pp.zip].filter(Boolean).join(', '))}${pp.access ? `<div class="small muted">Access: ${esc(pp.access)}</div>` : ''}</div><span class="small muted">${db.jobs.filter(j => j.propertyId === pp.id).length} projects</span></div>`).join('')}</div></div>
@@ -1220,7 +1235,7 @@ function salesStatusOf(j) {
   const e = j.estimateId && db.estimates.find(x => x.id === j.estimateId);
   if (e && e.status === 'approved') return ['Contract signed', 'ok'];
   const l = db.leads.find(x => x.customerId === j.customerId && x.division === j.division);
-  return l ? [stageName(l.stage), l.stage === 'won' ? 'ok' : 'info'] : ['Direct job', ''];
+  return l ? [stageName(l.stage, l.division), l.stage === 'won' ? 'ok' : 'info'] : ['Direct job', ''];
 }
 const projAddress = j => { const c = cust(j.customerId), p = (c.properties || []).find(x => x.id === j.propertyId); return p ? [p.address, p.city, p.zip].filter(Boolean).join(', ') : [c.address, c.city, c.zip].filter(Boolean).join(', '); };
 const ownerName = j => j.owner || (j.techIds && j.techIds[0] && tech(j.techIds[0]) ? tech(j.techIds[0]).name : '');
@@ -3290,7 +3305,7 @@ function boardDirection(D) {
 function boardSales(D) {
   const L = D.leads, now = Date.now();
   const uncont = L.filter(l => ['new', 'warm'].includes(l.stage)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-  const lRow = l => drillRow(`${cust(l.customerId).name} · ${l.title}`, `${stageName(l.stage)} · ${srcEN(l.source)} · ${leadOwner(l) || 'no owner'} · ${ago(l.createdAt)}${/^\d/.test(ago(l.createdAt)) ? ' ago' : ''}`, money(l.value), '#/pipeline');
+  const lRow = l => drillRow(`${cust(l.customerId).name} · ${l.title}`, `${PIPELINES[leadPipe(l)].name}: ${stageName(l.stage, l.division)} · ${srcEN(l.source)} · ${leadOwner(l) || 'no owner'} · ${ago(l.createdAt)}${/^\d/.test(ago(l.createdAt)) ? ' ago' : ''}`, money(l.value), '#/pipeline');
   const appts = (db.appts || []).filter(a => D.inP(a.start) && a.status !== 'cancelled').filter(a => { const l = db.leads.find(x => x.id === a.leadId); return !l || L.includes(l); });
   const visitLeads = L.filter(l => l.stage === 'visit' || l.stage === 'mappt');
   const ests = db.estimates.filter(divOK).filter(e => !D.own || (db.leads.find(l => l.customerId === e.customerId && leadOwner(l) === D.own))).filter(e => !D.src || srcEN(cust(e.customerId).source) === D.src);
